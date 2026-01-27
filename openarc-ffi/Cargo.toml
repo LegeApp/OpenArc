@@ -1,0 +1,37 @@
+[package]
+name = "openarc-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "OpenArc FFI interface for C# integration"
+
+[lib]
+name = "openarc_ffi"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+# Enable gui feature to build the C# DocBrakeGUI alongside the FFI library
+gui = []
+
+[dependencies]
+# Workspace crates
+openarc-core = { path = "../openarc-core" }
+
+# FFI and serialization
+libc = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow.workspace = true
+thiserror.workspace = true
+
+# File handling
+infer.workspace = true
+
+# Progress tracking
+tokio = { version = "1.49", features = ["full"] }
+
+[build-dependencies]
+cbindgen = "0.29"

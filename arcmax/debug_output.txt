@@ -1,0 +1,415 @@
+warning: unused imports: `Aes128`, `Aes192`, and `Aes256`
+   --> src\core\crypto.rs:331:19
+    |
+331 |         use aes::{Aes128, Aes192, Aes256};
+    |                   ^^^^^^  ^^^^^^  ^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `Seek`
+ --> src\core\format.rs:3:21
+  |
+3 | use std::io::{Read, Seek};
+  |                     ^^^^
+
+warning: unused variable: `inputs`
+   --> src\main.rs:154:25
+    |
+154 | async fn create_archive(inputs: &[PathBuf], output: &Path, method: &str, threads: usize) -> Result<()> {
+    |                         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_inputs`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `output`
+   --> src\main.rs:154:45
+    |
+154 | async fn create_archive(inputs: &[PathBuf], output: &Path, method: &str, threads: usize) -> Result<()> {
+    |                                             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_output`
+
+warning: unused import: `rayon::prelude`
+   --> src\formats\free_arc.rs:911:13
+    |
+911 |         use rayon::prelude::*;
+    |             ^^^^^^^^^^^^^^
+
+warning: unused variable: `ciphertext`
+   --> src\core\crypto.rs:418:27
+    |
+418 |     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>> {
+    |                           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ciphertext`
+
+warning: unused variable: `plaintext`
+   --> src\core\crypto.rs:424:27
+    |
+424 |     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    |                           ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_plaintext`
+
+warning: unused variable: `ciphertext`
+   --> src\core\crypto.rs:451:27
+    |
+451 |     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>> {
+    |                           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ciphertext`
+
+warning: unused variable: `plaintext`
+   --> src\core\crypto.rs:457:27
+    |
+457 |     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    |                           ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_plaintext`
+
+warning: value assigned to `pos` is never read
+   --> src\core\debug.rs:102:17
+    |
+102 |         let mut pos = 0;
+    |                 ^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` on by default
+
+warning: value assigned to `pos` is never read
+   --> src\core\debug.rs:106:9
+    |
+106 |         pos = 4;
+    |         ^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: unused variable: `i`
+   --> src\core\debug.rs:125:13
+    |
+125 |         for i in 0..4 {
+    |             ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: unused variable: `original_pos`
+  --> src\formats\free_arc.rs:84:13
+   |
+84 |         let original_pos = reader.stream_position()?;
+   |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_original_pos`
+
+warning: fields `mtime` and `is_dir` are never read
+  --> src\core\archive.rs:10:9
+   |
+6  | pub struct FileEntry {
+   |            --------- fields in this struct
+...
+10 |     pub mtime: Option<u64>,
+   |         ^^^^^
+11 |     pub is_dir: bool,
+   |         ^^^^^^
+   |
+   = note: `FileEntry` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: method `extract` is never used
+  --> src\core\archive.rs:16:8
+   |
+14 | pub trait ArchiveReader {
+   |           ------------- method in this trait
+15 |     fn list(&mut self) -> Result<Vec<FileEntry>>;
+16 |     fn extract(&mut self, entry: &FileEntry, writer: &mut dyn std::io::Write) -> Result<()>;
+   |        ^^^^^^^
+
+warning: trait `ArchiveWriter` is never used
+  --> src\core\archive.rs:20:11
+   |
+20 | pub trait ArchiveWriter {
+   |           ^^^^^^^^^^^^^
+
+warning: variants `DecryptionFailed` and `KeyDerivationFailed` are never constructed
+  --> src\core\crypto.rs:19:5
+   |
+11 | pub enum CryptoError {
+   |          ----------- variants in this enum
+...
+19 |     DecryptionFailed(String),
+   |     ^^^^^^^^^^^^^^^^
+...
+22 |     KeyDerivationFailed,
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `CryptoError` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `method` and `rounds` are never read
+  --> src\core\crypto.rs:39:9
+   |
+37 | pub struct EncryptionInfo {
+   |            -------------- fields in this struct
+38 |     /// Algorithm name(s), e.g. "blowfish-448/ctr"
+39 |     pub method: String,
+   |         ^^^^^^
+...
+49 |     pub rounds: u32,
+   |         ^^^^^^
+   |
+   = note: `EncryptionInfo` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: associated function `new` is never used
+   --> src\core\crypto.rs:171:12
+    |
+169 | impl PasswordDeriver {
+    | -------------------- associated function in this implementation
+170 |     /// Create a new password deriver with default iterations
+171 |     pub fn new() -> Self {
+    |            ^^^
+
+warning: method `encrypt` is never used
+   --> src\core\crypto.rs:283:12
+    |
+246 | impl BlowfishCipher {
+    | ------------------- method in this implementation
+...
+283 |     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    |            ^^^^^^^
+
+warning: method `encrypt` is never used
+   --> src\core\crypto.rs:364:12
+    |
+312 | impl AesCipher {
+    | -------------- method in this implementation
+...
+364 |     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    |            ^^^^^^^
+
+warning: fields `key` and `iv` are never read
+   --> src\core\crypto.rs:400:5
+    |
+399 | pub struct TwofishCipher {
+    |            ------------- fields in this struct
+400 |     key: Vec<u8>,
+    |     ^^^
+401 |     iv: Vec<u8>,
+    |     ^^
+
+warning: method `encrypt` is never used
+   --> src\core\crypto.rs:424:12
+    |
+404 | impl TwofishCipher {
+    | ------------------ method in this implementation
+...
+424 |     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    |            ^^^^^^^
+
+warning: fields `key` and `iv` are never read
+   --> src\core\crypto.rs:433:5
+    |
+432 | pub struct SerpentCipher {
+    |            ------------- fields in this struct
+433 |     key: Vec<u8>,
+    |     ^^^
+434 |     iv: Vec<u8>,
+    |     ^^
+
+warning: method `encrypt` is never used
+   --> src\core\crypto.rs:457:12
+    |
+437 | impl SerpentCipher {
+    | ------------------ method in this implementation
+...
+457 |     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    |            ^^^^^^^
+
+warning: method `encrypt` is never used
+   --> src\core\crypto.rs:606:12
+    |
+471 | impl CascadedDecryptor {
+    | ---------------------- method in this implementation
+...
+606 |     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    |            ^^^^^^^
+
+warning: method `encrypt_op` is never used
+   --> src\core\crypto.rs:622:8
+    |
+620 | pub trait CipherOp: Send + Sync {
+    |           -------- method in this trait
+621 |     fn decrypt_op(&self, ciphertext: &[u8]) -> Result<Vec<u8>>;
+622 |     fn encrypt_op(&self, plaintext: &[u8]) -> Result<Vec<u8>>;
+    |        ^^^^^^^^^^
+
+warning: associated function `analyze_footer_descriptor` is never used
+  --> src\core\debug.rs:89:12
+   |
+8  | impl ArchiveDebugger {
+   | -------------------- associated function in this implementation
+...
+89 |     pub fn analyze_footer_descriptor<R: Read + Seek>(
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `0` is never read
+  --> src\formats\free_arc.rs:19:22
+   |
+19 | pub struct BlockType(u8);
+   |            --------- ^^
+   |            |
+   |            field in this struct
+   |
+   = help: consider removing this field
+   = note: `BlockType` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: associated constants `DESCRIPTOR`, `HEADER`, `DIRECTORY`, `FOOTER`, and `RECOVERY` are never used
+  --> src\formats\free_arc.rs:21:11
+   |
+20 | impl BlockType {
+   | -------------- associated constants in this implementation
+21 |     const DESCRIPTOR: Self = Self(0);
+   |           ^^^^^^^^^^
+22 |     const HEADER: Self = Self(1);
+   |           ^^^^^^
+23 |     const DATA: Self = Self(2);
+24 |     const DIRECTORY: Self = Self(3);
+   |           ^^^^^^^^^
+25 |     const FOOTER: Self = Self(4);
+   |           ^^^^^^
+26 |     const RECOVERY: Self = Self(5);
+   |           ^^^^^^^^
+
+warning: fields `block_type` and `crc` are never read
+  --> src\formats\free_arc.rs:31:9
+   |
+30 | pub struct BlockDescriptor {
+   |            --------------- fields in this struct
+31 |     pub block_type: BlockType,
+   |         ^^^^^^^^^^
+...
+37 |     pub crc: u32,
+   |         ^^^
+   |
+   = note: `BlockDescriptor` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `block_type` and `crc` are never read
+  --> src\formats\free_arc.rs:42:9
+   |
+41 | pub struct DataBlock {
+   |            --------- fields in this struct
+42 |     pub block_type: BlockType,
+   |         ^^^^^^^^^^
+...
+48 |     pub crc: u32,
+   |         ^^^
+   |
+   = note: `DataBlock` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: multiple fields are never read
+  --> src\formats\free_arc.rs:53:9
+   |
+52 | pub struct DirectoryBlock {
+   |            -------------- fields in this struct
+53 |     pub num_of_blocks: u32,
+   |         ^^^^^^^^^^^^^
+54 |     pub num_of_files: Vec<u32>,
+55 |     pub compressors: Vec<String>,
+   |         ^^^^^^^^^^^
+56 |     pub encryption_methods: Vec<String>,  // Added for encryption support
+   |         ^^^^^^^^^^^^^^^^^^
+57 |     pub offsets: Vec<u64>,
+   |         ^^^^^^^
+58 |     pub comp_sizes: Vec<u64>,
+   |         ^^^^^^^^^^
+...
+62 |     pub dir_numbers: Vec<u32>,
+   |         ^^^^^^^^^^^
+...
+66 |     pub crcs: Vec<u32>,
+   |         ^^^^
+   |
+   = note: `DirectoryBlock` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: struct `Lzma2Decoder` is never constructed
+ --> src\codecs\lzma2.rs:4:12
+  |
+4 | pub struct Lzma2Decoder;
+  |            ^^^^^^^^^^^^
+
+warning: associated functions `decompress` and `compress` are never used
+  --> src\codecs\lzma2.rs:7:12
+   |
+6  | impl Lzma2Decoder {
+   | ----------------- associated functions in this implementation
+7  |     pub fn decompress(data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
+   |            ^^^^^^^^^^
+...
+17 |     pub fn compress(data: &[u8]) -> Result<Vec<u8>> {
+   |            ^^^^^^^^
+
+warning: `arcmax` (bin "arcmax") generated 35 warnings (run `cargo fix --bin "arcmax"` to apply 2 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running `target\debug\arcmax.exe debug unencryptedtest.arc.arc`
+
+=== FOOTER REGION DUMP (last 4096 bytes) ===
+File size: 4179 bytes
+Scan window: 83 to 4179 (size: 4096)
+
+Found 5 FreeArc signature(s) at offset(s):
+  - 3303
+  - 3406
+  - 3956
+  - 4026
+  - 4141
+
+--- Signature at file offset 3303 ---
+00000c94: 41 72 43 01 06 6c 7a 6d 61 3a 31 6d 62 3a 6e 6f  | ArC..lzma:1mb:no
+00000ca4: 72 6d 61 6c 3a 62 74 34 3a 33 32 00 e8 f0 3d bc  | rmal:bt4:32...=.
+00000cb4: c0 ee 2e f2 02 c0 00 02 00 9e 01 0a 91 59 bc dd  | .............Y..
+00000cc4: 91 81 d5 da 39 26 06 3f 20 29 69 6e 8d 00 1c 9a  | ....9&.? )in....
+00000cd4: ce dd 7d 7f 7b 9b 68 d9 1f 74 2d 7a da 69 19 31  | ..}.{.h..t-z.i.1
+00000ce4: 24 4e 87 c0 9d 37 40 67 a7 91 42 5c 46 de b8 a2  | $N...7@g..B\F...
+00000cf4: 64 ff ff e9 53 58 00 41 72 43 01 08 6c 7a 6d 61  | d...SX.ArC..lzma
+00000d04: 3a 31 6d 62 3a 6e 6f 72 6d 61 6c 3a 62 74 34 3a  | :1mb:normal:bt4:
+00000d14: 33 32 00 6c 82 17 9b 87 f2 cc d9 b1 2e d5 d0 4c  | 32.l...........L
+00000d24: 9f c8 2e d7 6c 8e a0 29 d3 8a b0 f0 59 3c 35 14  | ....l..)....Y<5.
+00000d34: 43 8a 10 22 02 13 34 78 32 a8 64 7b 80 2e de 5e  | C.."..4x2.d{...^
+00000d44: 3a 33 4e 4c 92 d8 6a cf b6 a9 26 21 fe 93 7f 2c  | :3NL..j...&!...,
+00000d54: a5 34 df 74 00 c0 c0 b4 b6 be c1 69 90 c8 59 de  | .4.t.......i..Y.
+00000d64: 52 79 16 84 80 29 36 3f 2d 01 17 4b 59 7b f2 72  | Ry...)6?-..KY{.r
+00000d74: 64 b7 81 3b 66 29 ba b8 27 dc ba c8 4d 3a 16 6d  | d..;f)..'...M:.m
+00000d84: 7c 9b 44 a0 92 88 dd b9 52 b2 8b c1 43 65 d4 14  | |.D.....R...Ce..
+
+--- Signature at file offset 3406 ---
+00000cfb: 41 72 43 01 08 6c 7a 6d 61 3a 31 6d 62 3a 6e 6f  | ArC..lzma:1mb:no
+00000d0b: 72 6d 61 6c 3a 62 74 34 3a 33 32 00 6c 82 17 9b  | rmal:bt4:32.l...
+00000d1b: 87 f2 cc d9 b1 2e d5 d0 4c 9f c8 2e d7 6c 8e a0  | ........L....l..
+00000d2b: 29 d3 8a b0 f0 59 3c 35 14 43 8a 10 22 02 13 34  | )....Y<5.C.."..4
+00000d3b: 78 32 a8 64 7b 80 2e de 5e 3a 33 4e 4c 92 d8 6a  | x2.d{...^:3NL..j
+00000d4b: cf b6 a9 26 21 fe 93 7f 2c a5 34 df 74 00 c0 c0  | ...&!...,.4.t...
+00000d5b: b4 b6 be c1 69 90 c8 59 de 52 79 16 84 80 29 36  | ....i..Y.Ry...)6
+00000d6b: 3f 2d 01 17 4b 59 7b f2 72 64 b7 81 3b 66 29 ba  | ?-..KY{.rd..;f).
+00000d7b: b8 27 dc ba c8 4d 3a 16 6d 7c 9b 44 a0 92 88 dd  | .'...M:.m|.D....
+00000d8b: b9 52 b2 8b c1 43 65 d4 14 d4 d1 e4 80 c4 b8 13  | .R...Ce.........
+00000d9b: c2 f2 31 3f 39 26 85 44 d0 fc 88 51 a7 0e 02 3c  | ..1?9&.D...Q...<
+00000dab: d4 61 8a a9 09 89 3a 4f 77 3e 2c 5b 49 69 cd 79  | .a....:Ow>,[Ii.y
+00000dbb: 7f b1 a6 d7 a2 2c 3e cd 1a 37 f7 b1 c9 3b ab 0a  | .....,>..7...;..
+00000dcb: 80 80 cd 5a c7 76 24 3d c8 99 e4 02 23 6d f5 17  | ...Z.v$=....#m..
+00000ddb: 1d 69 bf 2f 3f fc e6 9a b7 d3 5f 12 7b 13 1d 16  | .i./?....._.{...
+00000deb: 41 ef 7b 4f 13 ed 9c 45 85 30 a8 21 1e c7 da 6b  | A.{O...E.0.!...k
+
+--- Signature at file offset 3956 ---
+00000f21: 41 72 43 01 0a 73 74 6f 72 69 6e 67 00 01 08 01  | ArC..storing....
+00000f31: 08 84 27 d7 b3 89 8d 5f 25 30 2e 33 36 00 d1 35  | ..'...._%0.36..5
+00000f41: 35 3e 02 01 08 02 d4 b3 ec d7 8c de 19 2f e6 14  | 5>.........../..
+00000f51: 3c 51 04 d7 e2 a7 91 5f 47 b3 1e 11 d2 bf c1 c4  | <Q....._G.......
+00000f61: 8b f9 84 27 d7 b3 41 72 43 01 0a 73 74 6f 72 69  | ...'..ArC..stori
+00000f71: 6e 67 00 5a 5a e2 05 cb e4 8d 53 31 12 00 04 00  | ng.ZZ.....S1....
+00000f81: 99 19 75 ba 5a 5b 46 60 f8 34 6e 7b 39 08 f1 70  | ..u.Z[F`.4n{9..p
+00000f91: 90 7f f5 63 da f5 af 2d 0a b5 5f dd d6 a9 bd 25  | ...c...-.._....%
+00000fa1: 84 12 c7 36 28 56 03 71 a0 95 42 e5 a0 49 a4 65  | ...6(V.q..B..I.e
+00000fb1: 38 45 ad 06 b0 7a fa 9d 2c 82 26 bc 10 f3 66 0f  | 8E...z..,.&...f.
+00000fc1: a4 5c 4e bf cd ad 90 12 d0 71 ac 78 e0 d1 fa 45  | .\N......q.x...E
+00000fd1: 91 77 ff 74 fe f3 1d 6c 00 41 72 43 01 08 6c 7a  | .w.t...l.ArC..lz
+00000fe1: 6d 61 3a 31 6d 62 3a 6e 6f 72 6d 61 6c 3a 62 74  | ma:1mb:normal:bt
+00000ff1: 34 3a 33 32 00 b6 b8 d3 e7 9f 10 ca b5 5e 1e     | 4:32.........^. 
+
+--- Signature at file offset 4026 ---
+00000f67: 41 72 43 01 0a 73 74 6f 72 69 6e 67 00 5a 5a e2  | ArC..storing.ZZ.
+00000f77: 05 cb e4 8d 53 31 12 00 04 00 99 19 75 ba 5a 5b  | ....S1......u.Z[
+00000f87: 46 60 f8 34 6e 7b 39 08 f1 70 90 7f f5 63 da f5  | F`.4n{9..p...c..
+00000f97: af 2d 0a b5 5f dd d6 a9 bd 25 84 12 c7 36 28 56  | .-.._....%...6(V
+00000fa7: 03 71 a0 95 42 e5 a0 49 a4 65 38 45 ad 06 b0 7a  | .q..B..I.e8E...z
+00000fb7: fa 9d 2c 82 26 bc 10 f3 66 0f a4 5c 4e bf cd ad  | ..,.&...f..\N...
+00000fc7: 90 12 d0 71 ac 78 e0 d1 fa 45 91 77 ff 74 fe f3  | ...q.x...E.w.t..
+00000fd7: 1d 6c 00 41 72 43 01 08 6c 7a 6d 61 3a 31 6d 62  | .l.ArC..lzma:1mb
+00000fe7: 3a 6e 6f 72 6d 61 6c 3a 62 74 34 3a 33 32 00 b6  | :normal:bt4:32..
+00000ff7: b8 d3 e7 9f 10 ca b5 5e 1e                       | .......^.       
+
+--- Signature at file offset 4141 ---
+00000fda: 41 72 43 01 08 6c 7a 6d 61 3a 31 6d 62 3a 6e 6f  | ArC..lzma:1mb:no
+00000fea: 72 6d 61 6c 3a 62 74 34 3a 33 32 00 b6 b8 d3 e7  | rmal:bt4:32.....
+00000ffa: 9f 10 ca b5 5e 1e                                | ....^.          

@@ -1,0 +1,56 @@
+#!/bin/bash
+# FFmpeg Minimal Configuration
+# Run this from MSYS2 MinGW64 environment
+
+./configure \
+    --prefix=/d/misc/arc/openarc/ffmpeg-build \
+    --enable-static \
+    --disable-shared \
+    --disable-programs \
+    --disable-doc \
+    --disable-htmlpages \
+    --disable-manpages \
+    --disable-podpages \
+    --disable-txtpages \
+    --disable-debug \
+    --disable-ffmpeg \
+    --disable-ffplay \
+    --disable-ffprobe \
+    --enable-gpl \
+    --enable-version3 \
+    --disable-all \
+    --enable-avcodec \
+    --enable-avformat \
+    --enable-avutil \
+    --enable-swscale \
+    --enable-swresample \
+    --enable-libx264 \
+    --enable-libx265 \
+    --enable-encoder=libx264 \
+    --enable-encoder=libx265 \
+    --enable-encoder=aac \
+    --enable-encoder=flac \
+    --enable-decoder=h264 \
+    --enable-decoder=hevc \
+    --enable-decoder=aac \
+    --enable-decoder=flac \
+    --enable-parser=h264 \
+    --enable-parser=hevc \
+    --enable-parser=aac \
+    --enable-parser=flac \
+    --enable-muxer=mp4 \
+    --enable-muxer=matroska \
+    --enable-muxer=flac \
+    --enable-demuxer=h264 \
+    --enable-demuxer=hevc \
+    --enable-demuxer=mov \
+    --enable-demuxer=matroska \
+    --enable-demuxer=flac \
+    --enable-protocol=file \
+    --enable-bsf=h264_mp4toannexb \
+    --enable-bsf=hevc_mp4toannexb \
+    --enable-filter=scale \
+    --enable-filter=format \
+    --enable-filter=null \
+    --arch=x86_64 \
+    --target-os=mingw32

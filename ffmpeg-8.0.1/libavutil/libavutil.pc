@@ -1,0 +1,14 @@
+prefix=/d/misc/arc/openarc/ffmpeg-build
+exec_prefix=${prefix}
+libdir=/d/misc/arc/openarc/ffmpeg-build/lib
+includedir=/d/misc/arc/openarc/ffmpeg-build/include
+
+Name: libavutil
+Description: FFmpeg utility library
+Version: 60.8.100
+Requires: 
+Requires.private: 
+Conflicts:
+Libs: -L${libdir}  -lavutil -lva_win32 -lva -lm -luser32 -lva -lbcrypt -latomic
+Libs.private: 
+Cflags: -I${includedir}

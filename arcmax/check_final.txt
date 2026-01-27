@@ -1,0 +1,343 @@
+warning: unused variable: `patterns`
+   --> build.rs:185:58
+    |
+185 | fn add_directory_files(build: &mut cc::Build, dir: &str, patterns: &[&str]) {
+    |                                                          ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_patterns`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: `arcmax` (build script) generated 1 warning
+    Checking arcmax v0.1.0 (D:\misc\arc\arcmax)
+error[E0425]: cannot find function `compress_lzma_default` in this scope
+   --> src\formats\freearc\writer.rs:150:26
+    |
+150 |              processed = compress_lzma_default(&processed)?;
+    |                          ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+1   + use crate::codecs::lzma2::compress_lzma_default;
+    |
+
+warning: unused imports: `CStr` and `CString`
+ --> src\codecs\lzma2.rs:1:16
+  |
+1 | use std::ffi::{CString, CStr};
+  |                ^^^^^^^  ^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::os::raw::c_char`
+ --> src\codecs\lzma2.rs:2:5
+  |
+2 | use std::os::raw::c_char;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `CStr` and `CString`
+ --> src\codecs\tornado.rs:1:16
+  |
+1 | use std::ffi::{CString, CStr};
+  |                ^^^^^^^  ^^^^
+
+warning: unused import: `std::os::raw::c_char`
+ --> src\codecs\tornado.rs:2:5
+  |
+2 | use std::os::raw::c_char;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `CStr` and `CString`
+ --> src\codecs\ppmd.rs:1:16
+  |
+1 | use std::ffi::{CString, CStr};
+  |                ^^^^^^^  ^^^^
+
+warning: unused import: `std::os::raw::c_char`
+ --> src\codecs\ppmd.rs:2:5
+  |
+2 | use std::os::raw::c_char;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Read` and `Write`
+ --> src\codecs\lzp.rs:1:15
+  |
+1 | use std::io::{Read, Write};
+  |               ^^^^  ^^^^^
+
+warning: unused import: `std::os::raw::c_char`
+ --> src\codecs\lzp.rs:2:5
+  |
+2 | use std::os::raw::c_char;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `CStr` and `CString`
+ --> src\codecs\grzip.rs:1:16
+  |
+1 | use std::ffi::{CString, CStr};
+  |                ^^^^^^^  ^^^^
+
+warning: unused import: `std::os::raw::c_char`
+ --> src\codecs\grzip.rs:2:5
+  |
+2 | use std::os::raw::c_char;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `SeekFrom` and `Seek`
+ --> src\core\format.rs:3:21
+  |
+3 | use std::io::{Read, Seek, SeekFrom};
+  |                     ^^^^  ^^^^^^^^
+
+warning: unused imports: `write_cstring` and `write_varint`
+  --> src\formats\free_arc_writer.rs:11:42
+   |
+11 | use crate::core::varint::{encode_varint, write_cstring, write_varint};
+   |                                          ^^^^^^^^^^^^^  ^^^^^^^^^^^^
+
+warning: unused import: `compress_lzma`
+  --> src\formats\free_arc_writer.rs:12:28
+   |
+12 | use crate::codecs::lzma2::{compress_lzma, compress_lzma_default, format_lzma_method};
+   |                            ^^^^^^^^^^^^^
+
+warning: unused import: `bail`
+ --> src\formats\freearc\directory.rs:2:22
+  |
+2 | use anyhow::{Result, bail};
+  |                      ^^^^
+
+warning: unused import: `crate::formats::freearc::constants::BlockType`
+ --> src\formats\freearc\directory.rs:3:5
+  |
+3 | use crate::formats::freearc::constants::BlockType;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::formats::freearc::block::BlockDescriptor`
+ --> src\formats\freearc\directory.rs:5:5
+  |
+5 | use crate::formats::freearc::block::BlockDescriptor;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Context`
+ --> src\formats\freearc\reader.rs:3:30
+  |
+3 | use anyhow::{Result, anyhow, Context};
+  |                              ^^^^^^^
+
+warning: unused import: `crate::formats::freearc::utils::read_varint`
+ --> src\formats\freearc\reader.rs:8:5
+  |
+8 | use crate::formats::freearc::utils::read_varint;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `bail`
+ --> src\formats\freearc\utils.rs:2:22
+  |
+2 | use anyhow::{Result, bail};
+  |                      ^^^^
+
+warning: unused import: `SeekFrom`
+ --> src\formats\freearc\writer.rs:1:28
+  |
+1 | use std::io::{Write, Seek, SeekFrom};
+  |                            ^^^^^^^^
+
+warning: unused import: `anyhow`
+ --> src\formats\freearc\writer.rs:2:22
+  |
+2 | use anyhow::{Result, anyhow};
+  |                      ^^^^^^
+
+warning: unused imports: `CascadedDecryptor` and `EncryptionInfo`
+ --> src\formats\freearc\writer.rs:7:27
+  |
+7 | use crate::core::crypto::{EncryptionInfo, create_encryptor, CascadedDecryptor};
+  |                           ^^^^^^^^^^^^^^                    ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::formats::free_arc_utils::split_compressor_encryption`
+ --> src\formats\freearc\writer.rs:8:5
+  |
+8 | use crate::formats::free_arc_utils::split_compressor_encryption;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `rand::thread_rng`: Renamed to `rng`
+   --> src\core\crypto.rs:985:29
+    |
+985 |         let mut rng = rand::thread_rng();
+    |                             ^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: unused import: `rayon::prelude`
+    --> src\formats\free_arc.rs:1160:13
+     |
+1160 |         use rayon::prelude::*;
+     |             ^^^^^^^^^^^^^^
+
+warning: unused variable: `lit_context_bits`
+  --> src\codecs\lzma2.rs:31:5
+   |
+31 |     lit_context_bits: u32,
+   |     ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_lit_context_bits`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `lit_pos_bits`
+  --> src\codecs\lzma2.rs:32:5
+   |
+32 |     lit_pos_bits: u32, 
+   |     ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_lit_pos_bits`
+
+warning: unused variable: `pos_state_bits`
+  --> src\codecs\lzma2.rs:33:5
+   |
+33 |     pos_state_bits: u32,
+   |     ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pos_state_bits`
+
+warning: unused variable: `dict_size`
+  --> src\codecs\lzma2.rs:34:5
+   |
+34 |     dict_size: u32,
+   |     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dict_size`
+
+warning: unused variable: `reader`
+  --> src\codecs\ppmd.rs:36:38
+   |
+36 |     pub fn new<R: std::io::Read>(mut reader: R, order: usize, memory_size: usize) -> Result<Self> {
+   |                                      ^^^^^^ help: if this is intentional, prefix it with an underscore: `_reader`
+
+warning: variable does not need to be mutable
+  --> src\codecs\ppmd.rs:36:34
+   |
+36 |     pub fn new<R: std::io::Read>(mut reader: R, order: usize, memory_size: usize) -> Result<Self> {
+   |                                  ----^^^^^^
+   |                                  |
+   |                                  help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `output`
+  --> src\codecs\ppmd.rs:43:30
+   |
+43 |     pub fn decode(&mut self, output: &mut Vec<u8>, expected_size: usize) -> Result<usize> {
+   |                              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_output`
+
+warning: unused variable: `expected_size`
+  --> src\codecs\ppmd.rs:43:52
+   |
+43 |     pub fn decode(&mut self, output: &mut Vec<u8>, expected_size: usize) -> Result<usize> {
+   |                                                    ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expected_size`
+
+warning: unused variable: `ciphertext`
+   --> src\core\crypto.rs:580:27
+    |
+580 |     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>> {
+    |                           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ciphertext`
+
+warning: unused variable: `plaintext`
+   --> src\core\crypto.rs:586:27
+    |
+586 |     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    |                           ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_plaintext`
+
+warning: unused variable: `ciphertext`
+   --> src\core\crypto.rs:613:27
+    |
+613 |     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>> {
+    |                           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ciphertext`
+
+warning: unused variable: `plaintext`
+   --> src\core\crypto.rs:619:27
+    |
+619 |     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    |                           ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_plaintext`
+
+warning: unused variable: `crypto_flags`
+  --> src\core\format.rs:57:59
+   |
+57 | ...assword: Option<&str>, crypto_flags: Option<&str>) -> Result<Box<dyn crate::core::archive::ArchiveReader>> {
+   |                           ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_crypto_flags`
+
+warning: value assigned to `pos` is never read
+   --> src\core\debug.rs:102:17
+    |
+102 |         let mut pos = 0;
+    |                 ^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` on by default
+
+warning: value assigned to `pos` is never read
+   --> src\core\debug.rs:106:9
+    |
+106 |         pos = 4;
+    |         ^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: unused variable: `i`
+   --> src\core\debug.rs:125:13
+    |
+125 |         for i in 0..4 {
+    |             ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: unused variable: `original_pos`
+  --> src\formats\free_arc.rs:91:13
+   |
+91 |         let original_pos = reader.stream_position()?;
+   |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_original_pos`
+
+warning: unused variable: `search_pos`
+   --> src\formats\free_arc.rs:622:21
+    |
+622 |             let mut search_pos = 0;
+    |                     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_search_pos`
+
+warning: variable does not need to be mutable
+   --> src\formats\free_arc.rs:622:17
+    |
+622 |             let mut search_pos = 0;
+    |                 ----^^^^^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: unused variable: `footer_original_size`
+   --> src\formats\free_arc_writer.rs:739:13
+    |
+739 |         let footer_original_size = footer_content.len() as u64;
+    |             ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_footer_original_size`
+
+warning: unused variable: `footer_method`
+   --> src\formats\free_arc_writer.rs:745:13
+    |
+745 |         let footer_method = if let Some(ref encryptor) = self.encryptor {
+    |             ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_footer_method`
+
+warning: unused variable: `footer_crc`
+   --> src\formats\free_arc_writer.rs:753:13
+    |
+753 |         let footer_crc = crc32fast::hash(&footer_compressed);
+    |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_footer_crc`
+
+warning: unused variable: `footer_pos`
+  --> src\formats\freearc\directory.rs:39:42
+   |
+39 |     pub fn read<R: Read>(reader: &mut R, footer_pos: u64) -> Result<Self> {
+   |                                          ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_footer_pos`
+
+warning: value assigned to `objects` is never read
+   --> src\formats\peazip.rs:446:17
+    |
+446 |         let mut objects = Vec::new();
+    |                 ^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: unused variable: `current_pos`
+   --> src\formats\peazip.rs:645:17
+    |
+645 |             let current_pos = cursor.position();
+    |                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_current_pos`
+
+For more information about this error, try `rustc --explain E0425`.
+warning: `arcmax` (lib) generated 50 warnings
+error: could not compile `arcmax` (lib) due to 1 previous error; 50 warnings emitted

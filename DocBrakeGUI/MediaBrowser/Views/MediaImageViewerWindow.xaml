@@ -1,0 +1,35 @@
+<Window x:Class="DocBrake.MediaBrowser.Views.MediaImageViewerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mediaBrowser="clr-namespace:DocBrake.MediaBrowser.Views"
+        xmlns:shell="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Title=""
+        Height="700"
+        Width="1000"
+        MinHeight="450"
+        MinWidth="650"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        Background="#FF000000"
+        PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown"
+        PreviewMouseRightButtonDown="Window_PreviewMouseRightButtonDown">
+
+    <Window.Resources>
+        <Style TargetType="{x:Type Window}">
+            <Setter Property="shell:WindowChrome.WindowChrome">
+                <Setter.Value>
+                    <shell:WindowChrome CaptionHeight="0"
+                                       ResizeBorderThickness="6"
+                                       CornerRadius="0"
+                                       GlassFrameThickness="0"
+                                       UseAeroCaptionButtons="False"/>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <mediaBrowser:MediaViewerControl DataContext="{Binding}" />
+    </Grid>
+</Window>

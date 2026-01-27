@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(dotnet build:*)",
+      "Bash(dir:*)",
+      "Bash(echo:*)",
+      "Bash(cmd.exe //c \"echo %TMP%\")",
+      "Bash(cmd.exe //c \"echo %TEMP%\")",
+      "Bash(export PATH=\"/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH\")",
+      "Bash(export TMP=\"C:/Users/dk/AppData/Local/Temp\")",
+      "Bash(export TEMP=\"C:/Users/dk/AppData/Local/Temp\")",
+      "Bash(export TMPDIR:*)",
+      "Bash(make:*)",
+      "Bash(gcc:*)",
+      "Bash(cargo build:*)",
+      "Bash(tree:*)",
+      "Bash(find:*)"
+    ]
+  }
+}

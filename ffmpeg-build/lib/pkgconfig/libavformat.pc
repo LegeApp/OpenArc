@@ -1,0 +1,14 @@
+prefix=/d/misc/arc/openarc/ffmpeg-build
+exec_prefix=${prefix}
+libdir=/d/misc/arc/openarc/ffmpeg-build/lib
+includedir=/d/misc/arc/openarc/ffmpeg-build/include
+
+Name: libavformat
+Description: FFmpeg container format library
+Version: 62.3.100
+Requires: libavcodec >= 62.11.100, libavutil >= 60.8.100
+Requires.private: 
+Conflicts:
+Libs: -L${libdir}  -lavformat -lm -latomic -lbz2 -lz -lsecur32 -lncrypt -lcrypt32 -lws2_32
+Libs.private: 
+Cflags: -I${includedir}

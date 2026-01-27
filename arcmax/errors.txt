@@ -1,0 +1,1054 @@
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\340f1a7b7daa519e-LZ77_Coder.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado\\LZ77_Coder.cpp"D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(10): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\a35768554b9f3a89-WFC_Ari.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip\\WFC_Ari.c"D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(44): error C2061: syntax error: identifier 'GRZip_Rec_Test'
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\a35768554b9f3a89-ST4.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip\\ST4.c"D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(92): error C2061: syntax error: identifier 'BWT_Med3'
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\45d9c99a96f7c9fa-entropy.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM\\entropy.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Common.cpp(389): error C2664: 'int _utime(const char *const ,_utimbuf *const )': cannot convert argument 2 from 'utimbuf *' to '_utimbuf *const '
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\41095bad47c7c040-Model.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD\\Model.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\../Compression.h(279): error C3861: 'reserve': identifier not found
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\340f1a7b7daa519e-C_Tornado.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado\\C_Tornado.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Compression.h(279): error C3861: 'reserve': identifier not found
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\4f233c4f510af183-C_LZMA.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2\\C_LZMA.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\Delta.cpp(365): error C2039: 'reserve': is not a member of 'Buffer'
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\340f1a7b7daa519e-main.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado\\main.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\Delta.cpp(779): error C2039: 'reserve': is not a member of 'Buffer'
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\b88d30bf34573cf6-C_Delta.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta\\C_Delta.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Common.cpp(389): error C2664: 'int _utime(const char *const ,_utimbuf *const )': cannot convert argument 2 from 'utimbuf *' to '_utimbuf *const '
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\4f233c4f510af183-FreeArc-LZMA.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2\\FreeArc-LZMA.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Common.cpp(389): error C2664: 'int _utime(const char *const ,_utimbuf *const )': cannot convert argument 2 from 'utimbuf *' to '_utimbuf *const '
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\769f162df97d5d83-C_GRZip.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip\\C_GRZip.cpp"C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\um\winnt.h(2597): error C2338: static assertion failed: 'Windows headers require the default packing option. Changing this can lead to memory corruption. This diagnostic can be disabled by building with WINDOWS_IGNORE_PACKING_MISMATCH defined.'
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\45d9c99a96f7c9fa-C_TTA.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM\\C_TTA.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Compression.h(279): error C3861: 'reserve': identifier not found
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\45d9c99a96f7c9fa-filters.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM\\filters.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(389): error C2664: 'int _utime(const char *const ,_utimbuf *const )': cannot convert argument 2 from 'utimbuf *' to '_utimbuf *const '
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\45d9c99a96f7c9fa-mmdet.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM\\mmdet.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\4x4\../Compression.h(279): error C3861: 'reserve': identifier not found
+warning: arcmax@0.1.0: ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\8cb4c41d453625e6-C_4x4.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4\\C_4x4.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\SREP\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(30): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(30): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(30): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(32): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(32): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(32): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(33): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(33): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(33): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(34): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(34): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(34): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(35): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(35): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(35): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(37): error C3646: 'chunk': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(37): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(39): error C3646: 'shifted_out': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(38): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(44): error C2061: syntax error: identifier 'CALLBACK_FUNC'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(62): error C2061: syntax error: identifier 'uint'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(68): error C2061: syntax error: identifier 'uint'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(72): error C2061: syntax error: identifier 'uint'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(76): error C2061: syntax error: identifier 'uint32'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(80): error C2061: syntax error: identifier 'uint32'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(84): error C2061: syntax error: identifier 'uint64'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(89): error C3646: 'outsize': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(89): error C2059: syntax error: '('
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(89): error C2334: unexpected token(s) preceding '{'; skipping apparent function body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(91): error C2061: syntax error: identifier 'uint'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(46): error C2065: 'callback': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(46): error C2065: '_callback': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(47): error C2065: '_auxdata': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(48): error C2065: 'chunk': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(48): error C2065: '_chunk': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(51): error C2065: 'last_qwrite': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(51): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(51): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(51): error C2065: 'byte': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(51): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(52): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(52): error C2065: 'NULL': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(52): error C2065: 'FREEARC_ERRCODE_NOT_ENOUGH_MEMORY': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(52): error C2065: 'FREEARC_OK': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(53): error C2065: 'shifted_out': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(55): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(55): error C3861: 'BigFree': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(59): error C2065: 'anchor': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(59): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(59): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(60): error C2065: 'anchor': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(62): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(62): error C2065: 'n': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(69): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(69): error C2065: 'c': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(70): error C2660: 'OutputByteStream::advance': function does not take 1 arguments
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(73): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(73): error C2065: 'c': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(73): error C3861: 'setvalue16': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(74): error C2660: 'OutputByteStream::advance': function does not take 1 arguments
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(77): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(77): error C2065: 'c': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(77): error C3861: 'setvalue32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(78): error C2660: 'OutputByteStream::advance': function does not take 1 arguments
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(81): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(81): error C2065: 'c': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(81): error C3861: 'setvalue32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(82): error C2660: 'OutputByteStream::advance': function does not take 1 arguments
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(85): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(85): error C2065: 'c': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(85): error C3861: 'setvalue64': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(86): error C2660: 'OutputByteStream::advance': function does not take 1 arguments
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(96): error C2061: syntax error: identifier 'uint'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(97): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(97): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(97): error C2065: 'len': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(97): error C2065: 'chunk': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(99): error C2065: 'FREEARC_ERRCODE_INTERNAL': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(99): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(99): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(99): error C2065: 'len': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(99): error C2065: 'chunk': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(100): error C2065: 's': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(100): error C2065: 'len': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(100): error C2065: 'chunk': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(99): error C3861: 'CHECK': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(101): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(101): error C2065: 'len': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(101): error C3861: 'memcpy': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(102): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(102): error C2065: 'len': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(106): error C2065: 'FREEARC_OK': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(107): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(107): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(107): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(107): error C3861: 'callback': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(109): error C2065: 'FREEARC_OK': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(114): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(114): error C2065: 'last_qwrite': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(114): error C3861: 'QUASIWRITE': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(115): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(115): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(116): error C2065: 'UINT': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(116): error C2146: syntax error: missing ';' before identifier 'n'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(116): error C2065: 'n': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(117): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(117): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(120): error C2065: 'n': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\EntropyCoder.cpp(120): fatal error C1003: error count exceeds 100; stopping compilation
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(16): error C2504: 'OutputByteStream': base class undefined
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(18): error C3646: 'flags': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(18): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(19): error C3646: 'flagbit': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(19): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(21): error C3646: 'garbage': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(21): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(27): error C2061: syntax error: identifier 'CALLBACK_FUNC'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(31): error C2061: syntax error: identifier 'BYTE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(33): error C2061: syntax error: identifier 'BYTE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(37): error C2061: syntax error: identifier 'byte'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(75): error C2065: 'FALSE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(75): error C2131: expression did not evaluate to a constant
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(83): error C3646: 'lit_price': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(83): error C2059: syntax error: '('
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(83): error C2334: unexpected token(s) preceding '{'; skipping apparent function body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(84): error C3646: 'match_price': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(84): error C2059: syntax error: '('
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(84): error C2334: unexpected token(s) preceding '{'; skipping apparent function body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(91): error C2065: 'FALSE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(91): error C2131: expression did not evaluate to a constant
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(92): error C3646: 'repdist_price': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(92): error C2059: syntax error: '('
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(92): error C2334: unexpected token(s) preceding '{'; skipping apparent function body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(40): error C2065: 'flagbit': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(41): error C2065: 'flags': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(41): error C3861: 'printf': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(41): error C3861: 'debug': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(43): error C3861: 'get_anchor': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(43): error C2065: 'flags': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(43): error C3861: 'setvalue32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(44): error C2065: 'flags': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(44): error C2065: 'flagbit': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(45): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(45): error C3861: 'set_anchor': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(45): error C2065: 'output': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(48): error C2065: 'MINLEN': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(49): error C3861: 'stat_only': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(50): error C2065: 'current': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(50): error C3861: 'put8': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(53): error C2065: 'uint': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(53): error C2146: syntax error: missing ';' before identifier 'dist'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(53): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(53): error C2065: 'current': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(53): error C2065: 'match': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(54): error C2065: 'MINLEN': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(54): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(55): error C3861: 'stat_only': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(56): error C2065: 'MINLEN': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(56): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(56): error C3861: 'put16': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(57): error C2065: 'flags': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(57): error C2065: 'flagbit': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(58): error C2065: 'MINLEN': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(58): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(59): error C3861: 'stat_only': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(60): error C2065: 'MINLEN': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(60): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(60): error C3861: 'put24': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(61): error C2065: 'flags': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(61): error C2065: 'flagbit': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(63): error C3861: 'stat_only': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(64): error C2065: 'MINLEN': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(65): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(66): error C3861: 'put8': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(66): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(66): error C3861: 'put8': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(68): error C3861: 'put8': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(68): error C3861: 'put24': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(69): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(69): error C3861: 'put32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(70): error C2065: 'flags': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(70): error C2065: 'flagbit': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(78): error C2065: 'FREEARC_ERRCODE_INTERNAL': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(78): error C2065: 'FALSE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(79): error C2065: 's': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(78): error C3861: 'CHECK': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(95): error C2061: syntax error: identifier 'CALLBACK_FUNC'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(97): error C2065: 'callback': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(97): error C2065: 'auxdata': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(97): error C2065: 'chunk': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(97): error C2065: 'pad': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(97): error C2614: 'LZ77_ByteCoder': illegal member initialization: 'OutputByteStream' is not a base or member
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(100): error C2065: 'flags': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(101): error C2065: 'flagbit': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(102): error C2065: 'garbage': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(102): error C3861: 'set_anchor': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(111): error C3861: 'get_anchor': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(111): error C2065: 'flags': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(111): error C3861: 'setvalue32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(112): error C2653: 'OutputByteStream': is not a class or namespace name
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(116): error C2504: 'InputByteStream': base class undefined
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(118): error C3646: 'flags': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(118): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(119): error C3646: 'flagpos': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(119): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(122): error C2061: syntax error: identifier 'CALLBACK_FUNC'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(128): error C3646: 'is_literal': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(128): error C2059: syntax error: '('
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(128): error C2334: unexpected token(s) preceding '{'; skipping apparent function body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(135): error C3646: 'dist': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(135): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(137): error C3646: 'getchar': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(137): error C2059: syntax error: '('
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(137): error C2334: unexpected token(s) preceding '{'; skipping apparent function body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(139): error C3646: 'getlen': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(139): error C2059: syntax error: '('
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\LZ77_Coder.cpp(139): fatal error C1003: error count exceeds 100; stopping compilation
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\340f1a7b7daa519e-LZ77_Coder.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado\\LZ77_Coder.cpp"D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(10): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(10): error C2146: syntax error: missing ';' before identifier 'HashVal'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(11): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(11): error C2146: syntax error: missing ';' before identifier 'PtrVal'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(48): error C2061: syntax error: identifier 'BYTE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(51): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(51): error C3861: 'value32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(51): error C2065: 'HashShift': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(51): error C2065: 'HashMask': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(53): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(53): error C3861: 'value32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(53): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(53): error C3861: 'value32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(54): error C2065: 'HashShift': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(55): error C2065: 'HashMask': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(57): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(57): error C3861: 'value32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(57): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(57): error C3861: 'value32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(58): error C2065: 'HashShift': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(59): error C2065: 'HashMask': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(61): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(61): error C3861: 'value32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(61): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(61): error C3861: 'value32': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(62): error C2065: 'HashShift': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(63): error C2065: 'HashMask': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(65): error C2065: 'FREEARC_ERRCODE_INTERNAL': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(65): error C2065: 'TRUE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(66): error C2065: 's': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(65): error C3861: 'CHECK': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(73): error C2061: syntax error: identifier 'DISTANCE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(76): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(76): error C2065: 'kb': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(78): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(78): error C2065: 'kb': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(80): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(80): error C2065: 'mb': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(82): error C2065: 'dist': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(82): error C2065: 'mb': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(90): error C2061: syntax error: identifier 'BYTE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(93): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(93): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(93): error C2065: 'kb': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(93): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(93): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(93): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(93): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(93): error C3861: 'val32equ': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(95): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(95): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(95): error C2065: 'kb': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(95): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(95): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(95): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(95): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(95): error C3861: 'val32equ': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(95): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(95): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(99): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(99): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(99): error C2065: 'mb': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(99): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(99): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(99): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(99): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(99): error C3861: 'val32equ': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(100): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(100): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(100): error C3861: 'val16equ': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(104): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(104): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(104): error C2065: 'mb': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(104): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(104): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(104): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(104): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(104): error C3861: 'val32equ': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(105): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(105): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(105): error C3861: 'val24equ': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(109): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(109): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(109): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(109): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(109): error C3861: 'val32equ': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(109): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(109): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(109): error C3861: 'val32equ': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(111): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(111): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(111): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(111): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(111): error C3861: 'val32equ': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(111): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(111): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(111): error C3861: 'val32equ': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(112): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(112): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(116): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(116): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(116): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(116): error C2065: 'q': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\MatchFinder.cpp(116): fatal error C1003: error count exceeds 100; stopping compilation
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(12): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(12): error C2146: syntax error: missing ';' before identifier 'MAX_REPDIST'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(12): error C2059: syntax error: '='
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(38): error C3646: 'dist': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(38): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(40): error C3646: 'prevdist': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(40): error C2143: syntax error: missing ',' before '['
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(40): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(44): error C3646: 'prices': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(44): error C2143: syntax error: missing ',' before '['
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(44): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(47): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(47): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(47): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(51): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(51): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(51): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(52): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(52): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(52): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(53): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(53): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(53): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(54): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(54): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(54): error C2238: unexpected token(s) preceding ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(56): error C3646: 'prev_outsize': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(56): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(61): error C2061: syntax error: identifier 'BYTE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(86): error C2061: syntax error: identifier 'BYTE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(89): error C2061: syntax error: identifier 'BYTE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(92): error C2061: syntax error: identifier 'BYTE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(96): error C2061: syntax error: identifier 'BYTE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(103): error C2061: syntax error: identifier 'BYTE'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(118): error C3646: 'evaluate_literal_and_repdist': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(118): error C2059: syntax error: '('
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(118): error C2334: unexpected token(s) preceding '{'; skipping apparent function body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(183): error C3646: 'evaluate_matches': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(183): error C2059: syntax error: '('
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(184): error C2334: unexpected token(s) preceding '{'; skipping apparent function body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(216): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(216): error C2065: '_basep': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(216): error C2182: 'start_block': this use of 'void' is not valid
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(216): error C2470: 'OptimalParser<Coder>::start_block': looks like a function definition, but there is no parameter list; skipping apparent body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(216): error C2072: 'OptimalParser<Coder>::start_block': initialization of a function
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(216): error C2447: '{': missing function header (old-style formal list?)
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(231): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(231): error C2065: 'endp': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(231): error C2182: 'encode_block': this use of 'void' is not valid
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(231): error C2470: 'OptimalParser<Coder>::encode_block': looks like a function definition, but there is no parameter list; skipping apparent body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(231): error C2072: 'OptimalParser<Coder>::encode_block': initialization of a function
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(231): error C2447: '{': missing function header (old-style formal list?)
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(257): error C2065: 'PackMethod': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(257): error C2146: syntax error: missing ')' before identifier 'm'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(259): error C2143: syntax error: missing ';' before '{'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(259): error C2447: '{': missing function header (old-style formal list?)
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(395): error C2065: 'PackMethod': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(395): error C2146: syntax error: missing ')' before identifier 'm'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(396): error C2143: syntax error: missing ';' before '{'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\OptimalParsing.cpp(396): error C2447: '{': missing function header (old-style formal list?)
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(42): error C2061: syntax error: identifier 'WFCMTF_Rank2GrNum'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(42): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(42): error C2059: syntax error: '['
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(58): error C2061: syntax error: identifier 'WFCMTF_Rank2GrPos'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(58): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(58): error C2059: syntax error: '['
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(78): error C2061: syntax error: identifier 'WFCMTF_Rank2Mask'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(78): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(78): error C2059: syntax error: '['
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(94): error C2061: syntax error: identifier 'WFCMTF_GrNum2GrBegin'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(94): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(94): error C2059: syntax error: '['
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(96): error C2061: syntax error: identifier 'WFCMTF_Log2RLESize'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(96): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(96): error C2059: syntax error: '['
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(263): error C2061: syntax error: identifier 'GRZip_WFC_Ari_Encode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(263): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(263): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(263): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(263): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(263): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(263): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(263): error C2054: expected '(' to follow 'Output'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(488): error C2061: syntax error: identifier 'GRZip_WFC_Ari_Decode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(488): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(488): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(488): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(488): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(488): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(488): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\WFC_Ari.c(488): error C2054: expected '(' to follow 'Output'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(54): error C2061: syntax error: identifier 'GRZip_LZP_Encode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(54): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(54): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(54): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(54): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(54): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(54): error C2146: syntax error: missing ';' before identifier 'LZP_MinMatchLen'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(54): error C2146: syntax error: missing ';' before identifier 'LZP_HT_Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(54): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(54): error C2054: expected '(' to follow 'LZP_HT_Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(120): error C2061: syntax error: identifier 'GRZip_LZP_Decode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(120): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(120): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(120): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(120): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(120): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(120): error C2146: syntax error: missing ';' before identifier 'LZP_MinMatchLen'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(120): error C2146: syntax error: missing ';' before identifier 'LZP_HT_Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(120): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\LZP.c(120): error C2054: expected '(' to follow 'LZP_HT_Size'
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\a35768554b9f3a89-WFC_Ari.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip\\WFC_Ari.c"D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(44): error C2061: syntax error: identifier 'GRZip_Rec_Test'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(44): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(44): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(44): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(44): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(44): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(44): error C2054: expected '(' to follow 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(137): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(137): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(137): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(138): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(138): error C2146: syntax error: missing ';' before identifier 'Mode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(138): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(138): error C2054: expected '(' to follow 'Mode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(208): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(208): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(208): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(209): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(209): error C2146: syntax error: missing ';' before identifier 'Mode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(209): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\Rec_Flt.c(209): error C2054: expected '(' to follow 'Mode'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(42): error C2061: syntax error: identifier 'WFCMTF_Rank2GrNum'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(42): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(42): error C2059: syntax error: '['
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(58): error C2061: syntax error: identifier 'WFCMTF_Rank2GrPos'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(58): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(58): error C2059: syntax error: '['
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(78): error C2061: syntax error: identifier 'WFCMTF_Rank2Mask'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(78): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(78): error C2059: syntax error: '['
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(94): error C2061: syntax error: identifier 'WFCMTF_GrNum2GrBegin'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(94): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(94): error C2059: syntax error: '['
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(96): error C2061: syntax error: identifier 'WFCMTF_Log2RLESize'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(96): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\WFC_MTF.h(96): error C2059: syntax error: '['
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(183): error C2061: syntax error: identifier 'GRZip_MTF_Ari_Encode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(183): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(183): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(183): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(183): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(183): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(183): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(183): error C2054: expected '(' to follow 'Output'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(47): error C2061: syntax error: identifier 'GRZip_ST4_Encode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(47): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(47): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(47): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(47): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(47): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(47): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(47): error C2054: expected '(' to follow 'Output'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(91): error C2061: syntax error: identifier 'GRZip_ST4_Decode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(91): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(91): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(91): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(91): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(91): error C2146: syntax error: missing ';' before identifier 'FBP'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(91): error C2059: syntax error: ')'
+  DD:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\ST4.c(91): error C2054: expected '(' to follow 'FBP'
+  :\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(397): error C2061: syntax error: identifier 'GRZip_MTF_Ari_Decode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(397): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(397): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(397): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(397): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(397): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\MTF_Ari.c(397): error C2054: expected '(' to follow 'Output'
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\a35768554b9f3a89-ST4.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip\\ST4.c"D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(92): error C2061: syntax error: identifier 'BWT_Med3'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(92): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(92): error C2146: syntax error: missing ')' before identifier 'MA'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(92): error C2061: syntax error: identifier 'MA'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(92): error C2059: syntax error: ','
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(92): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(105): error C2061: syntax error: identifier 'StrongBWT_SimpleCMP'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(105): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(105): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(105): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(105): error C2146: syntax error: missing ';' before identifier 'i1'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(105): error C2146: syntax error: missing ';' before identifier 'i2'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(105): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(105): error C2054: expected '(' to follow 'i2'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(114): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(114): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(114): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(114): error C2146: syntax error: missing ';' before identifier 'Lo'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(114): error C2146: syntax error: missing ';' before identifier 'Hi'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(114): error C2146: syntax error: missing ';' before identifier 'd'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(114): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(114): error C2054: expected '(' to follow 'd'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(143): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(143): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(143): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(143): error C2146: syntax error: missing ';' before identifier 'Lo'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(143): error C2146: syntax error: missing ';' before identifier 'Hi'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(143): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(143): error C2054: expected '(' to follow 'Hi'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(191): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(191): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(191): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(191): error C2146: syntax error: missing ';' before identifier 'Lo'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(191): error C2146: syntax error: missing ';' before identifier 'Hi'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(191): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(191): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(191): error C2054: expected '(' to follow 'Stack'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(268): error C2061: syntax error: identifier 'GRZip_StrongBWT_Encode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(268): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(268): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(268): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(268): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(268): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(268): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(268): error C2054: expected '(' to follow 'Output'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(403): error C2061: syntax error: identifier 'GRZip_StrongBWT_Decode'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(403): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(403): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(403): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(403): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(403): error C2146: syntax error: missing ';' before identifier 'FBP'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(403): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(403): error C2054: expected '(' to follow 'FBP'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(443): error C2061: syntax error: identifier 'FastBWT_SimpleCmp'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(443): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(444): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(444): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(444): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(444): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(444): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(444): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(444): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(444): error C2054: expected '(' to follow 'AML'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(468): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(468): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(468): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(468): error C2146: syntax error: missing ';' before identifier 'Lo'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(469): error C2146: syntax error: missing ';' before identifier 'Hi'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(469): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(469): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(469): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(469): error C2054: expected '(' to follow 'AML'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(519): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(519): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(519): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(519): error C2146: syntax error: missing ';' before identifier 'Lo'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(520): error C2146: syntax error: missing ';' before identifier 'Hi'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(520): error C2146: syntax error: missing ';' before identifier 'd'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(520): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(520): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(520): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(520): error C2054: expected '(' to follow 'AML'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(545): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(545): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(545): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(545): error C2146: syntax error: missing ';' before identifier 'Lo'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(546): error C2146: syntax error: missing ';' before identifier 'Hi'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(546): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(546): error C2143: syntax error: missing ';' before '*'C_Delta.cpp
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(546): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(546): error C2054: expected '(' to follow 'AML'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(675): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(675): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(676): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(677): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(678): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(679): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(680): error C2146: syntax error: missing ';' before identifier 'Size'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(681): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(681): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(681): error C2054: expected '(' to follow 'AML'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/GRZip\BWT.c(681): fatal error C1003: error count exceeds 100; stopping compilation
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\shared\minwindef.h(156): error C2371: 'DWORD': redefinition; different basic types
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\um\winnt.h(2983): error C2733: '_BitScanForward': you cannot overload a function with 'extern "C"' linkage
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\um\winnt.h(2990): error C2733: '_BitScanReverse': you cannot overload a function with 'extern "C"' linkage
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\um\winnt.h(2997): error C2733: '_BitScanForward64': you cannot overload a function with 'extern "C"' linkage
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\um\winnt.h(3004): error C2733: '_BitScanReverse64': you cannot overload a function with 'extern "C"' linkage
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Common.h(485): error C2061: syntax error: identifier 'AllocTopDown'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Common.h(485): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(266): error C2061: syntax error: identifier 'Buffer'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(270): error C2059: syntax error: '~'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(272): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(273): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(273): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(273): error C2065: 'end': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(275): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(275): error C2065: 'end': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(275): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(276): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(276): error C2065: 'end': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(276): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(280): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(281): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(285): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(286): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(290): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(291): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(296): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(297): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(302): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(302): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(303): error C2371: 'freearc_reserve': redefinition; different basic types
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(305): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(305): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(305): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(306): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(307): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(308): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(308): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(308): error C2297: '+=': not valid as right operand has type 'byte *'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(309): error C2065: 'end': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(309): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(309): error C2297: '+=': not valid as right operand has type 'byte *'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(310): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(315): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(315): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(324): error C2065: 'end': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(324): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(324): error C2065: 'end': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(325): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(325): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(328): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(329): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(333): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(334): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(338): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(339): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(344): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(345): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(348): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(348): error C2065: 'end': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(348): error C2065: 'end': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(348): error C2065: 'p': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(349): error C2061: syntax error: identifier 'eof'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(349): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(349): error C2059: syntax error: '<parameter-list>'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(350): error C2059: syntax error: '}'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(400): error C2061: syntax error: identifier 'Set_compress_all_at_once_Until_end_of_block'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(404): error C2059: syntax error: '~'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(407): error C2059: syntax error: '}'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(719): error C2061: syntax error: identifier 'MemBuf'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(727): error C2065: 'writeBufferSize': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(727): error C2065: 'writeLeft': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Compression.h(738): error C2059: syntax error: '}'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Tornado/C_Tornado.h(3): error C2146: syntax error: missing ')' before identifier 'm'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Tornado/C_Tornado.h(3): error C2061: syntax error: identifier 'm'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Tornado/C_Tornado.h(3): error C2059: syntax error: ';'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Tornado/C_Tornado.h(3): error C2059: syntax error: ','
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression/Tornado/C_Tornado.h(3): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax\freearc_cpp_lib\TornadoImprovements.h(64): error C2143: syntax error: missing ')' before '*'
+  D:\misc\arc\arcmax\freearc_cpp_lib\TornadoImprovements.h(64): error C2143: syntax error: missing '{' before '*'
+  D:\misc\arc\arcmax\freearc_cpp_lib\TornadoImprovements.h(64): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax\freearc_cpp_lib\TornadoImprovements.h(64): error C2054: expected '(' to follow 'method'
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(136): error C2065: 'PackMethod': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(136): error C2146: syntax error: missing ';' before identifier 'method'
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(136): error C2065: 'std_Tornado_method': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(136): error C2109: subscript requires array or pointer type
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(156): error C2065: 'PPM_CONTEXT': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(156): error C2065: 'ctx': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(156): error C2106: '=': left operand must be l-value
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(157): error C2065: 'ctx': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(161): error C2065: 'ctx': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(162): error C2065: 'ctx': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(198): error C2065: 'COMPRESSION_METHOD': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(198): error C2297: '*': not valid as right operand has type 'int *'
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(205): error C2223: left of '->decompress' must point to struct/union
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(208): error C2065: 'delete': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(208): error C2146: syntax error: missing ';' before identifier 'method'
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(235): error C2065: 'COMPRESSION_METHOD': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/freearc_wrapper.c(235): fatal error C1003: error count exceeds 100; stopping compilation
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\um\sysinfoapi.h(492): error C2733: 'VerSetConditionMask': you cannot overload a function with 'extern "C"' linkage
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\ttaenc.h(75): error C2061: syntax error: identifier 'CALLBACK_FUNC'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\ttaenc.h(76): error C2065: 'CALLBACK_FUNC': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\ttaenc.h(76): error C2065: 'callback': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\ttaenc.h(76): error C2062: type 'void' unexpected
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Common.cpp(389): error C2664: 'int _utime(const char *const ,_utimbuf *const )': cannot convert argument 2 from 'utimbuf *' to '_utimbuf *const '
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Common.cpp(427): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Common.cpp(427): error C3861: 'getpriority': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Common.cpp(428): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Common.cpp(428): error C3861: 'setpriority': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Common.cpp(434): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Common.cpp(434): error C3861: 'getpriority': identifier not found
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\shared\bcrypt.h(28): error C2598: linkage specification must be at global scope
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Common.cpp(639): error C3861: 'NT_SUCCESS': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\LZMA2\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\LZMA2\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/LZMA2\C_LZMA.cpp(29): error C3861: 'strcasecmp': identifier not found
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\45d9c99a96f7c9fa-entropy.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM\\entropy.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Common.cpp(389): error C2664: 'int _utime(const char *const ,_utimbuf *const )': cannot convert argument 2 from 'utimbuf *' to '_utimbuf *const '
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Common.cpp(427): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Common.cpp(427): error C3861: 'getpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Common.cpp(428): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Common.cpp(428): error C3861: 'setpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Common.cpp(434): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Common.cpp(434): error C3861: 'getpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\PPMD\../Compression.h(279): error C3861: 'reserve': identifier not found
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\shared\bcrypt.h(28): error C2598: linkage specification must be at global scope
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Common.h(570): error C2664: 'unsigned char _BitScanReverse64(unsigned long *,unsigned __int64)': cannot convert argument 1 from 'DWORD *' to 'unsigned long *'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Common.cpp(639): error C3861: 'NT_SUCCESS': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\PPMD\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\LZMA2\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\PPMD\PPMdType.h(18): error C2371: 'DWORD': redefinition; different basic types
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\LZMA2\C_LZMA.cpp(29): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Tornado\../Compression.h(279): error C3861: 'reserve': identifier not found
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\41095bad47c7c040-Model.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD\\Model.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\GRZip\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(329): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(344): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(346): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(348): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(350): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(352): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(354): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(356): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(360): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(363): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(365): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(368): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(370): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(372): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(374): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(376): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(378): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(380): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(382): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(384): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(386): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(388): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Tornado\main.cpp(390): error C3861: 'strcasecmp': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\LZP\../Compression.h(279): error C3861: 'reserve': identifier not found
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\340f1a7b7daa519e-C_Tornado.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado\\C_Tornado.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Compression.h(279): error C3861: 'reserve': identifier not found
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\4f233c4f510af183-C_LZMA.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2\\C_LZMA.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\Delta.cpp(365): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\Delta.cpp(393): error C2039: 'reserve': is not a member of 'Buffer'
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\340f1a7b7daa519e-main.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado\\main.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\Delta.cpp(779): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\Delta.cpp(781): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\Delta.cpp(783): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\Delta.cpp(785): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Delta\Delta.cpp(365): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Delta\Delta.cpp(393): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Delta\Delta.cpp(779): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Delta\Delta.cpp(781): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Delta\Delta.cpp(783): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/Delta\Delta.cpp(785): error C2039: 'reserve': is not a member of 'Buffer'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Compression.h(279): error C3861: 'reserve': identifier not found
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\b88d30bf34573cf6-C_Delta.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta\\C_Delta.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Common.cpp(389): error C2664: 'int _utime(const char *const ,_utimbuf *const )': cannot convert argument 2 from 'utimbuf *' to '_utimbuf *const '
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(7): error C2061: syntax error: identifier 'Offset'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(12): error C2065: 'h': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(12): error C2065: 'k': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(12): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(12): error C2065: 'last_match_end': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(12): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(12): error C2065: 'i': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(13): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(13): error C2065: 'block_size': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(13): error C2065: 'block_start': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(13): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(17): error C2065: 'i': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(21): error C2065: 'Offset': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(21): error C2146: syntax error: missing ';' before identifier 'match_offset'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(21): error C2065: 'match_offset': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(21): error C2065: 'block_start': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(21): error C2065: 'i': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(21): error C2065: 'k': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(21): error C3861: 'Offset': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(22): error C2065: 'match_offset': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(22): error C2065: 'pc': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(23): error C2065: 'pc': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(23): error C2065: 'pc': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(25): error C2065: 'stat': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(25): error C2065: 'last_match_end': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(26): error C2065: 'match_offset': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(24): error C3861: 'ENCODE_LZ_MATCH': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(28): error C2065: 'match_end': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(29): error C2065: 'literal_bytes': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress.cpp(66): error C2061: syntax error: identifier 'Offset'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Common.cpp(427): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Common.cpp(427): error C3861: 'getpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Common.cpp(428): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Common.cpp(428): error C3861: 'setpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Common.cpp(434): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Common.cpp(434): error C3861: 'getpriority': identifier not found
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\4f233c4f510af183-FreeArc-LZMA.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2\\FreeArc-LZMA.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Common.cpp(389): error C2664: 'int _utime(const char *const ,_utimbuf *const )': cannot convert argument 2 from 'utimbuf *' to '_utimbuf *const '
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\shared\bcrypt.h(28): error C2598: linkage specification must be at global scope
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Common.cpp(427): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Common.cpp(427): error C3861: 'getpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Common.cpp(428): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Common.cpp(428): error C3861: 'setpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Common.cpp(434): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Common.cpp(434): error C3861: 'getpriority': identifier not found
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\shared\bcrypt.h(28): error C2598: linkage specification must be at global scope
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Delta\../Common.cpp(639): error C3861: 'NT_SUCCESS': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(9): error C2988: unrecognizable template declaration/definition
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(9): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(9): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(9): error C2065: 'ptr': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(9): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(9): error C2065: 'lastmark': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(10): error C2065: 'HashType': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(10): error C2146: syntax error: missing ')' before identifier 'maxhash'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(11): error C2143: syntax error: missing ';' before '{'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(11): error C2447: '{': missing function header (old-style formal list?)
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(37): error C2988: unrecognizable template declaration/definition
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(37): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(37): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(37): error C2065: 'ptr': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(37): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(37): error C2065: 'pend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(37): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(37): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(37): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(37): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(38): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(38): error C2065: 'marks': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(38): error C2062: type 'unsigned int' unexpected
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(39): error C2143: syntax error: missing ';' before '{'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(39): error C2447: '{': missing function header (old-style formal list?)
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(78): error C2988: unrecognizable template declaration/definition
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(78): error C2143: syntax error: missing ';' before '*'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(78): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(78): error C2065: 'ptr': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(78): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(78): error C2065: 'pend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(78): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(78): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(78): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(78): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(79): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(79): error C2065: 'lastmark': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(79): error C2062: type 'unsigned int' unexpected
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(79): error C2143: syntax error: missing ';' before '{'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(79): error C2447: '{': missing function header (old-style formal list?)
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(118): error C2065: 'kb': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(121): error C2065: 'MINIMAL_MIN_MATCH': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(220): error C2061: syntax error: identifier 'Offset'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(223): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(223): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(223): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(223): error C2988: unrecognizable template declaration/definition
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(223): error C2059: syntax error: ')'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(224): error C2065: 'literal_bytes': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(225): error C2065: 'stat': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(225): error C2065: 'statbuf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(226): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(226): error C2065: 'last_match': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(226): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(226): error C2065: 'last_chunk': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(226): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(227): error C2065: 'MINIMAL_MIN_MATCH': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(228): error C2065: 'MINIMAL_MIN_MATCH': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(229): error C2065: 'PolynomialRollingHash': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(229): error C2275: 'size_t': expected an expression instead of a type
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(229): error C2065: 'PRIME1': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(229): error C3861: 'hash1': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(230): error C2065: 'CrcRollingHash': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(230): error C2065: 'uint32': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(230): error C2065: 'Crc32CastagnoliPolynom': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(230): error C3861: 'hash2': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(232): error C2065: 'g': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(233): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(233): error C2065: 'ptr': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(233): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(233): error C2065: 'g': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(233): error C2065: 'ptr': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(233): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(236): error C2065: 'ptr': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(236): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(237): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(237): error C2065: 'pend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(237): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(237): error C2065: 'ptr': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(237): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(237): error C2065: 'ptr': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(238): error C2065: 'g': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(240): error C2065: 'ptr': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(241): error C2065: 'pend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(242): error C2065: 'buf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(243): error C2065: 'bufend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(246): error C2065: 'hash1': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(247): error C2065: 'hash2': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(248): error C2065: 'g': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(249): error C2065: 'ptr': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(249): error C2065: 'pend': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(251): error C2065: 'g': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(253): error C2065: 'g': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(257): error C2065: 'BYTE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(257): error C2065: 'vhash': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(257): error C2027: use of undefined type 'CDC_Job'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(258): error C2027: use of undefined type 'CDC_Job'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(259): error C2027: use of undefined type 'CDC_Job'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(261): error C2027: use of undefined type 'CDC_Job'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(261): error C2065: 'last_chunk': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(261): error C2027: use of undefined type 'CDC_Job'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_cdc.cpp(261): fatal error C1003: error count exceeds 100; stopping compilation
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\Dict\../Common.cpp(639): error C3861: 'NT_SUCCESS': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(12): error C3646: 'dictsize': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(12): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(13): error C3646: 'hashsize': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(13): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(18): error C3646: 'BLOCKSIZE': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(18): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(23): error C2061: syntax error: identifier 'Offset'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(45): error C3646: 'memreq': unknown override specifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(45): error C2059: syntax error: '('
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(45): error C2334: unexpected token(s) preceding '{'; skipping apparent function body
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(50): error C2061: syntax error: identifier 'STAT'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(26): error C2065: '_dictsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(26): error C2065: '_MIN_MATCH': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(26): error C2065: '_L': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(26): error C2065: '_BASE_LEN': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(27): error C2065: '_BLOCKSIZE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(27): error C2065: '_BUFFERS': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(26): error C2614: 'DictionaryCompressor': illegal member initialization: 'dictsize' is not a base or member
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(27): error C2614: 'DictionaryCompressor': illegal member initialization: 'BLOCKSIZE' is not a base or member
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(28): error C2065: 'NO_ERRORS': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(29): error C2065: 'hashsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(30): error C2065: 'NULL': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(31): error C2065: 'dictsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(33): error C2065: 'hashsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(34): error C2065: '_hashsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(34): error C2065: '_hashsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(35): error C2065: 'dictsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(35): error C3861: 'min_hash_size': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(33): error C3861: 'roundup_to_power_of': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(37): error C2065: 'hashsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(38): error C2065: 'hashsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(38): error C2065: 'LargePageMode': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(38): error C3861: 'BigAlloc': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(40): error C2065: 'ERROR_MEMORY': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(43): error C2065: 'hashsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(43): error C3861: 'my_memset': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(46): error C3861: 'BigFree': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(73): error C2065: 'dictsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(79): error C2065: 'PolynomialRollingHash': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(79): error C2275: 'index': expected an expression instead of a type
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(79): error C2065: 'PRIME1': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(79): error C3861: 'hash': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(85): error C2065: 'hash': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(87): error C2061: syntax error: identifier 'unlikely'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(89): error C2065: 'hash': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(99): error C2061: syntax error: identifier 'STAT'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(102): error C2065: 'stat': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(102): error C2065: 'statbuf': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(103): error C2065: 'dictsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(111): error C2065: 'BLOCKSIZE': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(112): error C2065: 'dictsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(145): error C2065: 'dictsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(145): error C2065: 'dictsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(150): error C3861: 'mymax': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(149): error C2660: 'find_match_start': function does not take 2 arguments
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(153): error C3861: 'mymin': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(152): error C2660: 'find_match_end': function does not take 2 arguments
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(159): error C2065: 'Offset': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(159): error C2146: syntax error: missing ';' before identifier 'match_distance'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(159): error C2065: 'match_distance': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(159): error C2065: 'dictsize': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(161): error C2065: 'stat': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(161): error C2065: 'match_distance': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(161): error C3861: 'ENCODE_LZ_MATCH': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(165): error C2065: 'match_cnt': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(165): error C2065: 'matches': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(165): error C3861: 'debug': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(166): error C2065: 'verbose': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(167): error C2065: 'match_distance': undeclared identifier
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(167): error C3861: 'printf': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/SREP\compress_inmem.cpp(166): error C3861: 'debug': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\LZ4\../Compression.h(279): error C3861: 'reserve': identifier not found
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\769f162df97d5d83-C_GRZip.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip\\C_GRZip.cpp"C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\um\winnt.h(2597): error C2338: static assertion failed: 'Windows headers require the default packing option. Changing this can lead to memory corruption. This diagnostic can be disabled by building with WINDOWS_IGNORE_PACKING_MISMATCH defined.'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Compression.h(279): error C3861: 'reserve': identifier not found
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\45d9c99a96f7c9fa-C_TTA.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM\\C_TTA.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\_Encryption\7zAES/CpuArch.c(88): error C3861: '__cpuid': identifier not found
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\45d9c99a96f7c9fa-filters.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM\\filters.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(389): error C2664: 'int _utime(const char *const ,_utimbuf *const )': cannot convert argument 2 from 'utimbuf *' to '_utimbuf *const '
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(427): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(427): error C3861: 'getpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(428): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(428): error C3861: 'setpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(434): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(434): error C3861: 'getpriority': identifier not found
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\shared\bcrypt.h(28): error C2598: linkage specification must be at global scope
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(639): error C3861: 'NT_SUCCESS': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/MM\mm.cpp(394): error C2664: 'int read(int,void *,unsigned int)': cannot convert argument 1 from 'FILE *' to 'int'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/MM\mm.cpp(408): error C2664: 'int write(int,const void *,unsigned int)': cannot convert argument 1 from 'FILE *' to 'int'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/MM\mm.cpp(518): error C2664: 'int mm_compress(int,int,int,int,int,int,int,CALLBACK_FUNC (__cdecl *),void *)': cannot convert argument 8 from 'int (__cdecl *)(void *,int)' to 'CALLBACK_FUNC (__cdecl *)'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/MM\mm.cpp(520): error C2664: 'int mm_decompress(CALLBACK_FUNC (__cdecl *),void *)': cannot convert argument 1 from 'int (__cdecl *)(void *,int)' to 'CALLBACK_FUNC (__cdecl *)'
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(389): error C2664: 'int _utime(const char *const ,_utimbuf *const )': cannot convert argument 2 from 'utimbuf *' to '_utimbuf *const '
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(427): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(427): error C3861: 'getpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(428): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(428): error C3861: 'setpriority': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(434): error C2065: 'PRIO_PROCESS': undeclared identifier
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(434): error C3861: 'getpriority': identifier not found
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\shared\bcrypt.h(28): error C2598: linkage specification must be at global scope
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\REP\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\MM\../Common.cpp(639): error C3861: 'NT_SUCCESS': identifier not found
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/MM\tta.cpp(599): error C2664: 'int read(int,void *,unsigned int)': cannot convert argument 1 from 'FILE *' to 'int'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/MM\tta.cpp(613): error C2664: 'int write(int,const void *,unsigned int)': cannot convert argument 1 from 'FILE *' to 'int'
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/MM\tta.cpp(730): error C2660: 'tta_compress': function does not take 11 arguments
+  D:\misc\arc\arcmax/freearc_cpp_lib/Compression/MM\tta.cpp(732): error C2660: 'tta_decompress': function does not take 4 arguments
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\REP\../Compression.h(279): error C3861: 'reserve': identifier not found
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\45d9c99a96f7c9fa-mmdet.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM\\mmdet.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\4x4\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\_Encryption\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\_Encryption\ciphers/aes/aes.c(33): fatal error C1083: Cannot open include file: 'tomcrypt.h': No such file or directory
+  cargo:warning=ToolExecError: command did not execute successfully (status code exit code: 2): "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Tools\\MSVC\\14.50.35503\\bin\\HostX64\\x64\\cl.exe" "-nologo" "-MD" "-Z7" "-Brepro" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZMA2" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/PPMD" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Tornado" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/GRZip" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Delta" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/Dict" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/LZ4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/MM" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/REP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/SREP" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4" "-I" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/_Encryption" "-W0" "-D_WIN32" "-DWIN32" "-DWIN32_LEAN_AND_MEAN" "-DNOMINMAX" "-DNDEBUG" "-FoD:\\misc\\arc\\arcmax\\target\\debug\\build\\arcmax-d0957d1da9895591\\out\\8cb4c41d453625e6-C_4x4.o" "-c" "D:\\misc\\arc\\arcmax/freearc_cpp_lib/Compression/4x4\\C_4x4.cpp"D:\misc\arc\arcmax\freearc_cpp_lib\Compression\SREP\../Compression.h(279): error C3861: 'reserve': identifier not found
+  D:\misc\arc\arcmax\freearc_cpp_lib\Compression\_Encryption\hashes/md5.c(11): fatal error C1083: Cannot open include file: 'tomcrypt.h': No such file or directory

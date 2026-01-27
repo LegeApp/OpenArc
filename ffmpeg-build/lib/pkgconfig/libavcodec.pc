@@ -1,0 +1,14 @@
+prefix=/d/misc/arc/openarc/ffmpeg-build
+exec_prefix=${prefix}
+libdir=/d/misc/arc/openarc/ffmpeg-build/lib
+includedir=/d/misc/arc/openarc/ffmpeg-build/include
+
+Name: libavcodec
+Description: FFmpeg codec library
+Version: 62.11.100
+Requires: libavutil >= 60.8.100
+Requires.private: 
+Conflicts:
+Libs: -L${libdir}  -lavcodec -liconv -lm -latomic -lx264 -lx265 -lole32 -luser32
+Libs.private: 
+Cflags: -I${includedir}
