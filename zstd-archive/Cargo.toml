@@ -1,0 +1,22 @@
+[package]
+name = "zstd-archive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Zstandard archiving library for OpenArc"
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+rayon.workspace = true
+crc32fast.workspace = true
+zstd = "0.13"
+bytes = "1.11"
+tar = { version = "0.4", optional = true }
+
+[features]
+tar = ["dep:tar"]
+
+[lib]
+name = "zstd_archive"
+path = "src/lib.rs"

@@ -1,0 +1,34 @@
+[package]
+name = "bpg-viewer"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib", "staticlib"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+rayon.workspace = true
+image = "0.25.9"
+png = "0.17"
+lcms2 = "6.0"
+rawloader = "0.37"
+codecs = { path = "../codecs" }
+dng = { path = "../dng-rs" }
+openjp2 = { path = "../openjp2" }
+
+[build-dependencies]
+cc = "1.0"
+
+[dev-dependencies]
+criterion = "0.5"
+
+# Binaries disabled - only library is needed for OpenArc integration
+# [[bin]]
+# name = "bpg-view"
+# path = "src/bin/viewer.rs"
+#
+# [[bin]]
+# name = "bpg-thumb"
+# path = "src/bin/thumbnail.rs"

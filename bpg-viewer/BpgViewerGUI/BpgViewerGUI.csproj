@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>BpgViewerGUI</AssemblyName>
+    <RootNamespace>BpgViewer</RootNamespace>
+    <StartupObject>BpgViewer.App</StartupObject>
+    <AssemblyTitle>BPG Viewer</AssemblyTitle>
+    <AssemblyDescription>BPG Image Viewer with Zoom and Catalog Support</AssemblyDescription>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MetadataExtractor" Version="2.9.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Xaml.Behaviors.Wpf" Version="1.1.39" />
+    <PackageReference Include="Ookii.Dialogs.Wpf" Version="5.0.1" />
+    <PackageReference Include="VirtualizingWrapPanel" Version="2.3.2" />
+    <!-- WPF-UI Dependencies (same as OpenARC) -->
+    <PackageReference Include="WPF-UI" Version="4.0.0" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\**\*" />
+  </ItemGroup>
+
+  <!-- Copy the BPG viewer DLL from Rust build -->
+  <ItemGroup>
+    <None Include="..\target\release\bpg_viewer.dll" Condition="Exists('..\target\release\bpg_viewer.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>bpg_viewer.dll</Link>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,70 @@
+<Application x:Class="DocBrake.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:converters="clr-namespace:DocBrake.Converters">    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>                <!-- WPFUI Theme Resources -->
+                <ui:ThemesDictionary Theme="Light" />
+                <ui:ControlsDictionary />
+                
+                <!-- Custom theme and styles - temporarily commented out to test basic functionality -->
+                <!-- <ResourceDictionary Source="pack://application:,,,/DocBrakeGUI;component/Themes/LightTheme.xaml" /> -->
+                <!-- <ResourceDictionary Source="pack://application:,,,/DocBrakeGUI;component/Themes/Generic.xaml" /> -->            </ResourceDictionary.MergedDictionaries>
+            
+            <!-- Add explicit system color mappings -->
+            <SolidColorBrush x:Key="WindowBrush" Color="{DynamicResource {x:Static SystemColors.WindowColorKey}}"/>
+            <SolidColorBrush x:Key="ActiveBorderBrush" Color="{DynamicResource {x:Static SystemColors.ActiveBorderColorKey}}"/>
+            <SolidColorBrush x:Key="ControlBrush" Color="{DynamicResource {x:Static SystemColors.ControlColorKey}}"/>
+            <SolidColorBrush x:Key="ControlLightBrush" Color="{DynamicResource {x:Static SystemColors.ControlLightColorKey}}"/>
+            <SolidColorBrush x:Key="ControlDarkBrush" Color="{DynamicResource {x:Static SystemColors.ControlDarkColorKey}}"/>
+            <SolidColorBrush x:Key="ControlTextBrush" Color="{DynamicResource {x:Static SystemColors.ControlTextColorKey}}"/>
+            <SolidColorBrush x:Key="WindowTextBrush" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}"/>
+            <SolidColorBrush x:Key="GrayTextBrush" Color="{DynamicResource {x:Static SystemColors.GrayTextColorKey}}"/>
+            <SolidColorBrush x:Key="HighlightBrush" Color="{DynamicResource {x:Static SystemColors.HighlightColorKey}}"/>
+            
+            <!-- Global Converters -->
+            <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+            <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+            <converters:StringNotEmptyConverter x:Key="StringNotEmptyConverter" />
+            
+            <!-- Additional Modern Styles -->
+            <Style x:Key="IconButtonStyle" TargetType="Button">
+                <Setter Property="Padding" Value="8,5"/>
+                <Setter Property="Margin" Value="4,2"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Opacity" Value="0.8"/>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Opacity" Value="1"/>
+                        <Setter Property="Background" Value="#E0E0E0"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="ModernProgressBar" TargetType="ProgressBar">
+                <Setter Property="Height" Value="10"/>
+                <Setter Property="Foreground" Value="#1E88E5"/>
+                <Setter Property="Background" Value="#E0E0E0"/>
+                <Setter Property="BorderThickness" Value="0"/>
+            </Style>
+              <Style x:Key="AccentToggleButtonStyle" TargetType="ToggleButton">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="8"/>
+                <Setter Property="Opacity" Value="0.7"/>
+                <Style.Triggers>
+                    <Trigger Property="IsChecked" Value="True">
+                        <Setter Property="Background" Value="#1E88E5"/>
+                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="Opacity" Value="1"/>
+                    </Trigger>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Opacity" Value="1"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

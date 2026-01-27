@@ -1,0 +1,392 @@
+<UserControl x:Class="BpgViewer.Views.CatalogView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="1000"
+             Background="#FFF5F5F5">
+
+    <UserControl.Resources>
+        <!-- Thumbnail item template -->
+        <DataTemplate x:Key="ThumbnailTemplate">
+            <Border x:Name="ThumbnailBorder"
+                    Margin="{Binding DataContext.ThumbnailMargin, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    Background="Transparent"
+                    BorderBrush="Transparent"
+                    BorderThickness="0"
+                    Cursor="Hand"
+                    RenderTransformOrigin="0.5,0.5"
+                    MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown"
+                    MouseLeftButtonUp="Thumbnail_MouseLeftButtonUp">
+                <Border.RenderTransform>
+                    <ScaleTransform ScaleX="1.0" ScaleY="1.0"/>
+                </Border.RenderTransform>
+
+                <Grid Width="{Binding DataContext.ThumbnailSize, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- File name ABOVE thumbnail -->
+                    <StackPanel Grid.Row="0" Margin="2,0,2,3">
+                        <TextBlock Text="{Binding FileNameWithoutExtension}"
+                                  Foreground="#FF333333"
+                                  FontSize="11"
+                                  TextTrimming="CharacterEllipsis"
+                                  TextAlignment="Center"
+                                  ToolTip="{Binding FileName}"/>
+                        <TextBlock Foreground="#FF888888"
+                                  FontSize="9"
+                                  TextAlignment="Center">
+                            <Run Text="{Binding FileSizeFormatted, Mode=OneWay}"/>
+                        </TextBlock>
+                    </StackPanel>
+
+                    <!-- Thumbnail image -->
+                    <Grid Grid.Row="1" Height="{Binding DataContext.ThumbnailImageHeight, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                        <!-- Loading indicator -->
+                        <StackPanel Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibilityConverter}}"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Center">
+                            <TextBlock Text="⏳"
+                                      FontSize="24"
+                                      HorizontalAlignment="Center"
+                                      Foreground="#FF888888"/>
+                        </StackPanel>
+
+                        <!-- Error indicator -->
+                        <StackPanel Visibility="{Binding HasError, Converter={StaticResource BoolToVisibilityConverter}}"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Center">
+                            <TextBlock Text="❌"
+                                      FontSize="24"
+                                      HorizontalAlignment="Center"
+                                      Foreground="#FFCC6666"/>
+                        </StackPanel>
+
+                        <!-- Actual thumbnail -->
+                        <Image Source="{Binding ThumbnailImage}"
+                              Stretch="Uniform"
+                              RenderOptions.BitmapScalingMode="HighQuality"
+                              Visibility="{Binding ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter TargetName="ThumbnailBorder" Property="BorderBrush" Value="#FF007ACC"/>
+                    <Setter TargetName="ThumbnailBorder" Property="BorderThickness" Value="2"/>
+                </DataTrigger>
+                <Trigger SourceName="ThumbnailBorder" Property="IsMouseOver" Value="True">
+                    <Setter TargetName="ThumbnailBorder" Property="Background" Value="#10000000"/>
+                    <Trigger.EnterActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetName="ThumbnailBorder"
+                                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                               To="1.02"
+                                               Duration="0:0:0.1">
+                                    <DoubleAnimation.EasingFunction>
+                                        <CubicEase EasingMode="EaseOut"/>
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                                <DoubleAnimation Storyboard.TargetName="ThumbnailBorder"
+                                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                               To="1.02"
+                                               Duration="0:0:0.1">
+                                    <DoubleAnimation.EasingFunction>
+                                        <CubicEase EasingMode="EaseOut"/>
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetName="ThumbnailBorder"
+                                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                               To="1.0"
+                                               Duration="0:0:0.1">
+                                    <DoubleAnimation.EasingFunction>
+                                        <CubicEase EasingMode="EaseOut"/>
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                                <DoubleAnimation Storyboard.TargetName="ThumbnailBorder"
+                                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                               To="1.0"
+                                               Duration="0:0:0.1">
+                                    <DoubleAnimation.EasingFunction>
+                                        <CubicEase EasingMode="EaseOut"/>
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.ExitActions>
+                </Trigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- Toolbar -->
+            <RowDefinition Height="*"/>
+            <!-- Thumbnails -->
+            <RowDefinition Height="Auto"/>
+            <!-- Status bar -->
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0"
+               Background="#FFE8E8E8"
+               BorderBrush="#FFD0D0D0"
+               BorderThickness="0,0,0,1"
+               Padding="10,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Left buttons -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button Content="📄 Open File"
+                           Command="{Binding OpenFileCommand}"
+                           Padding="10,5"
+                           Margin="0,0,5,0"
+                           Background="#FFDDDDDD"
+                           Foreground="#FF333333"
+                           BorderThickness="1"
+                           BorderBrush="#FFC0C0C0"/>
+
+                    <Button Content="📁 Open Folder"
+                           Command="{Binding OpenFolderCommand}"
+                           Padding="10,5"
+                           Margin="0,0,5,0"
+                           Background="#FFDDDDDD"
+                           Foreground="#FF333333"
+                           BorderThickness="1"
+                           BorderBrush="#FFC0C0C0"/>
+
+                    <Button Content="🔄 Refresh"
+                           Command="{Binding RefreshCommand}"
+                           Padding="10,5"
+                           Margin="0,0,5,0"
+                           Background="#FFDDDDDD"
+                           Foreground="#FF333333"
+                           BorderThickness="1"
+                           BorderBrush="#FFC0C0C0"/>
+
+                    <Separator Width="1" Background="#FFD0D0D0" Margin="10,0"/>
+
+                    <TextBlock Text="{Binding DirectoryName}"
+                              Foreground="#FF555555"
+                              VerticalAlignment="Center"
+                              FontSize="12"
+                              MaxWidth="400"
+                              TextTrimming="CharacterEllipsis"
+                              ToolTip="{Binding CurrentDirectory}"/>
+                </StackPanel>
+
+                <!-- Right controls -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <TextBlock Text="Size:"
+                              Foreground="#FF555555"
+                              VerticalAlignment="Center"
+                              Margin="0,0,5,0"/>
+
+                    <Button Content="➖"
+                           Command="{Binding DecreaseSizeCommand}"
+                           Width="28" Height="28"
+                           Background="#FFDDDDDD"
+                           Foreground="#FF333333"
+                           BorderThickness="1"
+                           BorderBrush="#FFC0C0C0"
+                           FontSize="12"/>
+
+                    <TextBlock Text="{Binding ThumbnailSize, StringFormat={}{0}px}"
+                              Foreground="#FF333333"
+                              VerticalAlignment="Center"
+                              Width="50"
+                              TextAlignment="Center"
+                              FontSize="11"/>
+
+                    <Button Content="➕"
+                           Command="{Binding IncreaseSizeCommand}"
+                           Width="28" Height="28"
+                           Background="#FFDDDDDD"
+                           Foreground="#FF333333"
+                           BorderThickness="1"
+                           BorderBrush="#FFC0C0C0"
+                           FontSize="12"/>
+
+                    <Separator Width="1" Background="#FFD0D0D0" Margin="10,0"/>
+
+                    <Button Content="🗑️ Clear Cache"
+                           Command="{Binding ClearCacheCommand}"
+                           Padding="10,5"
+                           Background="#FFDDDDDD"
+                           Foreground="#FF333333"
+                           BorderThickness="1"
+                           BorderBrush="#FFC0C0C0"
+                           ToolTip="{Binding CacheSizeFormatted, StringFormat='Cache size: {0}'}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Main Content Area -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="250"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- File Browser Sidebar -->
+            <TreeView Grid.Column="0" 
+                      ItemsSource="{Binding RootFolders}"
+                      BorderThickness="0"
+                      Background="#FFF0F0F0"
+                      Padding="5"
+                      SelectedItemChanged="TreeView_SelectedItemChanged">
+                <TreeView.ItemTemplate>
+                    <HierarchicalDataTemplate ItemsSource="{Binding SubFolders}">
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <TextBlock Text="{Binding Icon}" Margin="0,0,5,0" Foreground="#FF666666"/>
+                            <TextBlock Text="{Binding Name}" Foreground="#FF333333"/>
+                        </StackPanel>
+                    </HierarchicalDataTemplate>
+                </TreeView.ItemTemplate>
+                <TreeView.ItemContainerStyle>
+                    <Style TargetType="TreeViewItem">
+                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                        <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
+                    </Style>
+                </TreeView.ItemContainerStyle>
+            </TreeView>
+
+            <!-- Splitter -->
+            <GridSplitter Grid.Column="1" 
+                         Width="3" 
+                         HorizontalAlignment="Center" 
+                         VerticalAlignment="Stretch"
+                         Background="#FFE0E0E0"/>
+
+            <!-- Thumbnails grid -->
+            <ScrollViewer Grid.Column="2"
+                         x:Name="ThumbnailScroller"
+                         HorizontalScrollBarVisibility="Disabled"
+                         VerticalScrollBarVisibility="Auto"
+                         Background="#FFF5F5F5"
+                         PreviewKeyDown="CatalogView_KeyDown"
+                         Focusable="True">
+
+                <!-- Empty state -->
+                <Grid>
+                    <StackPanel Visibility="{Binding TotalCount, Converter={StaticResource ZeroToVisibilityConverter}}"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Center"
+                               Margin="50">
+                    <TextBlock Text="📂"
+                              FontSize="72"
+                              HorizontalAlignment="Center"
+                              Foreground="#FF999999"/>
+                    <TextBlock Text="No BPG images"
+                              FontSize="20"
+                              HorizontalAlignment="Center"
+                              Foreground="#FF666666"
+                              Margin="0,10,0,0"/>
+                    <TextBlock Text="Click 'Open Folder' to browse BPG files"
+                              FontSize="12"
+                              HorizontalAlignment="Center"
+                              Foreground="#FF888888"
+                              Margin="0,5,0,0"/>
+                </StackPanel>
+
+                <!-- Thumbnails ListView with VirtualizingWrapPanel -->
+                <ListView ItemsSource="{Binding Thumbnails}"
+                         ItemTemplate="{StaticResource ThumbnailTemplate}"
+                         HorizontalAlignment="Center"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         Visibility="{Binding TotalCount, Converter={StaticResource NonZeroToVisibilityConverter}}">
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <vwp:VirtualizingWrapPanel Orientation="Horizontal"
+                                                      SpacingMode="Uniform"
+                                                      StretchItems="False"/>
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Margin" Value="0"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListViewItem">
+                                        <ContentPresenter/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                </ListView>
+            </Grid>
+        </ScrollViewer>
+
+        </Grid>
+
+        <!-- Status bar -->
+        <Border Grid.Row="2"
+               Background="#FFE8E8E8"
+               BorderBrush="#FFD0D0D0"
+               BorderThickness="0,1,0,0"
+               Padding="10,5">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                          Text="{Binding StatusMessage}"
+                          Foreground="#FF555555"
+                          VerticalAlignment="Center"/>
+
+                <!-- Loading progress (only visible when loading) -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" 
+                           Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibilityConverter}}"
+                           Margin="0,0,15,0">
+                    <ProgressBar Width="100" Height="12" 
+                                Value="{Binding LoadingProgress, Mode=OneWay}" Maximum="100"
+                                Margin="0,0,8,0"/>
+                    <TextBlock Foreground="#FF555555" VerticalAlignment="Center" FontSize="11">
+                        <Run Text="{Binding LoadedCount, Mode=OneWay}"/><Run Text="/"/><Run Text="{Binding TotalCount, Mode=OneWay}"/>
+                    </TextBlock>
+                </StackPanel>
+
+                <TextBlock Grid.Column="2"
+                          Foreground="#FF888888"
+                          VerticalAlignment="Center">
+                    <Run Text="{Binding TotalCount, Mode=OneWay}"/>
+                    <Run Text="images"/>
+                </TextBlock>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

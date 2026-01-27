@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(dir:*)",
+      "Bash(set PATH=C:msys64mingw64bin)",
+      "Bash(%PATH%)",
+      "Bash(cargo build:*)",
+      "Bash(PATH=\"/c/msys64/mingw64/bin:$PATH\" cargo build:*)",
+      "Bash(export PATH=\"C:/msys64/mingw64/bin:$PATH\")",
+      "Bash(export PATH=\"C:/msys64/mingw64/bin:C:/msys64/usr/bin:$PATH\")",
+      "Bash(C:/msys64/mingw64/bin/gcc.exe --version)"
+    ]
+  }
+}

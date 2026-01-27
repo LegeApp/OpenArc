@@ -1,0 +1,47 @@
+# OS-specific files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# IDE files
+.vs/
+.idea/
+*.swp
+*.swo
+
+# User-specific files
+*.userprefs
+.vscode/
+
+# Temporary files
+*.tmp
+tmp/
+temp/
+
+# SQLite databases (except test database which appears to be part of the project)
+*.sqlite
+!test.catalog.sqlite
+
+# Cargo build artifacts (these should be rebuilt by users)
+/target/
+**/target/**
+
+# Local build artifacts that can be regenerated
+**/Debug/**
+**/Release/**
+
+# Temporary build files
+*.obj
+*.o
+*.a
+*.lib
+*.pdb
+*.ilk
+
+# Log files
+*.log
+
+# Windows-specific files
+nul
+NUL

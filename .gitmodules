@@ -1,0 +1,6 @@
+[submodule "openjp2"]
+	path = openjp2
+	url = https://github.com/Neopallium/openjp2.git
+[submodule "dng-rs"]
+	path = dng-rs
+	url = https://github.com/apertus-open-source-cinema/dng-rs.git

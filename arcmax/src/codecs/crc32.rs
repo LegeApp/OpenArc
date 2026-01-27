@@ -1,0 +1,1 @@
+// Placeholder for crc32 codec implementation

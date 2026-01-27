@@ -1,0 +1,43 @@
+[package]
+name = "openarc-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+description = "OpenArc core processing library (used by openarc-ffi)"
+
+[features]
+heif = ["codecs/heif"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+rayon.workspace = true
+walkdir.workspace = true
+tempfile.workspace = true
+crc32fast.workspace = true
+
+# hashing + integrity
+sha2 = "0.10"
+hex = "0.4"
+flume = "0.12"
+
+# catalog
+rusqlite = { version = "0.38", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# workspace crates
+arcmax = { path = "../arcmax" }
+codecs = { path = "../codecs" }
+zstd-archive = { path = "../zstd-archive", features = ["tar"] }
+
+parking_lot = "0.12"
+sysinfo = "0.30"
+
+# Image processing for extraction/decoding
+image = { version = "0.25.9", default-features = false, features = ["png", "jpeg"] }
+
+[lib]
+name = "openarc_core"
+path = "src/lib.rs"
