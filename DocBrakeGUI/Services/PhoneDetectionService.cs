@@ -16,14 +16,26 @@ namespace DocBrake.Services
         void StopDetection();
     }
 
+    public enum MobileDeviceType
+    {
+        Unknown,
+        Phone,
+        SDCard,
+        Camera,
+        USBStorage
+    }
+
     public class PhoneDevice
     {
         public string Name { get; set; } = string.Empty;
         public string Path { get; set; } = string.Empty;
         public string DeviceType { get; set; } = string.Empty;
+        public MobileDeviceType DeviceCategory { get; set; } = MobileDeviceType.Unknown;
         public DateTime ConnectedTime { get; set; } = DateTime.Now;
         public ulong TotalSpace { get; set; }
         public ulong FreeSpace { get; set; }
+        public bool HasDriveIcon { get; set; }
+        public string VolumeLabel { get; set; } = string.Empty;
     }
 
     public class PhoneDetectionService : IPhoneDetectionService
@@ -143,8 +155,15 @@ namespace DocBrake.Services
         {
             try
             {
-                // Check for phone-specific directories and files
                 var rootPath = drive.RootDirectory.FullName;
+                var volumeLabel = drive.VolumeLabel ?? string.Empty;
+                var totalSizeGB = drive.TotalSize / (1024.0 * 1024.0 * 1024.0);
+                var hasDriveIcon = CheckForDriveIcon(rootPath);
+
+                // Detect SD card by multiple heuristics
+                var isSDCard = IsSDCard(volumeLabel, totalSizeGB, hasDriveIcon);
+
+                // Check for phone/camera-specific directories
                 var phoneIndicators = new[]
                 {
                     "DCIM", "Pictures", "Camera", "Movies", "Android", "iOS",
@@ -154,37 +173,53 @@ namespace DocBrake.Services
                 var hasPhoneIndicators = phoneIndicators
                     .Any(indicator => Directory.Exists(Path.Combine(rootPath, indicator)));
 
-                if (!hasPhoneIndicators)
+                // SD cards and cameras are always considered valid even without explicit phone indicators
+                if (!hasPhoneIndicators && !isSDCard)
                     return null;
 
-                // Check for media files
-                var mediaExtensions = new[] { ".bpg", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp", ".gif", ".heic", ".heif", ".dng", ".raw", ".cr2", ".nef", ".arw", ".orf", ".rw2", ".raf", ".3fr", ".fff", ".dcr", ".kdc", ".srf", ".sr2", ".erf", ".mef", ".mrw", ".nrw", ".pef", ".iiq", ".x3f", ".jp2", ".j2k", ".j2c", ".jpc", ".jpt", ".jph", ".jhc", ".mp4", ".mov", ".avi", ".mkv", ".webm" };
+                // Check for media files if we have indicators
                 var hasMediaFiles = false;
-
-                foreach (var indicator in phoneIndicators)
+                if (hasPhoneIndicators)
                 {
-                    var indicatorPath = Path.Combine(rootPath, indicator);
-                    if (Directory.Exists(indicatorPath))
+                    var mediaExtensions = new[] { ".bpg", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp", ".gif", ".heic", ".heif", ".dng", ".raw", ".cr2", ".nef", ".arw", ".orf", ".rw2", ".raf", ".3fr", ".fff", ".dcr", ".kdc", ".srf", ".sr2", ".erf", ".mef", ".mrw", ".nrw", ".pef", ".iiq", ".x3f", ".jp2", ".j2k", ".j2c", ".jpc", ".jpt", ".jph", ".jhc", ".mp4", ".mov", ".avi", ".mkv", ".webm" };
+
+                    foreach (var indicator in phoneIndicators)
                     {
-                        hasMediaFiles = Directory.GetFiles(indicatorPath, "*.*", SearchOption.TopDirectoryOnly)
-                            .Any(file => mediaExtensions.Contains(Path.GetExtension(file).ToLower()));
-                        
-                        if (hasMediaFiles)
-                            break;
+                        var indicatorPath = Path.Combine(rootPath, indicator);
+                        if (Directory.Exists(indicatorPath))
+                        {
+                            try
+                            {
+                                hasMediaFiles = Directory.GetFiles(indicatorPath, "*.*", SearchOption.TopDirectoryOnly)
+                                    .Any(file => mediaExtensions.Contains(Path.GetExtension(file).ToLower()));
+                            }
+                            catch { }
+
+                            if (hasMediaFiles)
+                                break;
+                        }
                     }
                 }
 
-                if (!hasMediaFiles)
+                // SD cards are always valid targets
+                if (!hasMediaFiles && !isSDCard)
                     return null;
+
+                // Determine device category
+                var deviceCategory = DetermineDeviceCategory(volumeLabel, totalSizeGB, hasDriveIcon, hasPhoneIndicators, rootPath);
+                var deviceTypeName = GetDeviceTypeName(deviceCategory);
 
                 return new PhoneDevice
                 {
-                    Name = $"{drive.VolumeLabel} ({drive.Name})",
+                    Name = $"{(string.IsNullOrEmpty(volumeLabel) ? "Removable" : volumeLabel)} ({drive.Name})",
                     Path = rootPath,
-                    DeviceType = "USB Storage",
+                    DeviceType = deviceTypeName,
+                    DeviceCategory = deviceCategory,
                     ConnectedTime = DateTime.Now,
                     TotalSpace = (ulong)drive.TotalSize,
-                    FreeSpace = (ulong)drive.AvailableFreeSpace
+                    FreeSpace = (ulong)drive.AvailableFreeSpace,
+                    HasDriveIcon = hasDriveIcon,
+                    VolumeLabel = volumeLabel
                 };
             }
             catch (Exception ex)
@@ -192,6 +227,101 @@ namespace DocBrake.Services
                 _logger.LogError(ex, $"Error detecting phone on drive {drive.Name}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Check if the drive has an embedded icon (autorun.inf with icon, or icon file).
+        /// SD cards and cameras often have custom icons; desktop drives and phones typically don't.
+        /// </summary>
+        private bool CheckForDriveIcon(string rootPath)
+        {
+            try
+            {
+                // Check for autorun.inf with icon reference
+                var autorunPath = Path.Combine(rootPath, "autorun.inf");
+                if (File.Exists(autorunPath))
+                {
+                    var content = File.ReadAllText(autorunPath);
+                    if (content.Contains("icon", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+
+                // Check for common icon files at root
+                var iconFiles = new[] { "icon.ico", "device.ico", "drive.ico", ".VolumeIcon.icns" };
+                if (iconFiles.Any(f => File.Exists(Path.Combine(rootPath, f))))
+                    return true;
+            }
+            catch { }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Detect SD card by SDHC/SDXC label keywords, typical size range, or icon presence.
+        /// </summary>
+        private bool IsSDCard(string volumeLabel, double totalSizeGB, bool hasDriveIcon)
+        {
+            // Check volume label for SD card indicators
+            var sdLabels = new[] { "SDHC", "SDXC", "SD CARD", "SDCARD", "EOS_DIGITAL", "CANON", "NIKON", "SONY", "LUMIX", "FUJI" };
+            if (sdLabels.Any(label => volumeLabel.Contains(label, StringComparison.OrdinalIgnoreCase)))
+                return true;
+
+            // SD cards typically range from 2GB to 512GB (common: 16-256GB)
+            // Desktop drives are usually 500GB+, phones vary but often show as MTP not drive
+            bool typicalSDSize = totalSizeGB >= 2 && totalSizeGB <= 512;
+
+            // If it has a drive icon and is in typical SD size range, likely SD card
+            if (hasDriveIcon && typicalSDSize)
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Determine the specific device category based on multiple heuristics.
+        /// </summary>
+        private MobileDeviceType DetermineDeviceCategory(string volumeLabel, double totalSizeGB, bool hasDriveIcon, bool hasPhoneIndicators, string rootPath)
+        {
+            // Check for Android folder = Phone
+            if (Directory.Exists(Path.Combine(rootPath, "Android")))
+                return MobileDeviceType.Phone;
+
+            // Camera-specific labels
+            var cameraLabels = new[] { "EOS_DIGITAL", "CANON", "NIKON", "SONY", "LUMIX", "FUJI", "OLYMPUS", "PENTAX" };
+            if (cameraLabels.Any(label => volumeLabel.Contains(label, StringComparison.OrdinalIgnoreCase)))
+                return MobileDeviceType.Camera;
+
+            // SD card indicators
+            var sdLabels = new[] { "SDHC", "SDXC", "SD CARD", "SDCARD" };
+            if (sdLabels.Any(label => volumeLabel.Contains(label, StringComparison.OrdinalIgnoreCase)))
+                return MobileDeviceType.SDCard;
+
+            // Has DCIM but no Android = likely camera or SD card
+            if (Directory.Exists(Path.Combine(rootPath, "DCIM")) && !Directory.Exists(Path.Combine(rootPath, "Android")))
+            {
+                // Small size with icon = SD card, otherwise camera
+                if (hasDriveIcon || totalSizeGB <= 256)
+                    return MobileDeviceType.SDCard;
+                return MobileDeviceType.Camera;
+            }
+
+            // Generic removable with phone indicators
+            if (hasPhoneIndicators)
+                return MobileDeviceType.Phone;
+
+            return MobileDeviceType.USBStorage;
+        }
+
+        private string GetDeviceTypeName(MobileDeviceType category)
+        {
+            return category switch
+            {
+                MobileDeviceType.Phone => "Phone",
+                MobileDeviceType.SDCard => "SD Card",
+                MobileDeviceType.Camera => "Camera",
+                MobileDeviceType.USBStorage => "USB Storage",
+                _ => "Unknown Device"
+            };
         }
 
         private List<PhoneDevice> DetectMtpDevices()

@@ -40,6 +40,11 @@ namespace DocBrake.Services
             return GetDefaultSettings();
         }
 
+        public ProcessingOptions GetDefaultSettings()
+        {
+            return CreateDefaultSettings();
+        }
+
         public void SaveSettings(ProcessingOptions options)
         {
             try
@@ -58,7 +63,7 @@ namespace DocBrake.Services
             }
         }
 
-        private ProcessingOptions GetDefaultSettings()
+        private ProcessingOptions CreateDefaultSettings()
         {
             // Match CLI defaults from openarc-core OrchestratorSettings
             return new ProcessingOptions
@@ -85,7 +90,7 @@ namespace DocBrake.Services
                 BpgCompressionLevel = 8,
 
                 // Archive Settings (ArcMax level only)
-                CompressionLevel = 3,
+                CompressionLevel = 22,
 
                 // Catalog/Dedup Settings (CLI defaults)
                 EnableCatalog = true,

@@ -21,6 +21,7 @@ namespace DocBrake.Services
         // Archive operations
         Task<bool> ExtractArchiveAsync(string archivePath, string outputDirectory, IProgress<DocumentProcessingProgress>? progress = null, CancellationToken cancellationToken = default);
         Task<List<ArchiveFileInfo>> ListArchiveAsync(string archivePath, CancellationToken cancellationToken = default);
+        Task<bool> ExtractArchiveEntryAsync(string archivePath, string entryName, string outputPath, CancellationToken cancellationToken = default);
 
         // Single file encoding (for testing)
         Task<bool> EncodeBpgFileAsync(string inputPath, string outputPath, ProcessingOptions options, CancellationToken cancellationToken = default);
@@ -30,6 +31,7 @@ namespace DocBrake.Services
     public interface ISettingsService
     {
         ProcessingOptions LoadSettings();
+        ProcessingOptions GetDefaultSettings();
         void SaveSettings(ProcessingOptions options);
     }
 

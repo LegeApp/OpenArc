@@ -266,7 +266,7 @@ namespace DocBrake.ViewModels
 
         private void ResetToDefaults()
         {
-            var defaultSettings = new ProcessingOptions();
+            var defaultSettings = _settingsService.GetDefaultSettings();
 
             // Image settings
             BpgQuality = defaultSettings.BpgQuality;
@@ -284,12 +284,16 @@ namespace DocBrake.ViewModels
             // Archive settings
             CompressionLevel = defaultSettings.CompressionLevel;
 
+            // Output settings
+            OutputArchivePath = defaultSettings.OutputArchivePath;
+
             // Catalog & dedup settings
             EnableCatalog = defaultSettings.EnableCatalog;
             EnableDedup = defaultSettings.EnableDedup;
             SkipAlreadyCompressedVideos = defaultSettings.SkipAlreadyCompressedVideos;
 
             // Phone mode settings
+            PhoneSourcePath = defaultSettings.PhoneSourcePath;
             AutoDetectPhone = defaultSettings.AutoDetectPhone;
         }
 

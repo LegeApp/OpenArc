@@ -22,6 +22,61 @@ pub enum CompressionMethod {
     Zstd = 1,
 }
 
+#[export_name = "ExtractArchiveEntry"]
+pub unsafe extern "C" fn ExtractArchiveEntry(
+    archive_path: *const c_char,
+    entry_name: *const c_char,
+    output_path: *const c_char,
+) -> c_int {
+    if archive_path.is_null() || entry_name.is_null() || output_path.is_null() {
+        set_last_error("Null pointer passed to ExtractArchiveEntry".to_string());
+        return -1;
+    }
+
+    let archive_path = match CStr::from_ptr(archive_path).to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            set_last_error("Invalid archive path string".to_string());
+            return -1;
+        }
+    };
+
+    let entry_name = match CStr::from_ptr(entry_name).to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            set_last_error("Invalid entry name string".to_string());
+            return -1;
+        }
+    };
+
+    let output_path = match CStr::from_ptr(output_path).to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            set_last_error("Invalid output path string".to_string());
+            return -1;
+        }
+    };
+
+    match thread::spawn(move || -> Result<c_int> {
+        orchestrator::extract_archive_entry(Path::new(&archive_path), &entry_name, Path::new(&output_path))?;
+        Ok(0)
+    })
+    .join()
+    {
+        Ok(result) => match result {
+            Ok(code) => code,
+            Err(e) => {
+                set_last_error(format!("Failed to extract archive entry: {}", e));
+                -1
+            }
+        },
+        Err(_) => {
+            set_last_error("Thread panicked during archive entry extraction".to_string());
+            -1
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub enum VideoPreset {
@@ -182,6 +237,7 @@ pub unsafe extern "C" fn CreateArchive(
             enable_catalog: compression_settings.enable_catalog,
             enable_dedup: compression_settings.enable_dedup,
             skip_already_compressed_videos: compression_settings.skip_already_compressed_videos,
+            staging_dir: None,
             heic_quality: 90,  // Default HEIC quality for extraction
             jpeg_quality: 92,  // Default JPEG quality for extraction
         };
@@ -754,6 +810,7 @@ pub unsafe extern "C" fn PhoneArchivePendingFiles(
             enable_catalog: false,
             enable_dedup: compression_settings.enable_dedup,
             skip_already_compressed_videos: compression_settings.skip_already_compressed_videos,
+            staging_dir: None,
             heic_quality: 90,
             jpeg_quality: 92,
         };
@@ -821,6 +878,21 @@ pub struct ArchiveFileInfo {
     pub file_type: c_int, // 0=unknown, 1=image, 2=video, 3=document
 }
 
+#[export_name = "FreeArchiveFileList"]
+pub unsafe extern "C" fn FreeArchiveFileList(files: *mut ArchiveFileInfo, count: c_int) {
+    if files.is_null() || count <= 0 {
+        return;
+    }
+
+    let count = count as usize;
+    let vec = Vec::from_raw_parts(files, count, count);
+    for item in vec {
+        if !item.filename.is_null() {
+            let _ = CString::from_raw(item.filename as *mut c_char);
+        }
+    }
+}
+
 /// List archive contents
 #[export_name = "ListArchive"]
 pub unsafe extern "C" fn ListArchive(
@@ -841,11 +913,43 @@ pub unsafe extern "C" fn ListArchive(
         }
     };
 
-    // Simple implementation - just return success for now
-    // In a full implementation, this would parse the archive structure
-    *file_count = 0;
-    *files = ptr::null_mut();
-    
+    let listed = match thread::spawn(move || orchestrator::list_archive_contents(Path::new(archive_path))).join() {
+        Ok(result) => match result {
+            Ok(v) => v,
+            Err(e) => {
+                set_last_error(format!("Failed to list archive: {}", e));
+                return -1;
+            }
+        },
+        Err(_) => {
+            set_last_error("Thread panicked during archive listing".to_string());
+            return -1;
+        }
+    };
+
+    if listed.is_empty() {
+        *file_count = 0;
+        *files = ptr::null_mut();
+        return 0;
+    }
+
+    let mut out: Vec<ArchiveFileInfo> = Vec::with_capacity(listed.len());
+    for f in listed {
+        let cstr = CString::new(f.filename).unwrap_or_else(|_| CString::new("invalid").unwrap());
+        out.push(ArchiveFileInfo {
+            filename: cstr.into_raw(),
+            original_size: f.original_size,
+            compressed_size: f.compressed_size,
+            file_type: f.file_type as c_int,
+        });
+    }
+
+    let count = out.len() as c_int;
+    let ptr_out = out.as_mut_ptr();
+    std::mem::forget(out);
+
+    *file_count = count;
+    *files = ptr_out;
     0
 }
 

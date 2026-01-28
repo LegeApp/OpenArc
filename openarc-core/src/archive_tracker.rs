@@ -246,11 +246,11 @@ mod tests {
     #[test]
     fn test_archive_tracking() -> Result<()> {
         let db_file = NamedTempFile::new()?;
-        let conn = Connection::open(db_file.path())?;
+        let mut conn = Connection::open(db_file.path())?;
         conn.execute_batch("PRAGMA journal_mode = WAL;")
             .context("Failed to enable WAL mode")?;
         
-        let mut tracker = ArchiveTracker::new(conn)?;
+        let mut tracker = ArchiveTracker::new(&mut conn)?;
 
         // Create a test archive record
         let archive_record = ArchiveRecord {

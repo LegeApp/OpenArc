@@ -42,6 +42,9 @@ namespace DocBrake.MediaBrowser.ViewModels
         private FolderItem? _selectedFolder;
         private bool _isDetailsView;
         private bool _isQueuePanelVisible = true;
+        private bool _isPhoneModeActive;
+        private PhoneDevice? _activePhoneDevice;
+        private string _stagingDirectory = string.Empty;
 
         #endregion
 
@@ -75,6 +78,63 @@ namespace DocBrake.MediaBrowser.ViewModels
                     _isQueuePanelVisible = value;
                     OnPropertyChanged();
                 }
+            }
+        }
+
+        public bool IsPhoneModeActive
+        {
+            get => _isPhoneModeActive;
+            private set
+            {
+                if (_isPhoneModeActive != value)
+                {
+                    _isPhoneModeActive = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(PhoneModeStatusText));
+                }
+            }
+        }
+
+        public PhoneDevice? ActivePhoneDevice
+        {
+            get => _activePhoneDevice;
+            private set
+            {
+                _activePhoneDevice = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(PhoneModeStatusText));
+            }
+        }
+
+        public string StagingDirectory
+        {
+            get => _stagingDirectory;
+            set
+            {
+                if (_stagingDirectory != value)
+                {
+                    _stagingDirectory = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public string PhoneModeStatusText
+        {
+            get
+            {
+                if (!IsPhoneModeActive || ActivePhoneDevice == null)
+                    return string.Empty;
+
+                var icon = ActivePhoneDevice.DeviceCategory switch
+                {
+                    MobileDeviceType.Phone => "📱",
+                    MobileDeviceType.SDCard => "💾",
+                    MobileDeviceType.Camera => "📷",
+                    _ => "📁"
+                };
+
+                return $"{icon} {ActivePhoneDevice.DeviceType}: {ActivePhoneDevice.Name}";
             }
         }
 
@@ -366,9 +426,26 @@ namespace DocBrake.MediaBrowser.ViewModels
 
         private void LoadDrives()
         {
+            LoadDrives(hideDesktopDrives: IsPhoneModeActive);
+        }
+
+        private void LoadDrives(bool hideDesktopDrives)
+        {
             try
             {
                 RootFolders.Clear();
+
+                // If phone mode is active with staging, show staging folder first
+                if (IsPhoneModeActive && !string.IsNullOrEmpty(StagingDirectory) && Directory.Exists(StagingDirectory))
+                {
+                    var stagingNode = new FolderItem(StagingDirectory, false)
+                    {
+                        Name = "📦 Staging Area (Local)",
+                        Icon = "📦",
+                        IsPhoneRoot = false
+                    };
+                    RootFolders.Add(stagingNode);
+                }
 
                 var drives = DriveInfo.GetDrives()
                     .Where(d => d.IsReady)
@@ -378,18 +455,23 @@ namespace DocBrake.MediaBrowser.ViewModels
 
                 foreach (var drive in drives)
                 {
+                    // In phone mode, hide desktop/fixed drives
+                    if (hideDesktopDrives && drive.DriveType == DriveType.Fixed)
+                        continue;
+
                     try
                     {
                         var node = new FolderItem(drive.Name, true) 
                         { 
                             Name = $"{drive.VolumeLabel} ({drive.Name})" 
-
                         };
 
                         if (drive.DriveType == DriveType.Removable)
                         {
                             node.IsPhoneRoot = true;
-                            node.Icon = "📱";
+                            // Set icon based on device type detection
+                            var icon = GetDriveIcon(drive);
+                            node.Icon = icon;
                         }
 
                         RootFolders.Add(node);
@@ -433,6 +515,69 @@ namespace DocBrake.MediaBrowser.ViewModels
             {
                 StatusMessage = $"Error listing drives: {ex.Message}";
             }
+        }
+
+        private string GetDriveIcon(DriveInfo drive)
+        {
+            try
+            {
+                var rootPath = drive.RootDirectory.FullName;
+                var volumeLabel = drive.VolumeLabel ?? string.Empty;
+
+                // Check for SD card indicators
+                var sdLabels = new[] { "SDHC", "SDXC", "SD CARD", "SDCARD" };
+                if (sdLabels.Any(label => volumeLabel.Contains(label, StringComparison.OrdinalIgnoreCase)))
+                    return "💾";
+
+                // Check for camera indicators
+                var cameraLabels = new[] { "EOS_DIGITAL", "CANON", "NIKON", "SONY", "LUMIX", "FUJI", "OLYMPUS", "PENTAX" };
+                if (cameraLabels.Any(label => volumeLabel.Contains(label, StringComparison.OrdinalIgnoreCase)))
+                    return "📷";
+
+                // Check for Android folder = Phone
+                if (Directory.Exists(Path.Combine(rootPath, "Android")))
+                    return "📱";
+
+                // Has DCIM but no Android = likely camera/SD
+                if (Directory.Exists(Path.Combine(rootPath, "DCIM")))
+                    return "📷";
+            }
+            catch { }
+
+            return "📱"; // Default
+        }
+
+        /// <summary>
+        /// Activate phone mode, hiding desktop drives and showing only phone/SD and staging folder.
+        /// </summary>
+        public void ActivatePhoneMode(PhoneDevice device, string stagingDirectory)
+        {
+            ActivePhoneDevice = device;
+            StagingDirectory = stagingDirectory;
+            IsPhoneModeActive = true;
+
+            StatusMessage = $"Phone mode activated: {device.Name}";
+            LoadDrives(hideDesktopDrives: true);
+        }
+
+        /// <summary>
+        /// Deactivate phone mode and show all drives.
+        /// </summary>
+        public void DeactivatePhoneMode()
+        {
+            ActivePhoneDevice = null;
+            IsPhoneModeActive = false;
+
+            StatusMessage = "Phone mode deactivated";
+            LoadDrives(hideDesktopDrives: false);
+        }
+
+        /// <summary>
+        /// Refresh drives list maintaining current phone mode state.
+        /// </summary>
+        public void RefreshDrives()
+        {
+            LoadDrives(hideDesktopDrives: IsPhoneModeActive);
         }
 
         /// <summary>

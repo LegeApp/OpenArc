@@ -42,6 +42,7 @@ fn main() -> Result<()> {
                 enable_catalog: !no_catalog,
                 enable_dedup: !no_dedup,
                 skip_already_compressed_videos: !no_skip_compressed,
+                staging_dir: None,
                 heic_quality: 90,
                 jpeg_quality: 92,
             };

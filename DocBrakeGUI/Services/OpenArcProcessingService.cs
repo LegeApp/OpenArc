@@ -188,6 +188,37 @@ namespace DocBrake.Services
             }, cancellationToken);
         }
 
+        public async Task<bool> ExtractArchiveEntryAsync(string archivePath, string entryName, string outputPath, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(archivePath) || string.IsNullOrWhiteSpace(entryName) || string.IsNullOrWhiteSpace(outputPath))
+            {
+                ProcessingError?.Invoke(this, "Archive path, entry name, and output path are required");
+                return false;
+            }
+
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    var rc = OpenArcFFI.ExtractArchiveEntry(archivePath, entryName, outputPath);
+                    if (rc < 0)
+                    {
+                        var err = OpenArcFFI.GetLastErrorMessage();
+                        ProcessingError?.Invoke(this, err);
+                        return false;
+                    }
+
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Archive entry extraction failed");
+                    ProcessingError?.Invoke(this, ex.Message);
+                    return false;
+                }
+            }, cancellationToken);
+        }
+
         public void CancelProcessing()
         {
             _cancelRequested = true;
@@ -487,26 +518,36 @@ namespace DocBrake.Services
                     }
 
                     var fileList = new List<ArchiveFileInfo>();
-                    
-                    if (fileCount > 0 && filesPtr != IntPtr.Zero)
+
+                    try
                     {
-                        var ptrSize = Marshal.SizeOf<OpenArcFFI.ArchiveFileInfo>();
-                        for (int i = 0; i < fileCount; i++)
+                        if (fileCount > 0 && filesPtr != IntPtr.Zero)
                         {
-                            var ptr = new IntPtr(filesPtr.ToInt64() + i * ptrSize);
-                            var ffiInfo = Marshal.PtrToStructure<OpenArcFFI.ArchiveFileInfo>(ptr);
-                            
-                            fileList.Add(new ArchiveFileInfo
+                            var ptrSize = Marshal.SizeOf<OpenArcFFI.ArchiveFileInfo>();
+                            for (int i = 0; i < fileCount; i++)
                             {
-                                Filename = ffiInfo.Filename ?? $"File {i + 1}",
-                                OriginalSize = ffiInfo.OriginalSize,
-                                CompressedSize = ffiInfo.CompressedSize,
-                                FileType = (FileType)ffiInfo.FileType
-                            });
+                                var ptr = new IntPtr(filesPtr.ToInt64() + i * ptrSize);
+                                var ffiInfo = Marshal.PtrToStructure<OpenArcFFI.ArchiveFileInfo>(ptr);
+
+                                fileList.Add(new ArchiveFileInfo
+                                {
+                                    Filename = ffiInfo.Filename ?? $"File {i + 1}",
+                                    OriginalSize = ffiInfo.OriginalSize,
+                                    CompressedSize = ffiInfo.CompressedSize,
+                                    FileType = (FileType)ffiInfo.FileType
+                                });
+                            }
+                        }
+
+                        return fileList;
+                    }
+                    finally
+                    {
+                        if (filesPtr != IntPtr.Zero && fileCount > 0)
+                        {
+                            OpenArcFFI.FreeArchiveFileList(filesPtr, fileCount);
                         }
                     }
-
-                    return fileList;
                 }
                 catch (Exception ex)
                 {

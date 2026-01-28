@@ -19,6 +19,7 @@ use log::warn;
 use tempfile::TempDir;
 use zstd_archive::{ZstdCodec, ZstdOptions};
 use image;
+use std::io::Read;
 
 /// Bounded limiter for heavy tasks (videos/very large images)
 struct HeavyLimiter {
@@ -30,10 +31,11 @@ struct HeavyLimiter {
 /// Analyze video compression with a timeout to avoid hangs
 fn safe_analyze_video(path: &Path) -> Option<codecs::video_analyzer::VideoAnalysis> {
     let path = path.to_path_buf();
+    let thread_path = path.clone();
     let (tx, rx) = mpsc::channel();
 
     let handle = thread::spawn(move || {
-        let _ = tx.send(std::panic::catch_unwind(|| analyze_video_compression(&path)));
+        let _ = tx.send(std::panic::catch_unwind(|| analyze_video_compression(&thread_path)));
     });
 
     let result = rx.recv_timeout(Duration::from_secs(5)).ok().and_then(|r| match r {
@@ -250,6 +252,193 @@ pub struct ArchiveMetadata {
     pub created_at: u64,
 }
 
+#[derive(Clone, Debug)]
+pub struct ListedArchiveFile {
+    pub filename: String,
+    pub original_size: u64,
+    pub compressed_size: u64,
+    pub file_type: i32,
+}
+
+fn normalize_archive_rel_path(p: &str) -> String {
+    let p = p.trim_start_matches("./");
+    p.trim_start_matches('/')
+        .replace('\\', "/")
+}
+
+fn detect_file_type_from_name(name: &str) -> i32 {
+    let lower = name.to_ascii_lowercase();
+    let ext = std::path::Path::new(&lower)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
+    match ext {
+        "bpg" | "jpg" | "jpeg" | "png" | "bmp" | "tif" | "tiff" | "webp" | "heic" | "heif" | "ico" |
+        "jp2" | "j2k" | "j2c" | "jpc" | "jpt" | "jph" | "jhc" |
+        "dng" | "cr2" | "nef" | "arw" | "orf" | "rw2" | "raf" => 1,
+        "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" => 2,
+        _ => 3,
+    }
+}
+
+fn parse_manifest_sizes(manifest_text: &str) -> HashMap<String, (u64, u64)> {
+    let mut map = HashMap::new();
+    for line in manifest_text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if !line.contains(" -> ") {
+            continue;
+        }
+        let arrow_idx = match line.find(" -> ") {
+            Some(i) => i,
+            None => continue,
+        };
+        let after_arrow = &line[(arrow_idx + 4)..];
+        let open_paren = match after_arrow.find(" (") {
+            Some(i) => i,
+            None => continue,
+        };
+        let rel = after_arrow[..open_paren].trim();
+        let rel = normalize_archive_rel_path(rel);
+
+        let sizes_part = &after_arrow[(open_paren + 2)..];
+        let close_paren = match sizes_part.find(')') {
+            Some(i) => i,
+            None => continue,
+        };
+        let inner = &sizes_part[..close_paren];
+        let mut pieces = inner.split("->").map(|s| s.trim());
+        let orig = pieces.next().and_then(|s| s.parse::<u64>().ok());
+        let out = pieces.next().and_then(|s| s.parse::<u64>().ok());
+        if let (Some(o), Some(c)) = (orig, out) {
+            map.insert(rel, (o, c));
+        }
+    }
+    map
+}
+
+pub fn list_archive_contents(archive_path: &Path) -> Result<Vec<ListedArchiveFile>> {
+    let file = std::fs::File::open(archive_path)
+        .with_context(|| format!("Failed to open archive: {}", archive_path.display()))?;
+    let decoder = zstd::stream::read::Decoder::new(file)
+        .with_context(|| format!("Failed to create zstd decoder for {}", archive_path.display()))?;
+    let mut archive = tar::Archive::new(decoder);
+
+    let mut files: Vec<(String, u64)> = Vec::new();
+    let mut manifest_text: Option<String> = None;
+
+    for entry in archive.entries().context("Failed to read tar entries")? {
+        let mut entry = entry.context("Failed to read tar entry")?;
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+
+        let path = entry
+            .path()
+            .context("Failed to read tar entry path")?
+            .to_string_lossy()
+            .to_string();
+        let rel = normalize_archive_rel_path(&path);
+        let size = entry.size();
+
+        if rel.eq_ignore_ascii_case("MANIFEST.txt") {
+            let mut buf = String::new();
+            entry.read_to_string(&mut buf)
+                .context("Failed to read MANIFEST.txt")?;
+            manifest_text = Some(buf);
+            continue;
+        }
+
+        files.push((rel, size));
+    }
+
+    let size_map = manifest_text
+        .as_deref()
+        .map(parse_manifest_sizes)
+        .unwrap_or_default();
+
+    let mut out: Vec<ListedArchiveFile>;
+
+    if !size_map.is_empty() {
+        // MANIFEST.txt is treated as the authoritative list of user-facing archive entries.
+        // This avoids listing internal files like HASHES/metadata.
+        out = Vec::with_capacity(size_map.len());
+        for (name, (orig, comp)) in size_map {
+            out.push(ListedArchiveFile {
+                filename: name.clone(),
+                original_size: orig,
+                compressed_size: comp,
+                file_type: detect_file_type_from_name(&name),
+            });
+        }
+    } else {
+        // Fallback: list tar entries but hide internal metadata.
+        out = Vec::with_capacity(files.len());
+        for (name, stored_size) in files {
+            if name.eq_ignore_ascii_case("OPENARC_METADATA.json")
+                || name.eq_ignore_ascii_case("HASHES.sha256")
+                || name.eq_ignore_ascii_case("MANIFEST.txt")
+            {
+                continue;
+            }
+
+            out.push(ListedArchiveFile {
+                filename: name.clone(),
+                original_size: stored_size,
+                compressed_size: stored_size,
+                file_type: detect_file_type_from_name(&name),
+            });
+        }
+    }
+
+    out.sort_by(|a, b| a.filename.cmp(&b.filename));
+    Ok(out)
+}
+
+pub fn extract_archive_entry(archive_path: &Path, entry_name: &str, output_path: &Path) -> Result<()> {
+    let entry_name = normalize_archive_rel_path(entry_name);
+
+    let file = std::fs::File::open(archive_path)
+        .with_context(|| format!("Failed to open archive: {}", archive_path.display()))?;
+    let decoder = zstd::stream::read::Decoder::new(file)
+        .with_context(|| format!("Failed to create zstd decoder for {}", archive_path.display()))?;
+    let mut archive = tar::Archive::new(decoder);
+
+    for entry in archive.entries().context("Failed to read tar entries")? {
+        let mut entry = entry.context("Failed to read tar entry")?;
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+
+        let path = entry
+            .path()
+            .context("Failed to read tar entry path")?
+            .to_string_lossy()
+            .to_string();
+        let rel = normalize_archive_rel_path(&path);
+        if rel != entry_name {
+            continue;
+        }
+
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create output directory: {}", parent.display()))?;
+        }
+
+        let mut out = std::fs::File::create(output_path)
+            .with_context(|| format!("Failed to create output file: {}", output_path.display()))?;
+        std::io::copy(&mut entry, &mut out)
+            .with_context(|| format!("Failed to extract {}", entry_name))?;
+        out.flush().ok();
+        return Ok(());
+    }
+
+    Err(anyhow!("Entry not found in archive: {}", entry_name))
+}
+
 impl Default for ArchiveMetadata {
     fn default() -> Self {
         Self {
@@ -296,7 +485,7 @@ impl Default for OrchestratorSettings {
             bpg_compression_level: 8,
             video_preset: 0,
             video_crf: 23,
-            compression_level: 3,
+            compression_level: 22,
             enable_catalog: true,
             enable_dedup: true,
             skip_already_compressed_videos: true,
@@ -559,7 +748,7 @@ pub fn create_archive(
     });
 
     let settings_clone = settings.clone();
-    let heavy_limiter = Arc::new(HeavyLimiter::new(settings.max_concurrent_heavy_tasks.max(1)));
+    let heavy_limiter = Arc::new(HeavyLimiter::new(2));
     let optimal_threads = get_optimal_thread_count(5); // Base thread count of 5
     let encoding_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(optimal_threads)
@@ -850,7 +1039,7 @@ pub fn create_archive(
     let hashes_path = temp_dir.path().join("HASHES.sha256");
     write_hashes(&processed, &hashes_path, &misc_arc_path, &manifest_path)?;
 
-    let zstd = make_zstd(settings.compression_level);
+    let zstd = make_zstd(3);
     zstd.archive_dir_tar_zst(temp_dir.path(), output_archive)
         .with_context(|| format!("Failed to create zstd archive at {}", output_archive.display()))?;
 
@@ -1175,7 +1364,11 @@ pub fn extract_archive_with_decoding(
                         }
                     }
                     Err(e) => {
-                        warn!("decode_failed"; "file" = %img_meta.bpg_filename, "error" = %e);
+                        warn!(
+                            "decode_failed file={} error={}",
+                            img_meta.bpg_filename,
+                            e
+                        );
                     }
                 }
             }
