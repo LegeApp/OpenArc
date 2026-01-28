@@ -1,3 +1,5 @@
+![OpenARC Screenshot](https://github.com/LegeApp/OpenArc/blob/master/images/Screenshot%202026-01-28%20094946.png)
+
 OpenARC is a tool meant for backing up phone media, what it does differently is compresses all images to BPG format which is a better version of the HEIC codec. A 2.5mb JPEG can be compressed down to 200kb with no loss in quality. 
 
 Also, videos are compressed with ffmpeg with either H264 or H265. This is all automatic and the resulting archive is a mix of ARC and ZSTD depending on if there are non-media files or not. 
