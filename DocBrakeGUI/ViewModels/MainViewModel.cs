@@ -17,6 +17,7 @@ using DocBrake.NativeInterop;
 using DocBrake.MediaBrowser.ViewModels;
 using DocBrake.MediaBrowser.Views;
 using DocBrake.Views;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DocBrake.ViewModels
 {
@@ -28,6 +29,7 @@ namespace DocBrake.ViewModels
         private readonly IFileDialogService _fileDialogService;
         private readonly ILogger<MainViewModel> _logger;
         private readonly IPhoneDetectionService? _phoneDetectionService;
+        private readonly IStagingService? _stagingService;
         private CancellationTokenSource? _cancellationTokenSource;
 
         public QueueViewModel QueueViewModel { get; }
@@ -64,7 +66,8 @@ namespace DocBrake.ViewModels
             ILogger<MainViewModel> logger,
             MediaBrowserViewModel mediaBrowserViewModel,
             MediaViewerViewModel mediaViewerViewModel,
-            IPhoneDetectionService? phoneDetectionService = null)
+            IPhoneDetectionService? phoneDetectionService = null,
+            IStagingService? stagingService = null)
         {
             _processingService = processingService ?? throw new ArgumentNullException(nameof(processingService));
             _queueService = queueService ?? throw new ArgumentNullException(nameof(queueService));
@@ -75,6 +78,7 @@ namespace DocBrake.ViewModels
             _mediaBrowserViewModel = mediaBrowserViewModel ?? throw new ArgumentNullException(nameof(mediaBrowserViewModel));
             _mediaViewerViewModel = mediaViewerViewModel ?? throw new ArgumentNullException(nameof(mediaViewerViewModel));
             _phoneDetectionService = phoneDetectionService;
+            _stagingService = stagingService;
 
             _processingOptions = _settingsService.LoadSettings();
             _selectedMode = _processingOptions.ArchiveMode;
@@ -663,6 +667,40 @@ namespace DocBrake.ViewModels
             Application.Current.Dispatcher.Invoke(() =>
             {
                 StatusMessage = e.Success ? "Processing completed successfully" : $"Processing failed: {e.Error}";
+
+                if (!e.Success)
+                    return;
+
+                var outputPath = e.OutputPath;
+                if (string.IsNullOrWhiteSpace(outputPath))
+                    return;
+
+                var ext = Path.GetExtension(outputPath);
+                if (!string.Equals(ext, ".oarc", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(ext, ".zstd", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(ext, ".zst", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                if (!File.Exists(outputPath))
+                    return;
+
+                var result = MessageBox.Show(
+                    "Archiving finished - test the output?",
+                    "Archive complete",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (result != MessageBoxResult.Yes)
+                    return;
+
+                var window = new ArchiveContentsWindow
+                {
+                    Owner = Application.Current.MainWindow,
+                    DataContext = new ArchiveContentsViewModel(_processingService, outputPath)
+                };
+                window.Show();
             });
         }
 
@@ -757,40 +795,58 @@ namespace DocBrake.ViewModels
 
                 _phoneArchivePromptedThisSession.Add(phone.Path);
 
-                Task.Run(() =>
+                // Activate phone mode in media browser
+                if (_stagingService != null)
+                {
+                    _mediaBrowserViewModel.ActivatePhoneMode(phone, _stagingService.StagingDirectory);
+                }
+
+                Task.Run(async () =>
                 {
                     try
                     {
-                        var json = OpenArcFFI.GetPhoneStatusJson(phone.Path);
-                        return json;
+                        // First, get new files that haven't been backed up
+                        List<string> newFiles = new();
+                        if (_stagingService != null)
+                        {
+                            newFiles = await _stagingService.GetNewFilesAsync(phone.Path, recursive: true);
+                        }
+
+                        // Also get status from FFI
+                        string json = string.Empty;
+                        try
+                        {
+                            json = OpenArcFFI.GetPhoneStatusJson(phone.Path);
+                        }
+                        catch { }
+
+                        return (newFiles, json);
                     }
                     catch
                     {
-                        return string.Empty;
+                        return (new List<string>(), string.Empty);
                     }
                 }).ContinueWith(t =>
                 {
-                    var json = t.Result;
-                    if (string.IsNullOrWhiteSpace(json))
-                        return;
-
-                    PhoneStatusDto? status;
-                    try
+                    var (newFiles, json) = t.Result;
+                    
+                    PhoneStatusDto? status = null;
+                    if (!string.IsNullOrWhiteSpace(json))
                     {
-                        status = JsonSerializer.Deserialize<PhoneStatusDto>(json, new JsonSerializerOptions
+                        try
                         {
-                            PropertyNameCaseInsensitive = true
-                        });
-                    }
-                    catch
-                    {
-                        status = null;
+                            status = JsonSerializer.Deserialize<PhoneStatusDto>(json, new JsonSerializerOptions
+                            {
+                                PropertyNameCaseInsensitive = true
+                            });
+                        }
+                        catch { }
                     }
 
-                    if (status == null)
-                        return;
+                    // Use new files count from staging service, or fall back to FFI status
+                    var hasNewFiles = newFiles.Count > 0 || (status != null && (status.FirstTime || status.UnarchivedFiles > 0));
 
-                    if (!status.FirstTime && status.UnarchivedFiles <= 0)
+                    if (!hasNewFiles)
                         return;
 
                     Application.Current.Dispatcher.Invoke(() =>
@@ -798,18 +854,137 @@ namespace DocBrake.ViewModels
                         if (IsProcessing)
                             return;
 
-                        var result = MessageBox.Show(
-                            "Device detected - some user files are not archived per database - would you like to compress and archive them now?",
-                            "Device detected",
-                            MessageBoxButton.YesNo,
-                            MessageBoxImage.Question);
-
-                        if (result == MessageBoxResult.Yes)
-                        {
-                            _ = ArchivePhoneAsync(phone);
-                        }
+                        // Prompt to stage files first
+                        _ = PromptAndStageFilesAsync(phone, newFiles);
                     });
                 });
+            }
+        }
+
+        private async Task PromptAndStageFilesAsync(PhoneDevice phone, List<string> newFiles)
+        {
+            if (_stagingService == null)
+            {
+                // No staging service, fall back to direct archive
+                var fallbackResult = MessageBox.Show(
+                    "Device detected - some user files are not archived per database - would you like to compress and archive them now?",
+                    "Device detected",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (fallbackResult == MessageBoxResult.Yes)
+                {
+                    await ArchivePhoneAsync(phone);
+                }
+                return;
+            }
+
+            var fileCount = newFiles.Count;
+            var totalSize = newFiles.Sum(f => { try { return new FileInfo(f).Length; } catch { return 0L; } });
+            var totalSizeMB = totalSize / (1024.0 * 1024.0);
+
+            var deviceIcon = phone.DeviceCategory switch
+            {
+                MobileDeviceType.Phone => "📱",
+                MobileDeviceType.SDCard => "💾",
+                MobileDeviceType.Camera => "📷",
+                _ => "📁"
+            };
+
+            var message = $"{deviceIcon} {phone.DeviceType} detected: {phone.Name}\n\n" +
+                          $"Found {fileCount:N0} new files ({totalSizeMB:N1} MB) to archive.\n\n" +
+                          $"Would you like to copy these files to the local staging area first?\n" +
+                          $"(Recommended: Avoids slow USB transfer during compression)\n\n" +
+                          $"• Yes - Copy to staging, then configure encoding settings\n" +
+                          $"• No - Archive directly from device (slower)\n" +
+                          $"• Cancel - Skip for now";
+
+            var stageResult = MessageBox.Show(
+                message,
+                $"{phone.DeviceType} Detected - Stage Files?",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question);
+
+            if (stageResult == MessageBoxResult.Cancel)
+                return;
+
+            if (stageResult == MessageBoxResult.Yes)
+            {
+                // Stage files first
+                await StageFilesFromDeviceAsync(phone, newFiles);
+            }
+            else
+            {
+                // Archive directly without staging
+                await ArchivePhoneAsync(phone);
+            }
+        }
+
+        private async Task StageFilesFromDeviceAsync(PhoneDevice phone, List<string> files)
+        {
+            if (_stagingService == null)
+                return;
+
+            IsProcessing = true;
+            OverallProgress = 0;
+            StatusMessage = $"Staging files from {phone.Name}...";
+
+            try
+            {
+                var progress = new Progress<StagingProgress>(p =>
+                {
+                    OverallProgress = p.ProgressPercent;
+                    CurrentFileIndex = p.ProcessedFiles;
+                    TotalFileCount = p.TotalFiles;
+                    CurrentFileName = p.CurrentFile;
+                    StatusMessage = $"Staging {p.ProcessedFiles}/{p.TotalFiles}: {p.CurrentFile}";
+                    OnPropertyChanged(nameof(ProgressText));
+                });
+
+                var result = await _stagingService.StageFilesAsync(files, progress, _cancellationTokenSource?.Token ?? CancellationToken.None);
+
+                if (result.Success)
+                {
+                    StatusMessage = $"✅ Staged {result.FilesStaged} files ({result.BytesStaged / (1024.0 * 1024.0):N1} MB)";
+
+                    // Add staged files to queue for processing
+                    foreach (var stagedFile in result.StagedFiles)
+                    {
+                        _queueService.AddFile(stagedFile);
+                    }
+
+                    // Refresh drives to show staging folder
+                    _mediaBrowserViewModel.RefreshDrives();
+
+                    // Ask if user wants to proceed with encoding settings
+                    var proceedResult = MessageBox.Show(
+                        $"Successfully staged {result.FilesStaged} files to local storage.\n\n" +
+                        $"The files have been added to the processing queue.\n" +
+                        $"Would you like to configure encoding settings and start processing?",
+                        "Files Staged - Configure Settings?",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question);
+
+                    if (proceedResult == MessageBoxResult.Yes)
+                    {
+                        ShowSettingsDialog();
+                    }
+                }
+                else
+                {
+                    StatusMessage = $"⚠️ Staging completed with errors: {result.FailedFiles.Count} failed";
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to stage files from device");
+                StatusMessage = $"❌ Staging failed: {ex.Message}";
+            }
+            finally
+            {
+                IsProcessing = false;
+                OverallProgress = 0;
+                OnPropertyChanged(nameof(ProgressText));
             }
         }
 

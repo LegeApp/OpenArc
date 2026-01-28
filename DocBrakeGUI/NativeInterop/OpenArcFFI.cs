@@ -89,6 +89,12 @@ namespace DocBrake.NativeInterop
             [MarshalAs(UnmanagedType.LPStr)] string outputDir,
             ProgressCallback callback);
 
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int ExtractArchiveEntry(
+            [MarshalAs(UnmanagedType.LPStr)] string archivePath,
+            [MarshalAs(UnmanagedType.LPStr)] string entryName,
+            [MarshalAs(UnmanagedType.LPStr)] string outputPath);
+
         // Archive verification (integrity check via HASHES.sha256)
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int VerifyArchive(
@@ -121,6 +127,9 @@ namespace DocBrake.NativeInterop
             [MarshalAs(UnmanagedType.LPStr)] string archivePath,
             out int fileCount,
             out IntPtr files);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void FreeArchiveFileList(IntPtr files, int count);
 
         // Update archive destination
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]

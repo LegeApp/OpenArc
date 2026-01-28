@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 
 namespace DocBrake.Models
@@ -29,14 +30,17 @@ namespace DocBrake.Models
     /// </summary>
     public class ProcessingOptions : INotifyPropertyChanged
     {
-        private ArchiveMode _archiveMode = ArchiveMode.Phone;
-        private string _outputArchivePath = string.Empty;
+        private ArchiveMode _archiveMode = ArchiveMode.Standard;
+        private string _outputArchivePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            "OpenArc Archives",
+            $"archive_{DateTime.Now:yyyyMMdd}.oarc");
 
         // BPG Image Settings (CLI: --bpg-quality, --bpg-lossless)
         private int _bpgQuality = 25;
         private bool _bpgLossless = false;
         private int _bpgBitDepth = 8;
-        private int _bpgChromaFormat = 2; // Default to RGB (high chroma)
+        private int _bpgChromaFormat = 1;
         private int _bpgEncoderType = 0;
         private int _bpgCompressionLevel = 8;
 
@@ -45,7 +49,7 @@ namespace DocBrake.Models
         private VideoSpeed _videoSpeed = VideoSpeed.Medium;
         private int _videoCrf = 23;
 
-        // Archive Settings (ArcMax only) - default to maximum compression
+        // Archive Settings (ArcMax level only)
         private int _compressionLevel = 22;
 
         // Catalog & Dedup Settings (CLI: --no-catalog, --no-dedup, --no-skip-compressed)

@@ -66,6 +66,8 @@ typedef struct ArchiveRecordInfo {
   uint32_t file_count;
 } ArchiveRecordInfo;
 
+int ExtractArchiveEntry(const char *archive_path, const char *entry_name, const char *output_path);
+
 int CreateArchive(const char *output_path,
                   const char *const *input_files,
                   int file_count,
@@ -96,6 +98,8 @@ int PhoneArchivePendingFiles(const char *phone_root,
                              const char *output_path,
                              const struct CompressionSettings *settings,
                              struct Option_ProgressCallback callback);
+
+void FreeArchiveFileList(struct ArchiveFileInfo *files, int count);
 
 /**
  * List archive contents

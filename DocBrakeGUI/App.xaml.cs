@@ -94,6 +94,7 @@ namespace DocBrake
                         services.AddSingleton<ISettingsService, SettingsService>();
                         services.AddSingleton<IFileDialogService, FileDialogService>();
                         services.AddSingleton<IPhoneDetectionService, PhoneDetectionService>();
+                        services.AddSingleton<IStagingService, StagingService>();
                         services.AddSingleton<ICLIInterface, CLIInterface>();
 
                         // Queue service (shared state)
@@ -265,6 +266,7 @@ namespace DocBrake
                         services.AddSingleton<ISettingsService, SettingsService>();
                         services.AddSingleton<IFileDialogService, FileDialogService>();
                         services.AddSingleton<IPhoneDetectionService, PhoneDetectionService>();
+                        services.AddSingleton<IStagingService, StagingService>();
                         services.AddSingleton<ICLIInterface, CLIInterface>();
 
                         // Queue service (shared state)

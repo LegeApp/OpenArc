@@ -1640,11 +1640,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arcmax",
+ "bytemuck",
  "codecs",
  "crc32fast",
  "flume",
  "hex",
  "image",
+ "log",
  "parking_lot",
  "rayon",
  "rusqlite",
@@ -1652,9 +1654,11 @@ dependencies = [
  "serde_json",
  "sha2",
  "sysinfo",
+ "tar",
  "tempfile",
  "thiserror",
  "walkdir",
+ "zstd",
  "zstd-archive",
 ]
 

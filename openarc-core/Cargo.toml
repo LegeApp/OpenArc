@@ -35,6 +35,12 @@ zstd-archive = { path = "../zstd-archive", features = ["tar"] }
 parking_lot = "0.12"
 sysinfo = "0.30"
 
+bytemuck = { version = "1.23", features = ["extern_crate_alloc"] }
+log = "0.4"
+
+zstd = "0.13"
+tar = "0.4"
+
 # Image processing for extraction/decoding
 image = { version = "0.25.9", default-features = false, features = ["png", "jpeg"] }
 
