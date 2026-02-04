@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use openarc_core::orchestrator::{self, OrchestratorSettings};
 
+// MTP device support module
+pub mod mtp;
+pub use mtp::*;
+
 // Global error message storage (mutable)
 static LAST_ERROR: Mutex<Option<CString>> = Mutex::new(None);
 
@@ -93,8 +97,8 @@ pub struct CompressionSettings {
     pub bpg_quality: c_int,           // 0-51, lower = better quality (default: 25)
     pub bpg_lossless: bool,           // Enable lossless BPG compression
     pub bpg_bit_depth: c_int,         // 8-12 bit depth
-    pub bpg_chroma_format: c_int,     // 0=420, 1=444, 2=RGB
-    pub bpg_encoder_type: c_int,      // 0=default, 1=slow
+    pub bpg_chroma_format: c_int,     // 0=420, 1=422, 2=444
+    pub bpg_encoder_type: c_int,      // 0=x265, 1=JCTVC (slow, if available)
     pub bpg_compression_level: c_int, // 1-9
     pub video_codec: c_int,           // 0=H264, 1=H265
     pub video_speed: c_int,           // 0=Fast, 1=Medium, 2=Slow
@@ -1184,10 +1188,13 @@ pub unsafe extern "C" fn EncodeBpgFile(
             quality: compression_settings.bpg_quality as u8,
             lossless: compression_settings.bpg_lossless,
             bit_depth: compression_settings.bpg_bit_depth as u8,
-            chroma_format: compression_settings.bpg_chroma_format as u8,
             encoder_type: compression_settings.bpg_encoder_type as u8,
             compression_level: compression_settings.bpg_compression_level as u8,
         };
+        
+        // Debug logging for settings verification
+        eprintln!("[BPG Encoder] Settings - Quality: {}, EncoderType: {} (0=x265, 1=JCTVC), CompressionLevel: {} (Chroma format auto-detected from source)", 
+            config.quality, config.encoder_type, config.compression_level);
 
         encode_image_to_bpg(input_path, output_path, &config)?;
         Ok(0)

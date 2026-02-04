@@ -3,6 +3,7 @@ pub mod backup_catalog;
 pub mod hash;
 pub mod orchestrator;
 pub mod bpg_wrapper;
+pub mod image_loader;
 
 // Re-export zstd-archive for FFI use
 pub use zstd_archive::{ZstdCodec, ZstdOptions};

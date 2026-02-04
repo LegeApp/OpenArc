@@ -25,142 +25,119 @@
             <coreConverters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
             <coreConverters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter"/>
 
-            <!-- Thumbnail item template -->
+            <!-- Thumbnail item template - Wall-to-wall with overlaid text -->
             <DataTemplate x:Key="ThumbnailTemplate">
             <Border x:Name="ThumbnailBorder"
                     Margin="{Binding DataContext.ThumbnailMargin, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                    Background="Transparent"
+                    Background="#FF2A2A2A"
                     BorderBrush="Transparent"
                     BorderThickness="0"
                     Cursor="Hand"
-                    RenderTransformOrigin="0.5,0.5"
+                    ClipToBounds="True"
+                    Width="{Binding DataContext.ThumbnailSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    Height="{Binding DataContext.ThumbnailImageHeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
                     >
-                <Border.RenderTransform>
-                    <ScaleTransform ScaleX="1.0" ScaleY="1.0"/>
-                </Border.RenderTransform>
+                <Grid>
+                    <!-- Loading indicator -->
+                    <StackPanel x:Name="LoadingIndicator"
+                               Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibilityConverter}}"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Center">
+                        <TextBlock Text="⏳"
+                                  FontSize="24"
+                                  HorizontalAlignment="Center"
+                                  Foreground="#FF888888"/>
+                    </StackPanel>
 
-                <Grid Width="{Binding DataContext.ThumbnailSize, RelativeSource={RelativeSource AncestorType=UserControl}}">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
+                    <!-- Error indicator -->
+                    <StackPanel Visibility="{Binding HasError, Converter={StaticResource BoolToVisibilityConverter}}"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Center">
+                        <TextBlock Text="❌"
+                                  FontSize="24"
+                                  HorizontalAlignment="Center"
+                                  Foreground="#FFCC6666"/>
+                    </StackPanel>
 
-                    <!-- Checkbox and file name ABOVE thumbnail -->
-                    <Grid Grid.Row="0" Margin="2,0,2,3">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        
-                        <CheckBox Grid.Column="0" 
-                                  IsChecked="{Binding IsChecked, Mode=TwoWay}"
-                                  VerticalAlignment="Center"
-                                  Margin="0,0,4,0"
-                                  Click="Checkbox_Click"/>
-                        
-                        <StackPanel Grid.Column="1">
-                            <TextBlock Foreground="#FF333333"
-                                      FontSize="11"
+                    <!-- Actual thumbnail - UniformToFill for wall-to-wall -->
+                    <Image Source="{Binding ThumbnailImage}"
+                          Stretch="UniformToFill"
+                          RenderOptions.BitmapScalingMode="HighQuality"
+                          Visibility="{Binding ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}}"
+                          MouseLeftButtonDown="ThumbnailImage_MouseLeftButtonDown"/>
+
+                    <!-- Checkbox overlay in top-left -->
+                    <CheckBox x:Name="ThumbCheckBox"
+                              IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                              VerticalAlignment="Top"
+                              HorizontalAlignment="Left"
+                              Margin="4,4,0,0"
+                              Click="Checkbox_Click">
+                        <CheckBox.Style>
+                            <Style TargetType="CheckBox">
+                                <Setter Property="Background" Value="#80000000"/>
+                            </Style>
+                        </CheckBox.Style>
+                    </CheckBox>
+
+                    <!-- Overlaid text panel at bottom - hides on mouseover -->
+                    <Border x:Name="OverlayTextPanel"
+                            VerticalAlignment="Bottom"
+                            HorizontalAlignment="Stretch"
+                            Background="{Binding ExtensionColor}"
+                            Opacity="0.9"
+                            Padding="6,4">
+                        <StackPanel>
+                            <TextBlock Foreground="{Binding ExtensionTextColor}"
+                                      FontSize="10"
+                                      FontWeight="SemiBold"
                                       TextTrimming="CharacterEllipsis"
                                       TextAlignment="Left"
                                       ToolTip="{Binding FileName}"
                                       MouseLeftButtonDown="Filename_MouseLeftButtonDown">
                                 <Run Text="{Binding FileNameWithoutExtension, Mode=OneWay}"/>
-                                <Run Text=" " />
-                                <Run Text="{Binding FileExtension, Mode=OneWay}" Foreground="#FF666666"/>
+                                <Run Text="{Binding FileExtension, Mode=OneWay}"/>
                             </TextBlock>
-                            <TextBlock Foreground="#FF888888"
+                            <TextBlock Foreground="{Binding ExtensionTextColor}"
                                       FontSize="9"
+                                      Opacity="0.8"
                                       TextAlignment="Left">
                                 <Run Text="{Binding FileSizeFormatted, Mode=OneWay}"/>
                             </TextBlock>
                         </StackPanel>
-                    </Grid>
+                    </Border>
 
-                    <!-- Thumbnail image -->
-                    <Grid Grid.Row="1" Height="{Binding DataContext.ThumbnailImageHeight, RelativeSource={RelativeSource AncestorType=UserControl}}">
-                        <!-- Loading indicator -->
-                        <StackPanel Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibilityConverter}}"
-                                   VerticalAlignment="Center"
-                                   HorizontalAlignment="Center">
-                            <TextBlock Text="⏳"
-                                      FontSize="24"
-                                      HorizontalAlignment="Center"
-                                      Foreground="#FF888888"/>
-                        </StackPanel>
-
-                        <!-- Error indicator -->
-                        <StackPanel Visibility="{Binding HasError, Converter={StaticResource BoolToVisibilityConverter}}"
-                                   VerticalAlignment="Center"
-                                   HorizontalAlignment="Center">
-                            <TextBlock Text="❌"
-                                      FontSize="24"
-                                      HorizontalAlignment="Center"
-                                      Foreground="#FFCC6666"/>
-                        </StackPanel>
-
-                        <!-- Actual thumbnail -->
-                        <Image Source="{Binding ThumbnailImage}"
-                              Stretch="Uniform"
-                              RenderOptions.BitmapScalingMode="HighQuality"
-                              Visibility="{Binding ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}}"
-                              MouseLeftButtonDown="ThumbnailImage_MouseLeftButtonDown"/>
-                    </Grid>
+                    <!-- Selection border overlay -->
+                    <Border x:Name="SelectionBorder"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            IsHitTestVisible="False"/>
                 </Grid>
             </Border>
 
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                    <Setter TargetName="ThumbnailBorder" Property="BorderBrush" Value="#FF007ACC"/>
-                    <Setter TargetName="ThumbnailBorder" Property="BorderThickness" Value="2"/>
+                    <Setter TargetName="SelectionBorder" Property="BorderBrush" Value="#FF007ACC"/>
+                    <Setter TargetName="SelectionBorder" Property="BorderThickness" Value="3"/>
                 </DataTrigger>
-                <Trigger SourceName="ThumbnailBorder" Property="IsMouseOver" Value="True">
-                    <Setter TargetName="ThumbnailBorder" Property="Background" Value="#10000000"/>
-                    <Trigger.EnterActions>
-                        <BeginStoryboard>
-                            <Storyboard>
-                                <DoubleAnimation Storyboard.TargetName="ThumbnailBorder"
-                                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                               To="1.02"
-                                               Duration="0:0:0.1">
-                                    <DoubleAnimation.EasingFunction>
-                                        <CubicEase EasingMode="EaseOut"/>
-                                    </DoubleAnimation.EasingFunction>
-                                </DoubleAnimation>
-                                <DoubleAnimation Storyboard.TargetName="ThumbnailBorder"
-                                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                               To="1.02"
-                                               Duration="0:0:0.1">
-                                    <DoubleAnimation.EasingFunction>
-                                        <CubicEase EasingMode="EaseOut"/>
-                                    </DoubleAnimation.EasingFunction>
-                                </DoubleAnimation>
-                            </Storyboard>
-                        </BeginStoryboard>
-                    </Trigger.EnterActions>
-                    <Trigger.ExitActions>
-                        <BeginStoryboard>
-                            <Storyboard>
-                                <DoubleAnimation Storyboard.TargetName="ThumbnailBorder"
-                                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                               To="1.0"
-                                               Duration="0:0:0.1">
-                                    <DoubleAnimation.EasingFunction>
-                                        <CubicEase EasingMode="EaseOut"/>
-                                    </DoubleAnimation.EasingFunction>
-                                </DoubleAnimation>
-                                <DoubleAnimation Storyboard.TargetName="ThumbnailBorder"
-                                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                               To="1.0"
-                                               Duration="0:0:0.1">
-                                    <DoubleAnimation.EasingFunction>
-                                        <CubicEase EasingMode="EaseOut"/>
-                                    </DoubleAnimation.EasingFunction>
-                                </DoubleAnimation>
-                            </Storyboard>
-                        </BeginStoryboard>
-                    </Trigger.ExitActions>
-                </Trigger>
+                
+                <!-- Show by default mode: Show normally, hide on mouseover -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=DataContext.ShowThumbnailLabelsByDefault}" Value="True"/>
+                        <Condition Binding="{Binding ElementName=ThumbnailBorder, Path=IsMouseOver}" Value="True"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="OverlayTextPanel" Property="Visibility" Value="Collapsed"/>
+                </MultiDataTrigger>
+                
+                <!-- Hide by default mode: Hide normally, show on mouseover -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=DataContext.ShowThumbnailLabelsByDefault}" Value="False"/>
+                        <Condition Binding="{Binding ElementName=ThumbnailBorder, Path=IsMouseOver}" Value="False"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="OverlayTextPanel" Property="Visibility" Value="Collapsed"/>
+                </MultiDataTrigger>
             </DataTemplate.Triggers>
             </DataTemplate>
         </ResourceDictionary>
@@ -283,11 +260,26 @@
                     <Slider Minimum="80"
                             Maximum="600"
                             Value="{Binding ThumbnailSize, Mode=TwoWay}"
-                            Width="130"
+                            Width="100"
                             Height="22"
                             IsSnapToTickEnabled="True"
                             TickFrequency="10"
                             Background="#FFE0E0E0"/>
+
+                    <TextBlock Text="Gap:"
+                              Foreground="#FF555555"
+                              VerticalAlignment="Center"
+                              Margin="10,0,5,0"/>
+
+                    <Slider Minimum="0"
+                            Maximum="20"
+                            Value="{Binding ThumbnailPadding, Mode=TwoWay}"
+                            Width="60"
+                            Height="22"
+                            IsSnapToTickEnabled="True"
+                            TickFrequency="1"
+                            Background="#FFE0E0E0"
+                            ToolTip="Spacing between thumbnails (0 = wall-to-wall)"/>
 
                     <Separator Width="1" Background="#FFD0D0D0" Margin="10,0"/>
 
@@ -428,6 +420,7 @@
                          HorizontalContentAlignment="Stretch"
                          Background="Transparent"
                          BorderThickness="0"
+                         Padding="0"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          ScrollViewer.VerticalScrollBarVisibility="Auto"
                          VirtualizingPanel.IsVirtualizing="True"
@@ -446,7 +439,7 @@
                     <ListView.ItemsPanel>
                         <ItemsPanelTemplate>
                             <vwp:VirtualizingWrapPanel Orientation="Horizontal"
-                                                      SpacingMode="Uniform"
+                                                      SpacingMode="None"
                                                       StretchItems="False"/>
                         </ItemsPanelTemplate>
                     </ListView.ItemsPanel>
@@ -557,28 +550,21 @@
                     </Grid.RowDefinitions>
 
                     <Border Grid.Row="0" Padding="10,8" Background="#FFE8E8E8" BorderBrush="#FFD0D0D0" BorderThickness="0,0,0,1">
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Left" Foreground="#FF333333" FontWeight="SemiBold">
-                                <Run Text="Prepared"/>
-                                <Run Text=" ("/>
-                                <Run Text="{Binding SelectedCount, Mode=OneWay}"/>
-                                <Run Text=")"/>
-                            </TextBlock>
-                            <Button DockPanel.Dock="Right"
-                                    Content="Hide"
-                                    Padding="8,2"
-                                    Command="{Binding ToggleQueuePanelCommand}"/>
-                        </DockPanel>
+                        <TextBlock Foreground="#FF333333" FontWeight="SemiBold">
+                            <Run Text="Processing Queue"/>
+                            <Run Text=" ("/>
+                            <Run Text="{Binding QueueItemCount, Mode=OneWay}"/>
+                            <Run Text=")"/>
+                        </TextBlock>
                     </Border>
 
                     <ListView Grid.Row="1"
-                             ItemsSource="{Binding PreparedItemsView}"
+                             ItemsSource="{Binding QueueItems}"
                              Background="Transparent"
                              BorderThickness="0">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal" Margin="6,4">
-                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" VerticalAlignment="Center" Margin="0,0,6,0" Click="Checkbox_Click"/>
                                     <TextBlock Text="{Binding FileName}" Foreground="#FF333333" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
                             </DataTemplate>
@@ -586,8 +572,7 @@
                     </ListView>
 
                     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="10,8">
-                        <Button Content="Clear" Padding="10,4" Margin="0,0,6,0" Command="{Binding ClearSelectionCommand}"/>
-                        <Button Content="Add to queue" Padding="12,4" Command="{Binding AddPreparedToQueueCommand}"/>
+                        <Button Content="Clear Queue" Padding="12,4" Command="{Binding ClearQueueCommand}"/>
                     </StackPanel>
                 </Grid>
             </Border>

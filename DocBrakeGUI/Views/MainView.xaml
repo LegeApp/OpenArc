@@ -65,11 +65,11 @@
 
         <!-- Main Content Area (Archive | Splitter | Content) -->
         <DockPanel Grid.Row="0">
-            <!-- Archive Browser Panel (Left Side) - Only shown when archives exist -->
+            <!-- Archive Browser Panel (Left Side) -->
             <Border DockPanel.Dock="Left"
                     Width="280"
                     Background="{DynamicResource ControlBrush}"
-                    Visibility="{Binding ArchiveTrackingViewModel.HasArchives, Converter={StaticResource BoolToVisibilityConverter}}">
+                    Visibility="{Binding ArchiveTrackingViewModel.IsArchiveBrowserVisible, Converter={StaticResource BoolToVisibilityConverter}}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -96,7 +96,7 @@
                           Background="{DynamicResource ActiveBorderBrush}"
                           ResizeBehavior="PreviousAndNext"
                           Cursor="SizeWE"
-                          Visibility="{Binding ArchiveTrackingViewModel.HasArchives, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                          Visibility="{Binding ArchiveTrackingViewModel.IsArchiveBrowserVisible, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
             <!-- Main Content (Center) - Takes remaining space -->
             <Grid Margin="8,0,0,0">
@@ -109,7 +109,10 @@
                     <MenuItem Header="_File">
                         <MenuItem Header="_Settings..." Command="{Binding ShowSettingsCommand}" />
                     </MenuItem>
-                    <MenuItem Header="_View" />
+                    <MenuItem Header="_View">
+                        <MenuItem Header="Archive Browser" IsCheckable="True" IsChecked="{Binding ArchiveTrackingViewModel.IsArchiveBrowserVisible}" />
+                        <MenuItem Header="Queue Manager" IsCheckable="True" IsChecked="{Binding MediaBrowserViewModel.IsQueuePanelVisible}" />
+                    </MenuItem>
                     <MenuItem Header="_Help" />
                 </Menu>
 
@@ -179,13 +182,9 @@
 
                     <!-- Action Buttons -->
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <ui:Button Content="Test Encode" Appearance="Secondary"
-                                   Command="{Binding TestEncodeCommand}" Margin="0,0,6,0" Padding="10,5" FontSize="11" />
-                        <ui:Button Content="Extract" Appearance="Secondary"
-                                   Command="{Binding ExtractArchiveCommand}" Margin="0,0,6,0" Padding="10,5" FontSize="11" />
-                        <ui:Button Content="List" Appearance="Secondary"
-                                   Command="{Binding ListArchiveCommand}" Margin="0,0,6,0" Padding="10,5" FontSize="11" />
-                        <ui:Button Content="Process" Appearance="Primary"
+                        <ui:Button Content="Encode Only" Appearance="Secondary"
+                                   Command="{Binding EncodeWithoutArchivingCommand}" Margin="0,0,6,0" Padding="10,5" FontSize="11" />
+                        <ui:Button Content="Encode and Archive" Appearance="Primary"
                                    Command="{Binding StartProcessingCommand}" Margin="6,0,0,0" Padding="20,12" FontSize="12" FontWeight="SemiBold" />
                         <ui:Button Content="Cancel" Appearance="Secondary"
                                    Command="{Binding CancelProcessingCommand}" Margin="6,0,0,0" Padding="10,5" FontSize="11"

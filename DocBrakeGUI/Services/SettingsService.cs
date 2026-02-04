@@ -27,6 +27,7 @@ namespace DocBrake.Services
                     var options = JsonConvert.DeserializeObject<ProcessingOptions>(json);
                     if (options != null)
                     {
+                        options.BpgLossless = false;
                         _logger.LogInformation("Settings loaded from: {SettingsPath}", settingsPath);
                         return options;
                     }
@@ -74,8 +75,8 @@ namespace DocBrake.Services
                     "OpenArc Archives",
                     $"archive_{DateTime.Now:yyyyMMdd}.oarc"),
 
-                // BPG Image Settings (CLI default: quality=25)
-                BpgQuality = 25,
+                // BPG Image Settings
+                BpgQuality = 28,
                 BpgLossless = false,
 
                 // Video Settings (CLI default: H264/Medium, crf=23)
@@ -85,7 +86,6 @@ namespace DocBrake.Services
 
                 // BPG advanced settings
                 BpgBitDepth = 8,
-                BpgChromaFormat = 1,
                 BpgEncoderType = 0,
                 BpgCompressionLevel = 8,
 

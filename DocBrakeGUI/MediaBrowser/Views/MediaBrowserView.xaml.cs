@@ -229,8 +229,16 @@ namespace DocBrake.MediaBrowser.Views
 
         private void Checkbox_Click(object sender, RoutedEventArgs e)
         {
-            // Notify ViewModel that selection changed
-            ViewModel?.NotifySelectionChanged();
+            // When checkbox changes, directly add/remove from queue
+            if (sender is CheckBox checkBox && checkBox.DataContext is ThumbnailItem item)
+            {
+                ViewModel?.OnThumbnailCheckedChanged(item);
+            }
+            else
+            {
+                // Fallback - just notify selection changed
+                ViewModel?.NotifySelectionChanged();
+            }
         }
 
         private void TreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)

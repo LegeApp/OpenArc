@@ -45,7 +45,15 @@
                 Background="{DynamicResource WindowBrush}"
                 CornerRadius="0,0,8,8" 
                 ClipToBounds="True">
-            <views:MainView />
+            <Grid>
+                <views:MainView />
+                
+                <!-- Snackbar for notifications (e.g., phone connected) -->
+                <ui:SnackbarPresenter x:Name="RootSnackbarPresenter"
+                                      VerticalAlignment="Bottom"
+                                      HorizontalAlignment="Stretch"
+                                      Margin="16,0,16,16" />
+            </Grid>
         </Border>
     </Grid>
 </ui:FluentWindow>

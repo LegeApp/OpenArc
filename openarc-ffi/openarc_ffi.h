@@ -138,3 +138,48 @@ int EncodeBpgFile(const char *input_path,
 int EncodeVideoFile(const char *input_path,
                     const char *output_path,
                     const struct CompressionSettings *settings);
+
+/**
+ * List all connected MTP devices
+ */
+char *MtpListDevices(void);
+
+/**
+ * List contents of a folder on an MTP device
+ */
+char *MtpListFolder(const char *device_id, const char *object_id);
+
+/**
+ * Get thumbnail for MTP file - tries WPD native thumbnail first, falls back to generating from full file
+ */
+char *MtpGetThumbnail(const char *device_id,
+                      const char *object_id,
+                      const char *original_name,
+                      uint32_t target_width,
+                      uint32_t target_height);
+
+/**
+ * Cache a file from MTP device to local temp directory and return the local path.
+ * This is the key function - C# never sees MTP paths, only local temp paths.
+ */
+char *MtpCacheFileToTemp(const char *device_id, const char *object_id, const char *original_name);
+
+/**
+ * Get temp file path for an MTP object if already cached, without copying.
+ */
+char *MtpGetCachedPath(const char *device_id, const char *object_id);
+
+/**
+ * Clear the MTP temp cache (removes temp files)
+ */
+char *MtpClearCache(void);
+
+/**
+ * Read file to memory - note: THIS IS DANGEROUS FOR LARGE FILES
+ * Included for compatibility but better to use cache_file_to_temp
+ */
+uint8_t *MtpReadFileToMemory(const char *device_id, const char *object_id, uint64_t *out_size);
+
+void MtpFreeData(uint8_t *data, uintptr_t size);
+
+void MtpFreeString(char *s);
