@@ -5,12 +5,15 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Extensions.DependencyInjection;
 using DocBrake.ViewModels;
+using Wpf.Ui;
 using Wpf.Ui.Controls;
 
 namespace DocBrake
 {
     public partial class MainWindow : FluentWindow
     {
+        private readonly ISnackbarService _snackbarService;
+        
         public MainWindow()
         {
             var logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "startup.log");
@@ -23,6 +26,10 @@ namespace DocBrake
                 InitializeComponent();
                 File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] InitializeComponent() completed\n");
                 
+                // Create snackbar service and connect to presenter
+                _snackbarService = new SnackbarService();
+                _snackbarService.SetSnackbarPresenter(RootSnackbarPresenter);
+                
                 // Set DataContext from DI container
                 File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Getting Application.Current...\n");
                 var app = (App)Application.Current;
@@ -31,7 +38,12 @@ namespace DocBrake
                 if (app.Host != null)
                 {
                     File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Getting MainViewModel from DI...\n");
-                    DataContext = app.Host.Services.GetRequiredService<MainViewModel>();
+                    var viewModel = app.Host.Services.GetRequiredService<MainViewModel>();
+                    DataContext = viewModel;
+                    
+                    // Connect the snackbar service to the ViewModel
+                    viewModel.SetSnackbarService(_snackbarService);
+                    
                     File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] MainViewModel set as DataContext\n");
                 }
                 else
@@ -68,5 +80,10 @@ namespace DocBrake
                 }
             }
         }
+        
+        /// <summary>
+        /// Get the snackbar service for showing notifications
+        /// </summary>
+        public ISnackbarService SnackbarService => _snackbarService;
     }
 }

@@ -248,6 +248,42 @@ impl NativeBPGEncoder {
         Ok(data)
     }
     
+    /// Encode YCbCr 4:2:0 planar data to BPG (for HEIC/HEIF sources)
+    /// y_plane: full resolution luma
+    /// cb_plane, cr_plane: half resolution chroma (subsampled 2x2)
+    pub fn encode_from_ycbcr420_planar(
+        &self,
+        y_plane: &[u8],
+        cb_plane: &[u8],
+        cr_plane: &[u8],
+        width: u32,
+        height: u32,
+        y_stride: u32,
+        cb_stride: u32,
+        cr_stride: u32,
+    ) -> Result<Vec<u8>> {
+        // Convert planar YCbCr to interleaved format expected by BPG encoder
+        // BPG's YCbCr420P format expects: Y plane, then Cb plane, then Cr plane, contiguous
+        let y_size = height as usize * y_stride as usize;
+        let chroma_height = (height + 1) / 2;
+        let cb_size = chroma_height as usize * cb_stride as usize;
+        let cr_size = chroma_height as usize * cr_stride as usize;
+        
+        let mut planar_data = Vec::with_capacity(y_size + cb_size + cr_size);
+        planar_data.extend_from_slice(&y_plane[..y_size]);
+        planar_data.extend_from_slice(&cb_plane[..cb_size]);
+        planar_data.extend_from_slice(&cr_plane[..cr_size]);
+        
+        // Use Y stride as the "stride" parameter for planar format
+        self.encode_from_memory(
+            &planar_data,
+            width,
+            height,
+            y_stride,
+            BPGImageFormat::YCbCr420P,
+        )
+    }
+    
     /// Get last error message
     fn get_error(&self) -> String {
         unsafe {

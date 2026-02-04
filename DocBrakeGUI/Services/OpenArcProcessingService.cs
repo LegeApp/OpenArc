@@ -95,9 +95,8 @@ namespace DocBrake.Services
                     var settings = new OpenArcFFI.CompressionSettings
                     {
                         BpgQuality = options.BpgQuality,
-                        BpgLossless = options.BpgLossless,
+                        BpgLossless = false,
                         BpgBitDepth = options.BpgBitDepth,
-                        BpgChromaFormat = options.BpgChromaFormat,
                         BpgEncoderType = options.BpgEncoderType,
                         BpgCompressionLevel = options.BpgCompressionLevel,
                         VideoCodec = (int)options.VideoCodec,
@@ -287,8 +286,7 @@ namespace DocBrake.Services
             // Settings mapping (matches openarc-ffi mapping)
             psi.ArgumentList.Add("--bpg-quality");
             psi.ArgumentList.Add(options.BpgQuality.ToString());
-            if (options.BpgLossless)
-                psi.ArgumentList.Add("--bpg-lossless");
+            // BPG lossless is intentionally unsupported in the GUI.
 
             var videoPreset = (options.VideoCodec, options.VideoSpeed) switch
             {
@@ -575,9 +573,8 @@ namespace DocBrake.Services
                     var settings = new OpenArcFFI.CompressionSettings
                     {
                         BpgQuality = options.BpgQuality,
-                        BpgLossless = options.BpgLossless,
+                        BpgLossless = false,
                         BpgBitDepth = options.BpgBitDepth,
-                        BpgChromaFormat = options.BpgChromaFormat,
                         BpgEncoderType = options.BpgEncoderType,
                         BpgCompressionLevel = options.BpgCompressionLevel,
                         VideoCodec = (int)options.VideoCodec,
@@ -631,9 +628,8 @@ namespace DocBrake.Services
                     var settings = new OpenArcFFI.CompressionSettings
                     {
                         BpgQuality = options.BpgQuality,
-                        BpgLossless = options.BpgLossless,
+                        BpgLossless = false,
                         BpgBitDepth = options.BpgBitDepth,
-                        BpgChromaFormat = options.BpgChromaFormat,
                         BpgEncoderType = options.BpgEncoderType,
                         BpgCompressionLevel = options.BpgCompressionLevel,
                         VideoCodec = (int)options.VideoCodec,

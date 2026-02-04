@@ -17,6 +17,10 @@ namespace DocBrake.ViewModels
         private readonly ISettingsService _settingsService;
         private ProcessingOptions _options;
 
+        private const int BpgBitDepthMin = 8;
+        private const int BpgBitDepthMaxX265 = 12;
+        private const int BpgBitDepthMaxJctvc = 14;
+
         public event PropertyChangedEventHandler? PropertyChanged;
 
         public SettingsViewModel(IFileDialogService fileDialogService, ISettingsService settingsService)
@@ -45,10 +49,10 @@ namespace DocBrake.ViewModels
             
             // Notify all properties to update UI
             OnPropertyChanged(nameof(BpgQuality));
-            OnPropertyChanged(nameof(BpgLossless));
             OnPropertyChanged(nameof(BpgBitDepth));
-            OnPropertyChanged(nameof(BpgChromaFormat));
             OnPropertyChanged(nameof(BpgEncoderType));
+            OnPropertyChanged(nameof(BpgBitDepthMax));
+            OnPropertyChanged(nameof(BpgBitDepthToolTip));
             OnPropertyChanged(nameof(BpgCompressionLevel));
             OnPropertyChanged(nameof(VideoCodec));
             OnPropertyChanged(nameof(VideoSpeed));
@@ -73,35 +77,21 @@ namespace DocBrake.ViewModels
             }
         }
 
-        public bool BpgLossless
-        {
-            get => _options.BpgLossless;
-            set
-            {
-                _options.BpgLossless = value;
-                OnPropertyChanged();
-            }
-        }
-
         public int BpgBitDepth
         {
             get => _options.BpgBitDepth;
             set
             {
-                _options.BpgBitDepth = value;
+                _options.BpgBitDepth = Math.Clamp(value, BpgBitDepthMin, BpgBitDepthMax);
                 OnPropertyChanged();
             }
         }
 
-        public int BpgChromaFormat
-        {
-            get => _options.BpgChromaFormat;
-            set
-            {
-                _options.BpgChromaFormat = value;
-                OnPropertyChanged();
-            }
-        }
+        public int BpgBitDepthMax => BpgEncoderType == 1 ? BpgBitDepthMaxJctvc : BpgBitDepthMaxX265;
+
+        public string BpgBitDepthToolTip =>
+            "Preferred bit depth for BPG encoding when the source has >8-bit channels. " +
+            "JPEG is always 8-bit. HEIC/HEIF is derived from the input. Most relevant for RAW/PNG/TIFF sources.";
 
         public int BpgEncoderType
         {
@@ -110,6 +100,16 @@ namespace DocBrake.ViewModels
             {
                 _options.BpgEncoderType = value;
                 OnPropertyChanged();
+
+                // Encoder type changes the supported bit depth range.
+                OnPropertyChanged(nameof(BpgBitDepthMax));
+                OnPropertyChanged(nameof(BpgBitDepthToolTip));
+
+                if (_options.BpgBitDepth > BpgBitDepthMax)
+                {
+                    _options.BpgBitDepth = BpgBitDepthMax;
+                    OnPropertyChanged(nameof(BpgBitDepth));
+                }
             }
         }
 
@@ -196,6 +196,17 @@ namespace DocBrake.ViewModels
                 OnPropertyChanged();
             }
         }
+        
+        // UI Settings
+        public bool ShowThumbnailLabelsByDefault
+        {
+            get => _options.ShowThumbnailLabelsByDefault;
+            set
+            {
+                _options.ShowThumbnailLabelsByDefault = value;
+                OnPropertyChanged();
+            }
+        }
 
         // Catalog & Dedup Settings
         public bool EnableCatalog
@@ -270,9 +281,7 @@ namespace DocBrake.ViewModels
 
             // Image settings
             BpgQuality = defaultSettings.BpgQuality;
-            BpgLossless = defaultSettings.BpgLossless;
             BpgBitDepth = defaultSettings.BpgBitDepth;
-            BpgChromaFormat = defaultSettings.BpgChromaFormat;
             BpgEncoderType = defaultSettings.BpgEncoderType;
             BpgCompressionLevel = defaultSettings.BpgCompressionLevel;
 

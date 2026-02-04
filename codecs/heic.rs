@@ -89,6 +89,34 @@ pub enum HeifChannel {
     Interleaved = 10,
 }
 
+// RAII wrappers for automatic cleanup
+struct ScopedImageHandle(*mut HeifImageHandle);
+impl Drop for ScopedImageHandle {
+    fn drop(&mut self) {
+        unsafe { 
+            if !self.0.is_null() { heif_image_handle_release(self.0); } 
+        }
+    }
+}
+
+struct ScopedImage(*mut HeifImage);
+impl Drop for ScopedImage {
+    fn drop(&mut self) {
+        unsafe { 
+            if !self.0.is_null() { heif_image_release(self.0); } 
+        }
+    }
+}
+
+struct ScopedEncoder(*mut HeifEncoder);
+impl Drop for ScopedEncoder {
+    fn drop(&mut self) {
+        unsafe { 
+            if !self.0.is_null() { heif_encoder_release(self.0); } 
+        }
+    }
+}
+
 // FFI declarations for libheif (decoding)
 #[cfg(feature = "heif")]
 extern "C" {
@@ -98,6 +126,12 @@ extern "C" {
     fn heif_context_read_from_file(
         ctx: *mut HeifContext,
         filename: *const c_char,
+        options: *const c_void,
+    ) -> HeifError;
+    fn heif_context_read_from_memory_without_copy(
+        ctx: *mut HeifContext,
+        data: *const c_void,
+        size: usize,
         options: *const c_void,
     ) -> HeifError;
     fn heif_context_write_to_file(
@@ -182,6 +216,9 @@ mod stubs {
     pub unsafe fn heif_context_read_from_file(
         _ctx: *mut HeifContext, _filename: *const c_char, _options: *const c_void,
     ) -> HeifError { HeifError { code: -1, subcode: 0, message: ptr::null() } }
+    pub unsafe fn heif_context_read_from_memory_without_copy(
+        _ctx: *mut HeifContext, _data: *const c_void, _size: usize, _options: *const c_void,
+    ) -> HeifError { HeifError { code: -1, subcode: 0, message: ptr::null() } }
     pub unsafe fn heif_context_write_to_file(
         _ctx: *mut HeifContext, _filename: *const c_char,
     ) -> HeifError { HeifError { code: -1, subcode: 0, message: ptr::null() } }
@@ -237,6 +274,19 @@ pub struct DecodedHeicImage {
     pub height: u32,
     pub data: Vec<u8>,
     pub has_alpha: bool,
+}
+
+/// Decoded HEIC image in YCbCr planar format (for BPG encoding)
+#[derive(Debug)]
+pub struct DecodedHeicYCbCr {
+    pub width: u32,
+    pub height: u32,
+    pub y_plane: Vec<u8>,
+    pub cb_plane: Vec<u8>,
+    pub cr_plane: Vec<u8>,
+    pub y_stride: u32,
+    pub cb_stride: u32,
+    pub cr_stride: u32,
 }
 
 /// HEIC encoder configuration
@@ -306,7 +356,7 @@ impl HeicCodec {
     }
 
     /// Decode a HEIC/HEIF file to RGBA data
-    pub fn decode_file(&self, path: &Path) -> Result<DecodedHeicImage> {
+    pub fn decode_file(&mut self, path: &Path) -> Result<DecodedHeicImage> {
         let path_str = path.to_string_lossy();
         let path_cstr = CString::new(path_str.as_ref())?;
 
@@ -314,46 +364,68 @@ impl HeicCodec {
             // Read the file
             let err = heif_context_read_from_file(self.ctx, path_cstr.as_ptr(), ptr::null());
             if err.code != 0 {
-                let msg = Self::error_message(&err);
-                return Err(anyhow!("Failed to read HEIC file: {}", msg));
+                return Err(anyhow!("Failed to read HEIC file: {}", Self::error_message(&err)));
             }
 
-            // Get primary image handle
-            let mut handle: *mut HeifImageHandle = ptr::null_mut();
-            let err = heif_context_get_primary_image_handle(self.ctx, &mut handle);
-            if err.code != 0 || handle.is_null() {
-                let msg = Self::error_message(&err);
-                return Err(anyhow!("Failed to get image handle: {}", msg));
+            self.decode_primary_image()
+        }
+    }
+
+    /// Decode from memory buffer
+    pub fn decode_from_memory(&mut self, buffer: &[u8]) -> Result<DecodedHeicImage> {
+        unsafe {
+            let err = heif_context_read_from_memory_without_copy(
+                self.ctx,
+                buffer.as_ptr() as *const c_void,
+                buffer.len(),
+                ptr::null()
+            );
+            
+            if err.code != 0 {
+                return Err(anyhow!("Failed to read HEIC from memory: {}", Self::error_message(&err)));
             }
+            
+            self.decode_primary_image()
+        }
+    }
+
+    /// Internal: Decode the primary image from the loaded context
+    fn decode_primary_image(&self) -> Result<DecodedHeicImage> {
+        unsafe {
+            // Get primary image handle
+            let mut handle_ptr: *mut HeifImageHandle = ptr::null_mut();
+            let err = heif_context_get_primary_image_handle(self.ctx, &mut handle_ptr);
+            if err.code != 0 {
+                return Err(anyhow!("Failed to get handle: {}", Self::error_message(&err)));
+            }
+            // Wrap immediately for automatic cleanup
+            let handle = ScopedImageHandle(handle_ptr);
 
             // Get image dimensions
-            let width = heif_image_handle_get_width(handle) as u32;
-            let height = heif_image_handle_get_height(handle) as u32;
-            let has_alpha = heif_image_handle_has_alpha_channel(handle) != 0;
+            let width = heif_image_handle_get_width(handle.0) as u32;
+            let height = heif_image_handle_get_height(handle.0) as u32;
+            let has_alpha = heif_image_handle_has_alpha_channel(handle.0) != 0;
 
             // Decode to RGB/RGBA
-            let mut img: *mut HeifImage = ptr::null_mut();
+            let mut img_ptr: *mut HeifImage = ptr::null_mut();
             let chroma = if has_alpha {
                 HeifChroma::InterleavedRGBA
             } else {
                 HeifChroma::InterleavedRGB
             };
 
-            let err = heif_decode_image(handle, &mut img, HeifColorspace::RGB, chroma, ptr::null());
-
-            if err.code != 0 || img.is_null() {
-                heif_image_handle_release(handle);
-                let msg = Self::error_message(&err);
-                return Err(anyhow!("Failed to decode image: {}", msg));
+            let err = heif_decode_image(handle.0, &mut img_ptr, HeifColorspace::RGB, chroma, ptr::null());
+            if err.code != 0 {
+                return Err(anyhow!("Failed to decode: {}", Self::error_message(&err)));
             }
+            // Wrap immediately for automatic cleanup
+            let img = ScopedImage(img_ptr);
 
             // Get pixel data
             let mut stride: c_int = 0;
-            let data_ptr = heif_image_get_plane_readonly(img, HeifChannel::Interleaved, &mut stride);
+            let data_ptr = heif_image_get_plane_readonly(img.0, HeifChannel::Interleaved, &mut stride);
 
             if data_ptr.is_null() {
-                heif_image_release(img);
-                heif_image_handle_release(handle);
                 return Err(anyhow!("Failed to get image data"));
             }
 
@@ -368,17 +440,116 @@ impl HeicCodec {
                 data.extend_from_slice(row);
             }
 
-            // Clean up
-            heif_image_release(img);
-            heif_image_handle_release(handle);
-
+            // RAII wrappers handle cleanup automatically
             Ok(DecodedHeicImage { width, height, data, has_alpha })
+        }
+    }
+
+    /// Decode a HEIC/HEIF file to YCbCr 4:2:0 planar format (optimal for BPG encoding)
+    pub fn decode_file_ycbcr420(&mut self, path: &Path) -> Result<DecodedHeicYCbCr> {
+        let path_str = path.to_string_lossy();
+        let path_cstr = CString::new(path_str.as_ref())?;
+
+        unsafe {
+            // Read the file
+            let err = heif_context_read_from_file(self.ctx, path_cstr.as_ptr(), ptr::null());
+            if err.code != 0 {
+                return Err(anyhow!("Failed to read HEIC file: {}", Self::error_message(&err)));
+            }
+
+            // Get primary image handle
+            let mut handle_ptr: *mut HeifImageHandle = ptr::null_mut();
+            let err = heif_context_get_primary_image_handle(self.ctx, &mut handle_ptr);
+            if err.code != 0 {
+                return Err(anyhow!("Failed to get handle: {}", Self::error_message(&err)));
+            }
+            // Wrap immediately for automatic cleanup
+            let handle = ScopedImageHandle(handle_ptr);
+
+            // Get image dimensions
+            let width = heif_image_handle_get_width(handle.0) as u32;
+            let height = heif_image_handle_get_height(handle.0) as u32;
+
+            // Decode to YCbCr 4:2:0 (native HEIC colorspace, no conversion)
+            let mut img_ptr: *mut HeifImage = ptr::null_mut();
+            let err = heif_decode_image(
+                handle.0,
+                &mut img_ptr,
+                HeifColorspace::YCbCr,
+                HeifChroma::Chroma420,
+                ptr::null()
+            );
+
+            if err.code != 0 {
+                return Err(anyhow!("Failed to decode image to YCbCr: {}", Self::error_message(&err)));
+            }
+            // Wrap immediately for automatic cleanup
+            let img = ScopedImage(img_ptr);
+
+            // Get Y plane
+            let mut y_stride: c_int = 0;
+            let y_ptr = heif_image_get_plane_readonly(img.0, HeifChannel::Y, &mut y_stride);
+            if y_ptr.is_null() {
+                return Err(anyhow!("Failed to get Y plane"));
+            }
+
+            // Get Cb plane (subsampled 2x2)
+            let mut cb_stride: c_int = 0;
+            let cb_ptr = heif_image_get_plane_readonly(img.0, HeifChannel::Cb, &mut cb_stride);
+            if cb_ptr.is_null() {
+                return Err(anyhow!("Failed to get Cb plane"));
+            }
+
+            // Get Cr plane (subsampled 2x2)
+            let mut cr_stride: c_int = 0;
+            let cr_ptr = heif_image_get_plane_readonly(img.0, HeifChannel::Cr, &mut cr_stride);
+            if cr_ptr.is_null() {
+                return Err(anyhow!("Failed to get Cr plane"));
+            }
+
+            // Copy Y plane (full resolution)
+            let mut y_plane = Vec::with_capacity(height as usize * y_stride as usize);
+            for row in 0..height as isize {
+                let row_ptr = y_ptr.offset(row * y_stride as isize);
+                let row_slice = std::slice::from_raw_parts(row_ptr, width as usize);
+                y_plane.extend_from_slice(row_slice);
+            }
+
+            // Copy Cb plane (half resolution)
+            let chroma_width = (width + 1) / 2;
+            let chroma_height = (height + 1) / 2;
+            let mut cb_plane = Vec::with_capacity(chroma_height as usize * cb_stride as usize);
+            for row in 0..chroma_height as isize {
+                let row_ptr = cb_ptr.offset(row * cb_stride as isize);
+                let row_slice = std::slice::from_raw_parts(row_ptr, chroma_width as usize);
+                cb_plane.extend_from_slice(row_slice);
+            }
+
+            // Copy Cr plane (half resolution)
+            let mut cr_plane = Vec::with_capacity(chroma_height as usize * cr_stride as usize);
+            for row in 0..chroma_height as isize {
+                let row_ptr = cr_ptr.offset(row * cr_stride as isize);
+                let row_slice = std::slice::from_raw_parts(row_ptr, chroma_width as usize);
+                cr_plane.extend_from_slice(row_slice);
+            }
+
+            // RAII wrappers handle cleanup automatically
+            Ok(DecodedHeicYCbCr {
+                width,
+                height,
+                y_plane,
+                cb_plane,
+                cr_plane,
+                y_stride: width,
+                cb_stride: chroma_width,
+                cr_stride: chroma_width,
+            })
         }
     }
 
     /// Encode RGB/RGBA data to HEIC file
     pub fn encode_to_file(
-        &self,
+        &mut self,
         data: &[u8],
         width: u32,
         height: u32,
@@ -402,24 +573,25 @@ impl HeicCodec {
                 HeifChroma::InterleavedRGB
             };
 
-            let mut img: *mut HeifImage = ptr::null_mut();
+            let mut img_ptr: *mut HeifImage = ptr::null_mut();
             let err = heif_image_create(
                 width as c_int,
                 height as c_int,
                 HeifColorspace::RGB,
                 chroma,
-                &mut img,
+                &mut img_ptr,
             );
 
-            if err.code != 0 || img.is_null() {
+            if err.code != 0 {
                 heif_context_free(enc_ctx);
-                let msg = Self::error_message(&err);
-                return Err(anyhow!("Failed to create image: {}", msg));
+                return Err(anyhow!("Failed to create image: {}", Self::error_message(&err)));
             }
+            // Wrap immediately for automatic cleanup
+            let img = ScopedImage(img_ptr);
 
             // Add plane
             let err = heif_image_add_plane(
-                img,
+                img.0,
                 HeifChannel::Interleaved,
                 width as c_int,
                 height as c_int,
@@ -427,18 +599,15 @@ impl HeicCodec {
             );
 
             if err.code != 0 {
-                heif_image_release(img);
                 heif_context_free(enc_ctx);
-                let msg = Self::error_message(&err);
-                return Err(anyhow!("Failed to add image plane: {}", msg));
+                return Err(anyhow!("Failed to add image plane: {}", Self::error_message(&err)));
             }
 
             // Copy data to image
             let mut stride: c_int = 0;
-            let plane_ptr = heif_image_get_plane(img, HeifChannel::Interleaved, &mut stride);
+            let plane_ptr = heif_image_get_plane(img.0, HeifChannel::Interleaved, &mut stride);
 
             if plane_ptr.is_null() {
-                heif_image_release(img);
                 heif_context_free(enc_ctx);
                 return Err(anyhow!("Failed to get image plane"));
             }
@@ -453,95 +622,104 @@ impl HeicCodec {
             }
 
             // Get encoder
-            let mut encoder: *mut HeifEncoder = ptr::null_mut();
-            let err = heif_context_get_encoder_for_format(enc_ctx, config.format, &mut encoder);
-
-            if err.code != 0 || encoder.is_null() {
-                heif_image_release(img);
-                heif_context_free(enc_ctx);
-                let msg = Self::error_message(&err);
-                return Err(anyhow!("Failed to get encoder: {}", msg));
-            }
-
-            // Set quality
-            if config.lossless {
-                heif_encoder_set_lossless(encoder, 1);
-            } else {
-                heif_encoder_set_lossy_quality(encoder, config.quality as c_int);
-            }
-
-            // Encode
-            let mut out_handle: *mut HeifImageHandle = ptr::null_mut();
-            let err = heif_context_encode_image(enc_ctx, img, encoder, ptr::null(), &mut out_handle);
-
-            heif_encoder_release(encoder);
-            heif_image_release(img);
+            let mut encoder_ptr: *mut HeifEncoder = ptr::null_mut();
+            let err = heif_context_get_encoder_for_format(enc_ctx, config.format, &mut encoder_ptr);
 
             if err.code != 0 {
                 heif_context_free(enc_ctx);
-                let msg = Self::error_message(&err);
-                return Err(anyhow!("Failed to encode image: {}", msg));
+                return Err(anyhow!("Failed to get encoder: {}", Self::error_message(&err)));
+            }
+            // Wrap immediately for automatic cleanup
+            let encoder = ScopedEncoder(encoder_ptr);
+
+            // Set quality
+            if config.lossless {
+                heif_encoder_set_lossless(encoder.0, 1);
+            } else {
+                heif_encoder_set_lossy_quality(encoder.0, config.quality as c_int);
             }
 
-            if !out_handle.is_null() {
-                heif_image_handle_release(out_handle);
+            // Encode
+            let mut out_handle_ptr: *mut HeifImageHandle = ptr::null_mut();
+            let err = heif_context_encode_image(enc_ctx, img.0, encoder.0, ptr::null(), &mut out_handle_ptr);
+
+            if err.code != 0 {
+                heif_context_free(enc_ctx);
+                return Err(anyhow!("Failed to encode image: {}", Self::error_message(&err)));
             }
+
+            // Wrap output handle for cleanup
+            let _out_handle = ScopedImageHandle(out_handle_ptr);
 
             // Write to file
             let err = heif_context_write_to_file(enc_ctx, output_cstr.as_ptr());
             heif_context_free(enc_ctx);
 
             if err.code != 0 {
-                let msg = Self::error_message(&err);
-                return Err(anyhow!("Failed to write HEIC file: {}", msg));
+                return Err(anyhow!("Failed to write HEIC file: {}", Self::error_message(&err)));
             }
 
+            // RAII wrappers handle cleanup automatically
             Ok(())
         }
     }
 
     /// Decode HEIC and save as PNG (lossless intermediate format)
-    pub fn decode_to_png(&self, input_path: &Path, output_path: &Path) -> Result<()> {
+    pub fn decode_to_png(&mut self, input_path: &Path, output_path: &Path) -> Result<()> {
         let decoded = self.decode_file(input_path)?;
 
-        let color_type = if decoded.has_alpha {
-            image::ColorType::Rgba8
+        // Create proper ImageBuffer from decoded data
+        // libheif returns RGB/RGBA in correct order, but we need to use image crate properly
+        use image::{ImageBuffer, Rgb, Rgba, DynamicImage};
+        
+        let img = if decoded.has_alpha {
+            let rgba_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(
+                decoded.width,
+                decoded.height,
+                decoded.data
+            ).ok_or_else(|| anyhow!("Failed to create RGBA image buffer"))?;
+            DynamicImage::ImageRgba8(rgba_buf)
         } else {
-            image::ColorType::Rgb8
+            let rgb_buf = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(
+                decoded.width,
+                decoded.height,
+                decoded.data
+            ).ok_or_else(|| anyhow!("Failed to create RGB image buffer"))?;
+            DynamicImage::ImageRgb8(rgb_buf)
         };
-
-        image::save_buffer(output_path, &decoded.data, decoded.width, decoded.height, color_type)?;
+        
+        img.save(output_path)?;
         Ok(())
     }
 
     /// Decode HEIC and save as JPEG
-    pub fn decode_to_jpeg(&self, input_path: &Path, output_path: &Path, quality: u8) -> Result<()> {
+    pub fn decode_to_jpeg(&mut self, input_path: &Path, output_path: &Path, quality: u8) -> Result<()> {
         let decoded = self.decode_file(input_path)?;
 
-        // Convert RGBA to RGB if needed (JPEG doesn't support alpha)
-        let rgb_data = if decoded.has_alpha {
-            let mut rgb = Vec::with_capacity(decoded.width as usize * decoded.height as usize * 3);
-            for chunk in decoded.data.chunks(4) {
-                rgb.push(chunk[0]);
-                rgb.push(chunk[1]);
-                rgb.push(chunk[2]);
-            }
-            rgb
+        // Zero-copy view of the raw buffer using image crate
+        let dynamic_img = if decoded.has_alpha {
+            image::DynamicImage::ImageRgba8(
+                image::ImageBuffer::from_raw(decoded.width, decoded.height, decoded.data)
+                    .ok_or_else(|| anyhow!("Invalid buffer size"))?
+            )
         } else {
-            decoded.data
+            image::DynamicImage::ImageRgb8(
+                image::ImageBuffer::from_raw(decoded.width, decoded.height, decoded.data)
+                    .ok_or_else(|| anyhow!("Invalid buffer size"))?
+            )
         };
 
-        let img = image::RgbImage::from_raw(decoded.width, decoded.height, rgb_data)
-            .ok_or_else(|| anyhow!("Failed to create image buffer"))?;
+        // Fast intrinsic conversion to RGB8 (strips alpha efficiently)
+        let rgb_img = dynamic_img.into_rgb8();
 
         let mut output_file = std::fs::File::create(output_path)?;
         let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output_file, quality);
-        img.write_with_encoder(encoder)?;
+        rgb_img.write_with_encoder(encoder)?;
         Ok(())
     }
 
     /// Encode PNG to HEIC
-    pub fn png_to_heic(&self, input_path: &Path, output_path: &Path, config: &HeicEncoderConfig) -> Result<()> {
+    pub fn png_to_heic(&mut self, input_path: &Path, output_path: &Path, config: &HeicEncoderConfig) -> Result<()> {
         let img = image::open(input_path)?;
         let rgba = img.to_rgba8();
         let (width, height) = rgba.dimensions();
@@ -567,8 +745,8 @@ impl Drop for HeicCodec {
     }
 }
 
+// Safe to send between threads, but not safe to share (&self methods are now &mut self)
 unsafe impl Send for HeicCodec {}
-unsafe impl Sync for HeicCodec {}
 
 // Legacy type alias for backward compatibility
 pub type HeicDecoder = HeicCodec;
@@ -586,25 +764,25 @@ pub fn is_heic_file(path: &Path) -> bool {
 
 /// Decode a HEIC file to raw RGBA data (convenience function)
 pub fn decode_heic_file(path: &Path) -> Result<DecodedHeicImage> {
-    let codec = HeicCodec::new()?;
+    let mut codec = HeicCodec::new()?;
     codec.decode_file(path)
 }
 
 /// Decode HEIC to PNG (convenience function)
 pub fn heic_to_png(input: &Path, output: &Path) -> Result<()> {
-    let codec = HeicCodec::new()?;
+    let mut codec = HeicCodec::new()?;
     codec.decode_to_png(input, output)
 }
 
 /// Decode HEIC to JPEG (convenience function)
 pub fn heic_to_jpeg(input: &Path, output: &Path, quality: u8) -> Result<()> {
-    let codec = HeicCodec::new()?;
+    let mut codec = HeicCodec::new()?;
     codec.decode_to_jpeg(input, output, quality)
 }
 
 /// Encode PNG to HEIC (convenience function)
 pub fn png_to_heic(input: &Path, output: &Path, quality: u8) -> Result<()> {
-    let codec = HeicCodec::new()?;
+    let mut codec = HeicCodec::new()?;
     let config = HeicEncoderConfig {
         quality,
         lossless: false,
@@ -615,7 +793,7 @@ pub fn png_to_heic(input: &Path, output: &Path, quality: u8) -> Result<()> {
 
 /// Encode PNG to HEIC losslessly (convenience function)
 pub fn png_to_heic_lossless(input: &Path, output: &Path) -> Result<()> {
-    let codec = HeicCodec::new()?;
+    let mut codec = HeicCodec::new()?;
     let config = HeicEncoderConfig {
         quality: 100,
         lossless: true,
