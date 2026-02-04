@@ -78,24 +78,34 @@ try {
     Pop-Location
 }
 
-# Step 3: Build DocBrakeGUI
+# Step 3: Build DocBrakeGUI (Self-Contained Single File)
 Write-Host ""
-Write-Host "Step 3: Building DocBrakeGUI..." -ForegroundColor Green
+Write-Host "Step 3: Building DocBrakeGUI (Self-Contained)..." -ForegroundColor Green
+Write-Host "  This will create a single ~150MB executable with all dependencies embedded" -ForegroundColor Yellow
 
 Push-Location "$PSScriptRoot\DocBrakeGUI"
 try {
-    if ($Release) {
-        dotnet publish DocBrakeGUI.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$PSScriptRoot\Release"
-    } else {
-        dotnet publish DocBrakeGUI.csproj -c Debug -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$PSScriptRoot\Release"
-    }
+    # Use dotnet publish for self-contained single-file output
+    dotnet publish DocBrakeGUI.csproj -c Release -o "$PSScriptRoot\Release"
     if ($LASTEXITCODE -ne 0) {
-        throw "DocBrakeGUI build failed"
+        throw "DocBrakeGUI publish failed"
     }
 } finally {
     Pop-Location
 }
 
+# Copy the CLI executable to Release folder
+Write-Host ""
+Write-Host "Step 4: Copying CLI executable..." -ForegroundColor Green
+$cliSource = if ($Release) { "$PSScriptRoot\target\release\openarc.exe" } else { "$PSScriptRoot\target\debug\openarc.exe" }
+if (Test-Path $cliSource) {
+    Copy-Item -Path $cliSource -Destination "$PSScriptRoot\Release\openarc.exe" -Force
+    Write-Host "  Copied: openarc.exe (~30MB)" -ForegroundColor Cyan
+} else {
+    Write-Host "  Warning: openarc.exe not found at $cliSource" -ForegroundColor Yellow
+}
+
+Write-Host ""
 Write-Host ""
 Write-Host "=== Build Complete ===" -ForegroundColor Green
 Write-Host ""
@@ -106,71 +116,22 @@ Write-Host "  - arcmax (Compression library)"
 Write-Host "  - zstd-archive (ZSTD wrapper)"
 Write-Host "  - openarc-ffi (FFI library)"
 Write-Host "  - bpg-viewer (BPG processing library)"
-Write-Host "  - DocBrakeGUI (WPF GUI with MediaBrowser)"
+Write-Host "  - DocBrakeGUI (Self-Contained WPF GUI)"
 Write-Host ""
 
-if ($Release) {
-    Write-Host "Executables (Release):" -ForegroundColor Yellow
-    Write-Host "  - CLI: target\release\openarc.exe"
-    Write-Host "  - FFI: target\release\openarc_ffi.dll"
-    Write-Host "  - BPG Viewer: target\release\bpg_viewer.dll"
-    Write-Host "  - GUI: DocBrakeGUI\bin\Release\net8.0-windows\DocBrakeGUI.exe"
-} else {
-    Write-Host "Executables (Debug):" -ForegroundColor Yellow
-    Write-Host "  - CLI: target\debug\openarc.exe"
-    Write-Host "  - FFI: target\debug\openarc_ffi.dll"
-    Write-Host "  - BPG Viewer: target\debug\bpg_viewer.dll"
-    Write-Host "  - GUI: DocBrakeGUI\bin\Debug\net8.0-windows\DocBrakeGUI.exe"
+Write-Host "Final executables in Release folder:" -ForegroundColor Yellow
+$releaseDir = "$PSScriptRoot\Release"
+if (Test-Path "$releaseDir\DocBrakeGUI.exe") {
+    $guiSize = (Get-Item "$releaseDir\DocBrakeGUI.exe").Length / 1MB
+    Write-Host "  - DocBrakeGUI.exe: $([math]::Round($guiSize, 1)) MB (self-contained, includes all .NET runtime + native DLLs)"
+}
+if (Test-Path "$releaseDir\openarc.exe") {
+    $cliSize = (Get-Item "$releaseDir\openarc.exe").Length / 1MB
+    Write-Host "  - openarc.exe: $([math]::Round($cliSize, 1)) MB (CLI tool)"
 }
 Write-Host ""
-
-# Step 4: Stage to d:\misc\docbrake-stage
-Write-Host "Step 4: Staging to d:\misc\docbrake-stage..." -ForegroundColor Green
-
-$stagingDir = "d:\misc\docbrake-stage"
-$rustTargetDir = if ($Release) { "$PSScriptRoot\target\x86_64-pc-windows-gnu\release" } else { "$PSScriptRoot\target\x86_64-pc-windows-gnu\debug" }
-
-# Create staging directory
-if (Test-Path $stagingDir) {
-    Write-Host "  Cleaning existing staging directory..."
-    Remove-Item -Path $stagingDir -Recurse -Force
-}
-New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
-
-# Copy GUI binaries
-Write-Host "  Copying GUI binaries..."
-Copy-Item -Path "$PSScriptRoot\Release\*" -Destination $stagingDir -Recurse -Force
-
-# Copy Rust DLLs (overwrite if GUI build copied old ones)
-Write-Host "  Copying Rust DLLs..."
-Copy-Item -Path "$rustTargetDir\bpg_viewer.dll" -Destination $stagingDir -Force
-Copy-Item -Path "$rustTargetDir\openarc_ffi.dll" -Destination $stagingDir -Force
-
-# Copy CLI executable
-Write-Host "  Copying CLI executable..."
-Copy-Item -Path "$PSScriptRoot\target\x86_64-pc-windows-gnu\debug\openarc.exe" -Destination $stagingDir -Force
-
-# Optional: Copy PDB files for debugging
-if (-not $Release) {
-    if (Test-Path "$rustTargetDir\openarc_ffi.pdb") {
-        Copy-Item -Path "$rustTargetDir\openarc_ffi.pdb" -Destination $stagingDir -Force
-    }
-    if (Test-Path "$rustTargetDir\bpg_viewer.pdb") {
-        Copy-Item -Path "$rustTargetDir\bpg_viewer.pdb" -Destination $stagingDir -Force
-    }
-}
-
-Write-Host ""
-Write-Host "=== Staging Complete ===" -ForegroundColor Green
-Write-Host ""
-Write-Host "Staged to: $stagingDir" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "To run the application:" -ForegroundColor Yellow
-Write-Host "  cd $stagingDir"
-Write-Host "  .\DocBrakeGUI.exe"
+Write-Host "Total deployment: Just these 2 executables!" -ForegroundColor Green
+Write-Host "  Location: $releaseDir" -ForegroundColor Cyan
 Write-Host ""
 
-# Show file count
-$fileCount = (Get-ChildItem -Path $stagingDir -File).Count
-Write-Host "Total files staged: $fileCount" -ForegroundColor Cyan
-Write-Host ""
+# Remove staging section since we now have self-contained executables

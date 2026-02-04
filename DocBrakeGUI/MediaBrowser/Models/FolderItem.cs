@@ -2,8 +2,10 @@ using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Input;
 using DocBrake.Commands;
+using DocBrake.Services;
 
 namespace DocBrake.MediaBrowser.Models
 {
@@ -24,6 +26,21 @@ namespace DocBrake.MediaBrowser.Models
 
         public bool IsPhoneRoot { get; set; }
         public bool IsDcimFolder { get; set; }
+        
+        /// <summary>
+        /// True if this folder is on an MTP device
+        /// </summary>
+        public bool IsMtpPath { get; set; }
+        
+        /// <summary>
+        /// MTP device ID (only set for MTP items)
+        /// </summary>
+        public string? MtpDeviceId { get; set; }
+        
+        /// <summary>
+        /// MTP object ID (only set for MTP items, null for device root)
+        /// </summary>
+        public string? MtpObjectId { get; set; }
 
         public bool HasExplicitCheckState
         {
@@ -80,11 +97,31 @@ namespace DocBrake.MediaBrowser.Models
         {
             FullPath = path;
             Name = isDrive ? path : Path.GetFileName(path);
+            
+            // Check if this is an MTP shell path and parse MTP properties
+            IsMtpPath = IsMtpShellPath(path);
+            if (IsMtpPath)
+            {
+                ParseMtpPath(path);
+                Console.WriteLine($"[MTP] Created FolderItem: Name={Name} IsMtp={IsMtpPath} Device={MtpDeviceId} Obj={MtpObjectId}");
+            }
 
             // Check if has subfolders (to show expander)
             try
             {
-                if (Directory.EnumerateDirectories(path).Any())
+                bool hasSubfolders = false;
+                
+                if (IsMtpPath && !string.IsNullOrEmpty(MtpDeviceId))
+                {
+                    // Use Rust backend for MTP paths - always assume has children for device root
+                    hasSubfolders = MtpObjectId == null || CheckMtpHasSubfolders();
+                }
+                else if (!IsMtpPath)
+                {
+                    hasSubfolders = Directory.EnumerateDirectories(path).Any();
+                }
+                
+                if (hasSubfolders)
                 {
                     var dummy = new FolderItem(true) { Name = string.Empty, Icon = string.Empty };
                     dummy.Parent = this;
@@ -93,6 +130,48 @@ namespace DocBrake.MediaBrowser.Models
                 }
             }
             catch { }
+        }
+        
+        /// <summary>
+        /// Check if a path is an MTP shell namespace path
+        /// </summary>
+        private static bool IsMtpShellPath(string path)
+        {
+            return MtpFileService.IsMtpPath(path);
+        }
+        
+        /// <summary>
+        /// Parse mtp:// path to extract device ID and object ID
+        /// Format: mtp://deviceId or mtp://deviceId/objectId
+        /// </summary>
+        private void ParseMtpPath(string path)
+        {
+            if (!path.StartsWith("mtp://", StringComparison.OrdinalIgnoreCase))
+                return;
+                
+            var rest = path.Substring(6); // Remove "mtp://"
+            var slashIndex = rest.IndexOf('/');
+            
+            if (slashIndex < 0)
+            {
+                // Just device ID, no object ID (root of device)
+                MtpDeviceId = rest;
+                MtpObjectId = null;
+            }
+            else
+            {
+                MtpDeviceId = rest.Substring(0, slashIndex);
+                MtpObjectId = rest.Substring(slashIndex + 1);
+            }
+        }
+        
+        /// <summary>
+        /// Check if an MTP folder has subfolders
+        /// </summary>
+        private bool CheckMtpHasSubfolders()
+        {
+            if (string.IsNullOrEmpty(MtpDeviceId)) return false;
+            return MtpFileService.HasSubfolders(MtpDeviceId, MtpObjectId);
         }
 
         private FolderItem(bool isPlaceholder)
@@ -109,35 +188,134 @@ namespace DocBrake.MediaBrowser.Models
 
                 try
                 {
-                    var dirs = Directory.GetDirectories(FullPath);
-                    foreach (var dir in dirs)
+                    if (IsMtpPath || IsMtpShellPath(FullPath))
                     {
-                        try
+                        // Use Shell COM for MTP paths
+                        LoadMtpSubFolders();
+                    }
+                    else
+                    {
+                        // Regular filesystem path
+                        var dirs = Directory.GetDirectories(FullPath);
+                        foreach (var dir in dirs)
                         {
-                            // Skip hidden folders if desired, or access denied
-                            var info = new DirectoryInfo(dir);
-                            if (!info.Attributes.HasFlag(FileAttributes.Hidden))
+                            try
                             {
-                                var child = new FolderItem(dir) { Parent = this };
-                                if (IsPhoneRoot && string.Equals(child.Name, "DCIM", StringComparison.OrdinalIgnoreCase))
+                                // Skip hidden folders if desired, or access denied
+                                var info = new DirectoryInfo(dir);
+                                if (!info.Attributes.HasFlag(FileAttributes.Hidden))
                                 {
-                                    child.IsDcimFolder = true;
-                                    child.Icon = "📸";
-                                }
+                                    var child = new FolderItem(dir) { Parent = this };
+                                    if (IsPhoneRoot && string.Equals(child.Name, "DCIM", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        child.IsDcimFolder = true;
+                                        child.Icon = "📸";
+                                    }
 
-                                if (IsChecked.HasValue)
-                                {
-                                    child.SetIsChecked(IsChecked, updateChildren: true, updateParent: false, isExplicit: false);
-                                }
+                                    if (IsChecked.HasValue)
+                                    {
+                                        child.SetIsChecked(IsChecked, updateChildren: true, updateParent: false, isExplicit: false);
+                                    }
 
-                                SubFolders.Add(child);
+                                    SubFolders.Add(child);
+                                }
                             }
+                            catch { }
                         }
-                        catch { }
                     }
                 }
                 catch { }
             }
+        }
+        
+        /// <summary>
+        /// Load subfolders from an MTP folder using MtpFileService
+        /// </summary>
+        private void LoadMtpSubFolders()
+        {
+            if (string.IsNullOrEmpty(MtpDeviceId)) return;
+
+            try
+            {
+                var result = DocBrake.NativeInterop.OpenArcFFI.GetMtpFolderContents(MtpDeviceId, MtpObjectId);
+                if (!result.success || result.data == null) 
+                {
+                    Console.WriteLine($"[MTP] Failed to load subfolders for {Name}: {result.error}");
+                    return;
+                }
+
+                var folders = result.data.Where(i => i.is_folder).ToList();
+                Console.WriteLine($"[MTP] Loaded {folders.Count} subfolders for {Name} (ID: {MtpObjectId ?? "ROOT"})");
+
+                foreach (var item in folders)
+                {
+                    var child = new FolderItem(true) // Use placeholder constructor
+                    {
+                        Name = item.name,
+                        FullPath = $"mtp://{MtpDeviceId}/{item.id}",
+                        IsMtpPath = true,
+                        MtpDeviceId = MtpDeviceId,
+                        MtpObjectId = item.id,
+                        Parent = this
+                    };
+                    
+                    // Re-init: check for subfolders (defer for performance)
+                    child._isPlaceholder = false;
+                    
+                    // Assume has subfolders initially, will verify on expand
+                    var dummy = new FolderItem(true) { Name = string.Empty, Icon = string.Empty };
+                    dummy.Parent = child;
+                    child.SubFolders.Add(dummy);
+                    child._hasDummyChild = true;
+                    
+                    // Set appropriate icons based on folder name
+                    child.Icon = GetMtpFolderIcon(item.name, out bool isPhoneRoot, out bool isDcim);
+                    child.IsPhoneRoot = isPhoneRoot;
+                    child.IsDcimFolder = isDcim;
+                    
+                    if (IsChecked.HasValue)
+                    {
+                        child.SetIsChecked(IsChecked, updateChildren: true, updateParent: false, isExplicit: false);
+                    }
+                    
+                    SubFolders.Add(child);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Get appropriate icon for MTP folder based on name
+        /// </summary>
+        private static string GetMtpFolderIcon(string name, out bool isPhoneRoot, out bool isDcim)
+        {
+            isPhoneRoot = false;
+            isDcim = false;
+            
+            var lower = name.ToLowerInvariant();
+            
+            if (lower == "dcim" || lower == "camera")
+            {
+                isDcim = lower == "dcim";
+                return "📸";
+            }
+            if (lower.Contains("internal") || lower == "phone")
+            {
+                isPhoneRoot = true;
+                return "💾";
+            }
+            if (lower.Contains("sd") || lower == "card")
+                return "💳";
+            if (lower == "pictures" || lower == "photos")
+                return "🖼️";
+            if (lower == "movies" || lower == "videos")
+                return "🎬";
+            if (lower == "music")
+                return "🎵";
+            if (lower == "download" || lower == "downloads")
+                return "📥";
+            
+            return "📁";
         }
 
         private void SetIsChecked(bool? value, bool updateChildren, bool updateParent, bool isExplicit)

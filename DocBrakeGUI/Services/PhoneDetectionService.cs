@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Microsoft.Extensions.Logging;
+using DocBrake.NativeInterop;
 
 namespace DocBrake.Services
 {
@@ -14,6 +15,16 @@ namespace DocBrake.Services
         List<PhoneDevice> GetConnectedPhones();
         bool StartDetection();
         void StopDetection();
+        
+        /// <summary>
+        /// Get detailed MTP device information if available
+        /// </summary>
+        MtpDevice? GetMtpDeviceInfo(string devicePath);
+        
+        /// <summary>
+        /// Get storage locations within an MTP device
+        /// </summary>
+        List<MtpStorageInfo> GetMtpDeviceStorages(MtpDevice device);
     }
 
     public enum MobileDeviceType
@@ -22,7 +33,8 @@ namespace DocBrake.Services
         Phone,
         SDCard,
         Camera,
-        USBStorage
+        USBStorage,
+        MtpDevice  // New: specifically for MTP-connected devices
     }
 
     public class PhoneDevice
@@ -36,6 +48,21 @@ namespace DocBrake.Services
         public ulong FreeSpace { get; set; }
         public bool HasDriveIcon { get; set; }
         public string VolumeLabel { get; set; } = string.Empty;
+        
+        /// <summary>
+        /// True if this is an MTP device (not a regular drive)
+        /// </summary>
+        public bool IsMtpDevice { get; set; }
+        
+        /// <summary>
+        /// The underlying MTP device info (if MTP)
+        /// </summary>
+        public MtpDevice? MtpDeviceInfo { get; set; }
+        
+        /// <summary>
+        /// Available storages within the device (Internal storage, SD card, etc.)
+        /// </summary>
+        public List<MtpStorageInfo> Storages { get; set; } = new();
     }
 
     public class PhoneDetectionService : IPhoneDetectionService
@@ -51,6 +78,7 @@ namespace DocBrake.Services
         public PhoneDetectionService(ILogger<PhoneDetectionService> logger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            // Now using OpenArcFFI directly for MTP access
         }
 
         public List<PhoneDevice> GetConnectedPhones()
@@ -73,13 +101,22 @@ namespace DocBrake.Services
                     }
                 }
 
-                // Check MTP devices (media transfer protocol)
+                // Check MTP devices (media transfer protocol) - THIS IS THE KEY FOR PHONES!
                 var mtpDevices = DetectMtpDevices();
                 phones.AddRange(mtpDevices);
 
-                // Check common phone directories
-                var phoneDirs = DetectPhoneDirectories();
-                phones.AddRange(phoneDirs);
+                // NOTE: Do NOT detect local directories as phones - staging area was being detected
+                // var phoneDirs = DetectPhoneDirectories();
+                // phones.AddRange(phoneDirs);
+                
+                _logger.LogInformation("Phone detection found {Count} devices ({MtpCount} MTP)", 
+                    phones.Count, mtpDevices.Count);
+
+                // Deduplicate by path (keep first occurrence) to prevent dictionary key collisions
+                phones = phones
+                    .GroupBy(p => p.Path, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToList();
             }
             catch (Exception ex)
             {
@@ -87,6 +124,71 @@ namespace DocBrake.Services
             }
 
             return phones;
+        }
+        
+        public MtpDevice? GetMtpDeviceInfo(string devicePath)
+        {
+            try
+            {
+                var result = OpenArcFFI.GetMtpDevices();
+                if (!result.success || result.data == null)
+                    return null;
+                    
+                // Find matching device by ID or name
+                var mtpDevice = result.data.FirstOrDefault(d => 
+                    d.id.Equals(devicePath, StringComparison.OrdinalIgnoreCase) ||
+                    d.friendly_name.Equals(devicePath, StringComparison.OrdinalIgnoreCase));
+                    
+                if (mtpDevice == null)
+                    return null;
+                    
+                // Convert MtpDeviceInfo to MtpDevice
+                return new MtpDevice
+                {
+                    DeviceId = mtpDevice.id,
+                    FriendlyName = mtpDevice.friendly_name,
+                    DeviceType = mtpDevice.device_type switch
+                    {
+                        "phone" => MtpDeviceType.Phone,
+                        "camera" => MtpDeviceType.Camera,
+                        "media_player" => MtpDeviceType.MediaPlayer,
+                        _ => MtpDeviceType.Unknown
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get MTP device info for {Path}", devicePath);
+                return null;
+            }
+        }
+        
+        public List<MtpStorageInfo> GetMtpDeviceStorages(MtpDevice device)
+        {
+            try
+            {
+                // Browse the device root to get storage locations
+                var result = OpenArcFFI.GetMtpFolderContents(device.DeviceId, null);
+                if (!result.success || result.data == null)
+                    return new List<MtpStorageInfo>();
+                    
+                // Convert root-level folders to storage info (they represent storages)
+                return result.data
+                    .Where(o => o.is_folder)
+                    .Select(o => new MtpStorageInfo
+                    {
+                        Name = o.name,
+                        Path = $"mtp://{device.DeviceId}/{o.id}",
+                        IsInternal = o.name.Contains("Internal", StringComparison.OrdinalIgnoreCase) ||
+                                    o.name.Contains("Phone", StringComparison.OrdinalIgnoreCase)
+                    })
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get storages for device {Device}", device.FriendlyName);
+                return new List<MtpStorageInfo>();
+            }
         }
 
         public bool StartDetection()
@@ -330,13 +432,58 @@ namespace DocBrake.Services
 
             try
             {
-                // Check for MTP devices in Windows shell
-                // This is a simplified implementation
-                var mtpPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyComputer), "Portable Devices");
-                if (Directory.Exists(mtpPath))
+                // Use OpenArcFFI directly to enumerate MTP devices
+                var result = OpenArcFFI.GetMtpDevices();
+                if (!result.success || result.data == null)
+                    return phones;
+                
+                foreach (var mtpDeviceInfo in result.data)
                 {
-                    // In a full implementation, this would use Windows Shell APIs
-                    // For now, we'll just check common MTP mount points
+                    // Convert MtpDeviceInfo to MtpDevice
+                    var mtpDevice = new MtpDevice
+                    {
+                        DeviceId = mtpDeviceInfo.id,
+                        FriendlyName = mtpDeviceInfo.friendly_name,
+                        DeviceType = mtpDeviceInfo.device_type switch
+                        {
+                            "phone" => MtpDeviceType.Phone,
+                            "camera" => MtpDeviceType.Camera,
+                            "media_player" => MtpDeviceType.MediaPlayer,
+                            _ => MtpDeviceType.Unknown
+                        }
+                    };
+                    
+                    // Get storages for this device
+                    var storages = GetMtpDeviceStorages(mtpDevice);
+                    
+                    // Map MTP device type to our MobileDeviceType
+                    var deviceCategory = mtpDevice.DeviceType switch
+                    {
+                        MtpDeviceType.Phone => MobileDeviceType.Phone,
+                        MtpDeviceType.Camera => MobileDeviceType.Camera,
+                        MtpDeviceType.MediaPlayer => MobileDeviceType.USBStorage,
+                        _ => MobileDeviceType.MtpDevice
+                    };
+
+                    var phone = new PhoneDevice
+                    {
+                        Name = mtpDevice.FriendlyName,
+                        Path = $"mtp://{mtpDevice.DeviceId}",
+                        DeviceType = mtpDevice.DeviceType.ToString(),
+                        DeviceCategory = deviceCategory,
+                        ConnectedTime = DateTime.Now,
+                        IsMtpDevice = true,
+                        MtpDeviceInfo = mtpDevice,
+                        Storages = storages,
+                        TotalSpace = 0, // MTP doesn't easily expose space info
+                        FreeSpace = 0,
+                        HasDriveIcon = false,
+                        VolumeLabel = mtpDevice.FriendlyName
+                    };
+
+                    phones.Add(phone);
+                    _logger.LogInformation("Detected MTP device: {Name} ({Type}) with {StorageCount} storage(s)", 
+                        mtpDevice.FriendlyName, mtpDevice.DeviceType, storages.Count);
                 }
             }
             catch (Exception ex)
@@ -361,10 +508,20 @@ namespace DocBrake.Services
                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Camera Roll"),
                 };
 
+                // Deduplicate paths (e.g., UserProfile\Pictures\Camera Roll might == MyPictures\Camera Roll)
+                var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
                 foreach (var path in commonPaths)
                 {
                     if (Directory.Exists(path))
                     {
+                        // Normalize path to catch duplicates
+                        var fullPath = Path.GetFullPath(path);
+                        if (!seenPaths.Add(fullPath))
+                        {
+                            continue; // Skip duplicate
+                        }
+
                         var files = Directory.GetFiles(path, "*.*", SearchOption.TopDirectoryOnly);
                         if (files.Length > 0)
                         {
@@ -372,7 +529,7 @@ namespace DocBrake.Services
                             phones.Add(new PhoneDevice
                             {
                                 Name = $"Local Phone Backup ({dirInfo.Name})",
-                                Path = path,
+                                Path = fullPath,
                                 DeviceType = "Local Directory",
                                 ConnectedTime = DateTime.Now,
                                 TotalSpace = 0,

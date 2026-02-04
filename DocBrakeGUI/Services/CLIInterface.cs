@@ -366,9 +366,7 @@ namespace DocBrake.Services
                 Console.WriteLine("Current Settings:");
                 Console.WriteLine("==================");
                 Console.WriteLine($"BPG Quality: {settings.BpgQuality}");
-                Console.WriteLine($"BPG Lossless: {settings.BpgLossless}");
                 Console.WriteLine($"BPG Bit Depth: {settings.BpgBitDepth}");
-                Console.WriteLine($"BPG Chroma Format: {settings.BpgChromaFormat}");
                 Console.WriteLine($"BPG Encoder Type: {settings.BpgEncoderType}");
                 Console.WriteLine($"BPG Compression Level: {settings.BpgCompressionLevel}");
                 Console.WriteLine($"Video Codec: {settings.VideoCodec}");
@@ -427,7 +425,6 @@ namespace DocBrake.Services
                     BpgQuality = 28,
                     BpgLossless = false,
                     BpgBitDepth = 8,
-                    BpgChromaFormat = 0,
                     BpgEncoderType = 0,
                     BpgCompressionLevel = 5,
                     VideoCodec = 0,
@@ -526,13 +523,11 @@ namespace DocBrake.Services
                 var inputFiles = new[] { jpegPath };
 
                 // Use settings matching GUI defaults (catalog + dedup enabled)
-                // Test with lossless = true to match user's scenario
                 var settings = new OpenArcFFI.CompressionSettings
                 {
                     BpgQuality = 25,
-                    BpgLossless = true,
+                    BpgLossless = false,
                     BpgBitDepth = 8,
-                    BpgChromaFormat = 1,  // 4:2:0 (GUI default)
                     BpgEncoderType = 0,
                     BpgCompressionLevel = 8,
                     VideoCodec = 0,
@@ -544,7 +539,7 @@ namespace DocBrake.Services
                     SkipAlreadyCompressedVideos = true
                 };
 
-                Console.WriteLine($"Settings: Quality={settings.BpgQuality}, Lossless={settings.BpgLossless}, Catalog={settings.EnableCatalog}, Dedup={settings.EnableDedup}");
+                Console.WriteLine($"Settings: Quality={settings.BpgQuality}, Catalog={settings.EnableCatalog}, Dedup={settings.EnableDedup}");
                 Console.WriteLine($"Output: {outputArchive}");
                 Console.WriteLine("Calling CreateArchive with progress callback...");
 
@@ -625,7 +620,6 @@ namespace DocBrake.Services
                     BpgQuality = 28,
                     BpgLossless = false,
                     BpgBitDepth = 8,
-                    BpgChromaFormat = 0,
                     BpgEncoderType = 0,
                     BpgCompressionLevel = 5,
                     VideoCodec = 0,

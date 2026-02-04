@@ -18,8 +18,8 @@ use bytemuck::cast_vec;
 use log::warn;
 use tempfile::TempDir;
 use zstd_archive::{ZstdCodec, ZstdOptions};
-use image;
 use std::io::Read;
+use image;
 
 /// Bounded limiter for heavy tasks (videos/very large images)
 struct HeavyLimiter {
@@ -113,6 +113,7 @@ fn detect_image_bit_depth(
     img: &image::DynamicImage,
     original_format: OriginalImageFormat,
     user_setting: i32,
+    bpg_encoder_type: i32,
 ) -> i32 {
     // JPEG only supports 8-bit
     if original_format == OriginalImageFormat::Jpeg {
@@ -129,13 +130,22 @@ fn detect_image_bit_depth(
     );
 
     if has_16bit {
-        // For 16-bit source images, use 10 or 12 bit depending on user preference
-        // Cap at 12 since that's BPG's maximum
-        match user_setting {
-            10 | 12 => user_setting,
-            9..=11 => 10,
-            _ => 12, // 12+ maps to 12-bit
-        }
+        // Encoder-dependent cap:
+        // - x265 supports up to 12-bit
+        // - JCTVC supports up to 14-bit
+        let max_depth = if bpg_encoder_type == 1 { 14 } else { 12 };
+
+        // Prefer common camera/source bit depths.
+        // (8-bit sources are handled above, so this is only for >8-bit input.)
+        let preferred = match user_setting {
+            10 | 12 | 14 => user_setting,
+            13..=14 => 14,
+            11..=12 => 12,
+            9..=10 => 10,
+            _ => 12,
+        };
+
+        preferred.min(max_depth).max(10)
     } else {
         // For 8-bit source images, always use 8-bit
         // (no point in encoding 8-bit data at higher bit depth)
@@ -611,7 +621,7 @@ fn convert_to_png_intermediate(input: &Path, output: &Path, format: OriginalImag
         OriginalImageFormat::Heic => {
             // HEIC → PNG via libheif
             if HeicCodec::is_available() {
-                let codec = HeicCodec::new()?;
+                let mut codec = HeicCodec::new()?;
                 codec.decode_to_png(input, output)?;
             } else {
                 return Err(anyhow!("HEIC decoding not available - libheif not found"));
@@ -789,28 +799,73 @@ pub fn create_archive(
                     None
                 };
 
-                // Load image into memory and convert to raw pixel data
-                let img_result = if original_format == OriginalImageFormat::Heic {
-                    #[cfg(feature = "heif")]
-                    {
-                        if HeicCodec::is_available() {
-                            let codec = HeicCodec::new()?;
-                            let temp_png = media_dir.join(format!("{}_heic_temp.png", stem));
-                            codec.decode_to_png(input, &temp_png)?;
-                            let img = image::open(&temp_png);
-                            let _ = fs::remove_file(&temp_png);
-                            img.map_err(|e| anyhow::anyhow!(e))
-                        } else {
-                            Err(anyhow!("HEIC decoding not available - libheif not found"))
+                // For HEIC files, use direct YCbCr encoding (no RGB conversion, no intermediate PNG)
+                #[cfg(feature = "heif")]
+                if original_format == OriginalImageFormat::Heic {
+                    use codecs::heic::HeicCodec;
+                    use codecs::bpg::{NativeBPGEncoder, BPGEncoderConfig};
+                    
+                    if HeicCodec::is_available() {
+                        let mut codec = HeicCodec::new()?;
+                        let decoded = codec.decode_file_ycbcr420(input)
+                            .with_context(|| format!("Failed to decode HEIC file: {}", input.display()))?;
+                        
+                        // Encode directly from YCbCr 4:2:0 (native HEIC format, no color conversion)
+                        let mut encoder = NativeBPGEncoder::new()
+                            .context("Failed to create BPG encoder")?;
+                        let mut cfg = NativeBPGEncoder::default_config();
+                        cfg.quality = settings_clone.bpg_quality;
+                        cfg.lossless = if settings_clone.bpg_lossless { 1 } else { 0 };
+                        cfg.bit_depth = settings_clone.bpg_bit_depth;
+                        cfg.chroma_format = 0; // YCbCr 4:2:0 (native HEIC format)
+                        cfg.encoder_type = settings_clone.bpg_encoder_type;
+                        cfg.compress_level = settings_clone.bpg_compression_level;
+                        encoder.set_config(&cfg)
+                            .context("Failed to apply BPG config")?;
+                        
+                        let bpg_data = encoder.encode_from_ycbcr420_planar(
+                            &decoded.y_plane,
+                            &decoded.cb_plane,
+                            &decoded.cr_plane,
+                            decoded.width,
+                            decoded.height,
+                            decoded.y_stride,
+                            decoded.cb_stride,
+                            decoded.cr_stride,
+                        ).with_context(|| format!("Failed to encode HEIC to BPG via YCbCr: {}", input.display()))?;
+                        
+                        fs::write(&out, &bpg_data)
+                            .with_context(|| format!("Failed to write BPG file: {}", out.display()))?;
+                        
+                        // Record metadata
+                        {
+                            let mut meta = metadata_mutex.lock();
+                            meta.images.push(ImageMetadata {
+                                original_filename: file_name.clone(),
+                                original_format,
+                                original_extension: original_ext.clone(),
+                                bpg_filename: format!("{}_{}.bpg", stem, item.idx),
+                            });
                         }
-                    }
-                    #[cfg(not(feature = "heif"))]
-                    {
-                        Err(anyhow!("HEIC support not compiled - enable heif feature"))
+                        
+                        let rel_path = format!("media/{}_{}.bpg", stem, item.idx);
+                        
+                        let seq = completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let _ = tx.send(WorkDone { idx: seq, file_name: file_name.clone() });
+                        
+                        // HEIC processing complete - return from match arm
+                        (out, rel_path, false, Some(original_format))
+                    } else {
+                        return Err(anyhow!("HEIC decoding not available - libheif not found"));
                     }
                 } else {
-                    image::open(input).map_err(|e| anyhow::anyhow!(e))
-                };
+                    #[cfg(not(feature = "heif"))]
+                    if original_format == OriginalImageFormat::Heic {
+                        return Err(anyhow!("HEIC support not compiled - enable heif feature"));
+                    }
+                    
+                    // For all non-HEIC formats, use image crate path
+                    let img_result = image::open(input).map_err(|e| anyhow::anyhow!(e));
 
                 // If the image can't be decoded (corrupt/truncated), copy the original
                 // file as-is to preserve it in the archive without BPG encoding.
@@ -846,7 +901,12 @@ pub fn create_archive(
                 };
 
                 // Convert to RGB8 or RGBA8 for BPG encoding
-                let target_bit_depth = detect_image_bit_depth(&img, original_format, settings_clone.bpg_bit_depth);
+                let target_bit_depth = detect_image_bit_depth(
+                    &img,
+                    original_format,
+                    settings_clone.bpg_bit_depth,
+                    settings_clone.bpg_encoder_type,
+                );
                 let wants_high_depth = target_bit_depth > 8;
 
                 let (width, height, pixel_data, format, bytes_per_sample) = if wants_high_depth {
@@ -937,6 +997,7 @@ pub fn create_archive(
 
                 let rel_path = format!("media/{}", out.file_name().unwrap().to_string_lossy());
                 (out, rel_path, false, Some(original_format))
+                }  // End of else block for non-HEIC image processing
             }
             FileClass::Video => {
                 let should_skip = if settings_clone.skip_already_compressed_videos {
@@ -1430,7 +1491,7 @@ fn decode_bpg_to_original(
             decode_bpg_to_png(bpg_path, &temp_png)?;
 
             if HeicCodec::is_available() {
-                let codec = HeicCodec::new()?;
+                let mut codec = HeicCodec::new()?;
                 let config = HeicEncoderConfig {
                     quality: settings.heic_quality,
                     lossless: false,

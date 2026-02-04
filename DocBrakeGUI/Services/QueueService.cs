@@ -14,9 +14,11 @@ namespace DocBrake.Services
         int Count { get; }
 
         void AddFile(string filePath);
+        void AddFile(string filePath, string displayName);
         void AddFolder(string folderPath);
         void RemoveFolder(string folderPath);
         void RemoveItem(DocumentItem item);
+        void RemoveByPath(string filePath);
         void Clear();
         bool Contains(string filePath);
         void SortPendingByType();
@@ -72,7 +74,12 @@ namespace DocBrake.Services
 
         public void AddFile(string filePath)
         {
-            AddFileInternal(filePath, originFolder: null);
+            AddFileInternal(filePath, originFolder: null, displayName: null);
+        }
+        
+        public void AddFile(string filePath, string displayName)
+        {
+            AddFileInternal(filePath, originFolder: null, displayName: displayName);
         }
 
         public void AddFolder(string folderPath)
@@ -102,7 +109,7 @@ namespace DocBrake.Services
             var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var file in files)
             {
-                if (AddFileInternal(file, originFolder: folderPath))
+                if (AddFileInternal(file, originFolder: folderPath, displayName: null))
                 {
                     added.Add(file);
                 }
@@ -176,6 +183,27 @@ namespace DocBrake.Services
             }
         }
 
+        public void RemoveByPath(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            lock (_lock)
+            {
+                var item = _items.FirstOrDefault(i => i.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase));
+                if (item != null)
+                {
+                    _manualFiles.Remove(filePath);
+                    foreach (var kv in _folderFiles)
+                    {
+                        kv.Value.Remove(filePath);
+                    }
+                    _items.Remove(item);
+                    Console.WriteLine($"[QUEUE] Removed from queue: {filePath} (total: {_items.Count})");
+                }
+            }
+        }
+
         public void Clear()
         {
             lock (_lock)
@@ -223,22 +251,38 @@ namespace DocBrake.Services
             }
         }
 
-        private bool AddFileInternal(string filePath, string? originFolder)
+        private bool AddFileInternal(string filePath, string? originFolder, string? displayName)
         {
-            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                Console.WriteLine($"[QUEUE] AddFileInternal rejected: path is null/empty");
                 return false;
+            }
+            
+            if (!File.Exists(filePath))
+            {
+                Console.WriteLine($"[QUEUE] AddFileInternal rejected: file doesn't exist: {filePath}");
+                return false;
+            }
 
             var ext = Path.GetExtension(filePath);
             if (!MediaExtensions.Contains(ext))
+            {
+                Console.WriteLine($"[QUEUE] AddFileInternal rejected: unsupported extension: {ext}");
                 return false;
+            }
 
             lock (_lock)
             {
                 if (_items.Any(i => i.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Console.WriteLine($"[QUEUE] AddFileInternal rejected: already in queue: {filePath}");
                     return false;
+                }
 
-                var item = CreateDocumentItem(filePath);
+                var item = CreateDocumentItem(filePath, displayName);
                 _items.Add(item);
+                Console.WriteLine($"[QUEUE] Added to queue: {item.FileName} ({filePath}) (total: {_items.Count})");
 
                 if (originFolder == null)
                 {
@@ -249,7 +293,7 @@ namespace DocBrake.Services
             }
         }
 
-        private static DocumentItem CreateDocumentItem(string filePath)
+        private static DocumentItem CreateDocumentItem(string filePath, string? displayName)
         {
             var fileInfo = new FileInfo(filePath);
             var ext = fileInfo.Extension;
@@ -263,7 +307,7 @@ namespace DocBrake.Services
             return new DocumentItem
             {
                 FilePath = filePath,
-                FileName = fileInfo.Name,
+                FileName = displayName ?? fileInfo.Name,
                 FileSize = fileInfo.Length,
                 FileType = fileType,
                 Status = DocumentStatus.Pending,
