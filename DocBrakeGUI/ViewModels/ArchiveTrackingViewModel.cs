@@ -20,6 +20,7 @@ namespace DocBrake.ViewModels
         private ArchiveTrackingService.ArchiveRecord _selectedArchive = new();
         private string _statusMessage = "Ready";
         private bool _isLoading;
+        private bool _isArchiveBrowserVisible = false;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -75,6 +76,12 @@ namespace DocBrake.ViewModels
         public ICommand DeleteEntryCommand { get; }
 
         public bool HasArchives => Archives != null && Archives.Count > 0;
+        
+        public bool IsArchiveBrowserVisible
+        {
+            get => _isArchiveBrowserVisible;
+            set => SetProperty(ref _isArchiveBrowserVisible, value);
+        }
 
         public void LoadArchives()
         {

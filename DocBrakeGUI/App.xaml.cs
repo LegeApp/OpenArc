@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -26,9 +27,16 @@ namespace DocBrake
         private static int _hasShownCriticalError;
 
         public IHost? Host => _host;
+        
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AllocConsole();
 
         public App()
         {
+#if SHOW_CONSOLE
+            // Show console window in Debug mode for diagnostic logging
+            AllocConsole();
+#endif
             // Immediate debug output
             Console.WriteLine("DocBrake App constructor called");
             

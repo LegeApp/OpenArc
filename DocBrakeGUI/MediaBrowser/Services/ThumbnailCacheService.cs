@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
 using DocBrake.MediaBrowser.NativeInterop;
 using DocBrake.MediaBrowser.Models;
+using DocBrake.Services;
 
 namespace DocBrake.MediaBrowser.Services
 {
@@ -16,15 +17,16 @@ namespace DocBrake.MediaBrowser.Services
         private readonly string _cacheDirectory;
         private readonly int _thumbnailWidth;
         private readonly int _thumbnailHeight;
-        private readonly SemaphoreSlim _semaphore;
+        private readonly SemaphoreSlim _localSemaphore;
+        private static readonly SemaphoreSlim _mtpSemaphore = new SemaphoreSlim(1, 1);
         private bool _disposed;
 
         public ThumbnailCacheService(int thumbnailWidth = 256, int thumbnailHeight = 256, int maxConcurrency = 12)
         {
             _thumbnailWidth = thumbnailWidth;
             _thumbnailHeight = thumbnailHeight;
-            // High concurrency for responsive UI during loading
-            _semaphore = new SemaphoreSlim(maxConcurrency);
+            // Local files can be processed concurrently.
+            _localSemaphore = new SemaphoreSlim(maxConcurrency);
 
             // Create cache directory in AppData\Local
             string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -47,7 +49,12 @@ namespace DocBrake.MediaBrowser.Services
             if (_disposed)
                 return false;
 
-            await _semaphore.WaitAsync(cancellationToken);
+            // MTP/WPD access is fragile: only allow one in-flight MTP thumbnail at a time.
+            // Local thumbnails can still run concurrently.
+            SemaphoreSlim semaphoreToUse = item.IsMtpFile ? _mtpSemaphore : _localSemaphore;
+            bool acquired = false;
+            await semaphoreToUse.WaitAsync(cancellationToken);
+            acquired = true;
 
             try
             {
@@ -78,7 +85,8 @@ namespace DocBrake.MediaBrowser.Services
             }
             finally
             {
-                _semaphore.Release();
+                if (acquired)
+                    semaphoreToUse.Release();
             }
         }
 
@@ -120,9 +128,35 @@ namespace DocBrake.MediaBrowser.Services
             return await Task.Run(() =>
             {
                 IntPtr handle = IntPtr.Zero;
+                string? tempFilePath = null;
+                bool isMtpFile = item.IsMtpFile;
+
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+
+                    // If this is an MTP file, use new GetMtpThumbnail that tries WPD thumbnails first
+                    string sourceFilePath = item.FilePath;
+                    if (isMtpFile && !string.IsNullOrEmpty(item.MtpDeviceId) && !string.IsNullOrEmpty(item.MtpObjectId))
+                    {
+                        // New approach: Try WPD thumbnail first (fast), fallback to full file (slow but sequential)
+                        var mtpResult = DocBrake.NativeInterop.OpenArcFFI.GetMtpThumbnail(
+                            item.MtpDeviceId, 
+                            item.MtpObjectId, 
+                            item.FileName,
+                            (uint)_thumbnailWidth,
+                            (uint)_thumbnailHeight);
+                        
+                        if (!mtpResult.success || string.IsNullOrEmpty(mtpResult.data))
+                        {
+                            item.HasError = true;
+                            item.ErrorMessage = mtpResult.error ?? "Failed to get thumbnail from device";
+                            item.IsLoading = false;
+                            return false;
+                        }
+                        sourceFilePath = mtpResult.data;
+                        tempFilePath = mtpResult.data; // Rust manages temp file cleanup
+                    }
 
                     handle = BpgViewerFFI.universal_thumbnail_create_with_size(
                         (uint)_thumbnailWidth,
@@ -137,15 +171,15 @@ namespace DocBrake.MediaBrowser.Services
                     }
 
                     // Generate thumbnail using universal FFI
-                    int result = BpgViewerFFI.universal_thumbnail_generate_png(
+                    int thumbResult = BpgViewerFFI.universal_thumbnail_generate_png(
                         handle,
-                        item.FilePath,
+                        sourceFilePath,
                         cachePath);
 
-                    if (result != 0)
+                    if (thumbResult != 0)
                     {
                         item.HasError = true;
-                        item.ErrorMessage = $"Decode failed ({result})";
+                        item.ErrorMessage = isMtpFile ? $"Decode failed from device ({thumbResult})" : $"Decode failed ({thumbResult})";
                         item.IsLoading = false;
                         return false;
                     }
@@ -177,10 +211,10 @@ namespace DocBrake.MediaBrowser.Services
                 {
                     throw;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     item.HasError = true;
-                    item.ErrorMessage = "Error";
+                    item.ErrorMessage = isMtpFile ? $"MTP Error: {ex.Message}" : "Error";
                     item.IsLoading = false;
                     return false;
                 }
@@ -190,6 +224,10 @@ namespace DocBrake.MediaBrowser.Services
                     {
                         BpgViewerFFI.universal_thumbnail_free(handle);
                     }
+                    
+                    // Clean up temp file if it was created (optional - could keep for cache)
+                    // Note: We keep temp files for performance; they act as a second-level cache
+                    // Rust MTP backend handles temp file management
                 }
             }, cancellationToken);
         }
@@ -243,7 +281,7 @@ namespace DocBrake.MediaBrowser.Services
         {
             if (!_disposed)
             {
-                _semaphore.Dispose();
+                _localSemaphore.Dispose();
                 _disposed = true;
             }
             GC.SuppressFinalize(this);

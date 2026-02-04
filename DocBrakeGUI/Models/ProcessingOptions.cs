@@ -37,10 +37,9 @@ namespace DocBrake.Models
             $"archive_{DateTime.Now:yyyyMMdd}.oarc");
 
         // BPG Image Settings (CLI: --bpg-quality, --bpg-lossless)
-        private int _bpgQuality = 25;
+        private int _bpgQuality = 28;
         private bool _bpgLossless = false;
         private int _bpgBitDepth = 8;
-        private int _bpgChromaFormat = 1;
         private int _bpgEncoderType = 0;
         private int _bpgCompressionLevel = 8;
 
@@ -60,6 +59,15 @@ namespace DocBrake.Models
         // Phone Mode Settings
         private string _phoneSourcePath = string.Empty;
         private bool _autoDetectPhone = true;
+        
+        // Encode Output Folder (for Encode Only mode)
+        private string _encodeOutputFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            "OpenArc",
+            "Encoded Files");
+        
+        // UI Settings
+        private bool _showThumbnailLabelsByDefault = true;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -91,13 +99,7 @@ namespace DocBrake.Models
         public int BpgBitDepth
         {
             get => _bpgBitDepth;
-            set => SetProperty(ref _bpgBitDepth, Math.Clamp(value, 8, 12));
-        }
-
-        public int BpgChromaFormat
-        {
-            get => _bpgChromaFormat;
-            set => SetProperty(ref _bpgChromaFormat, Math.Clamp(value, 0, 2));
+            set => SetProperty(ref _bpgBitDepth, Math.Clamp(value, 8, 14));
         }
 
         public int BpgEncoderType
@@ -168,6 +170,20 @@ namespace DocBrake.Models
             get => _autoDetectPhone;
             set => SetProperty(ref _autoDetectPhone, value);
         }
+        
+        // Encode Output Folder
+        public string EncodeOutputFolder
+        {
+            get => _encodeOutputFolder;
+            set => SetProperty(ref _encodeOutputFolder, value);
+        }
+        
+        // UI Settings
+        public bool ShowThumbnailLabelsByDefault
+        {
+            get => _showThumbnailLabelsByDefault;
+            set => SetProperty(ref _showThumbnailLabelsByDefault, value);
+        }
 
         public ProcessingOptions Clone()
         {
@@ -179,7 +195,6 @@ namespace DocBrake.Models
                 BpgQuality = BpgQuality,
                 BpgLossless = BpgLossless,
                 BpgBitDepth = BpgBitDepth,
-                BpgChromaFormat = BpgChromaFormat,
                 BpgEncoderType = BpgEncoderType,
                 BpgCompressionLevel = BpgCompressionLevel,
 
@@ -193,7 +208,9 @@ namespace DocBrake.Models
                 SkipAlreadyCompressedVideos = SkipAlreadyCompressedVideos,
 
                 PhoneSourcePath = PhoneSourcePath,
-                AutoDetectPhone = AutoDetectPhone
+                AutoDetectPhone = AutoDetectPhone,
+                
+                ShowThumbnailLabelsByDefault = ShowThumbnailLabelsByDefault
             };
         }
 
@@ -207,7 +224,6 @@ namespace DocBrake.Models
             BpgQuality = other.BpgQuality;
             BpgLossless = other.BpgLossless;
             BpgBitDepth = other.BpgBitDepth;
-            BpgChromaFormat = other.BpgChromaFormat;
             BpgEncoderType = other.BpgEncoderType;
             BpgCompressionLevel = other.BpgCompressionLevel;
 
@@ -222,6 +238,8 @@ namespace DocBrake.Models
 
             PhoneSourcePath = other.PhoneSourcePath;
             AutoDetectPhone = other.AutoDetectPhone;
+            
+            ShowThumbnailLabelsByDefault = other.ShowThumbnailLabelsByDefault;
         }
 
         protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)

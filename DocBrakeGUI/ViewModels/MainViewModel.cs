@@ -18,6 +18,14 @@ using DocBrake.MediaBrowser.ViewModels;
 using DocBrake.MediaBrowser.Views;
 using DocBrake.Views;
 using Microsoft.Extensions.DependencyInjection;
+using Wpf.Ui;
+using Wpf.Ui.Controls;
+
+// Resolve ambiguity between System.Windows and Wpf.Ui.Controls
+using MessageBox = System.Windows.MessageBox;
+using MessageBoxButton = System.Windows.MessageBoxButton;
+using MessageBoxResult = System.Windows.MessageBoxResult;
+using MessageBoxImage = System.Windows.MessageBoxImage;
 
 namespace DocBrake.ViewModels
 {
@@ -31,6 +39,9 @@ namespace DocBrake.ViewModels
         private readonly IPhoneDetectionService? _phoneDetectionService;
         private readonly IStagingService? _stagingService;
         private CancellationTokenSource? _cancellationTokenSource;
+        
+        // Snackbar service for showing notifications
+        private ISnackbarService? _snackbarService;
 
         public QueueViewModel QueueViewModel { get; }
         private ProcessingOptions _processingOptions;
@@ -56,6 +67,28 @@ namespace DocBrake.ViewModels
         private readonly HashSet<string> _phoneArchivePromptedThisSession = new(StringComparer.OrdinalIgnoreCase);
 
         public event PropertyChangedEventHandler? PropertyChanged;
+        
+        /// <summary>
+        /// Set the snackbar service for showing notifications
+        /// </summary>
+        public void SetSnackbarService(ISnackbarService snackbarService)
+        {
+            _snackbarService = snackbarService;
+        }
+        
+        /// <summary>
+        /// Show a notification via the snackbar
+        /// </summary>
+        private void ShowNotification(string title, string message, ControlAppearance appearance = ControlAppearance.Info, int timeoutMs = 5000)
+        {
+            if (_snackbarService == null)
+                return;
+            
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                _snackbarService.Show(title, message, appearance, null, TimeSpan.FromMilliseconds(timeoutMs));
+            });
+        }
 
         public MainViewModel(
             IDocumentProcessingService processingService,
@@ -103,22 +136,45 @@ namespace DocBrake.ViewModels
             {
                 _phoneDetectionService.PhoneConnected += OnPhoneConnected;
                 _phoneDetectionService.PhoneDisconnected += OnPhoneDisconnected;
-                if (_processingOptions.AutoDetectPhone)
-                {
-                    _phoneDetectionService.StartDetection();
-                }
+                
+                // Always start detection - MTP devices need active monitoring
+                _phoneDetectionService.StartDetection();
+                _logger.LogInformation("Phone detection service started (AutoDetect={AutoDetect})", 
+                    _processingOptions.AutoDetectPhone);
 
+                // Do an initial check for already-connected devices
                 try
                 {
-                    _mediaBrowserViewModel.SyncPhoneRoots(_phoneDetectionService.GetConnectedPhones());
+                    var initialPhones = _phoneDetectionService.GetConnectedPhones();
+                    _logger.LogInformation("Initial phone scan found {Count} device(s)", initialPhones.Count);
+                    
+                    if (initialPhones.Count > 0)
+                    {
+                        _mediaBrowserViewModel.SyncPhoneRoots(initialPhones);
+                        
+                        // Log details
+                        foreach (var phone in initialPhones)
+                        {
+                            _logger.LogInformation("  - {Name} ({Type}): Path={Path}, IsMtp={IsMtp}", 
+                                phone.Name, phone.DeviceType, phone.Path, phone.IsMtpDevice);
+                        }
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    _logger.LogError(ex, "Error during initial phone detection");
                 }
+            }
+            else
+            {
+                _logger.LogWarning("Phone detection service is not available");
             }
 
             _mediaBrowserViewModel.ImageSelected += OpenImageViewerWindow;
             _mediaBrowserViewModel.FolderCheckChanged += OnFolderCheckChanged;
+            
+            // Sync UI settings to MediaBrowserViewModel
+            _mediaBrowserViewModel.ShowThumbnailLabelsByDefault = _processingOptions.ShowThumbnailLabelsByDefault;
 
             InitializeCommands();
             SubscribeToEvents();
@@ -275,9 +331,7 @@ namespace DocBrake.ViewModels
         public ICommand SwitchToPhoneModeCommand { get; private set; } = null!;
         public ICommand SwitchToStandardModeCommand { get; private set; } = null!;
         public ICommand SwitchToMediaBrowserModeCommand { get; private set; } = null!;
-        public ICommand ExtractArchiveCommand { get; private set; } = null!;
-        public ICommand ListArchiveCommand { get; private set; } = null!;
-        public ICommand TestEncodeCommand { get; private set; } = null!;
+        public ICommand EncodeWithoutArchivingCommand { get; private set; } = null!;
 
         private void InitializeCommands()
         {
@@ -293,9 +347,7 @@ namespace DocBrake.ViewModels
             SwitchToPhoneModeCommand = new RelayCommand(_ => SelectedMode = ArchiveMode.Phone, _ => !IsProcessing);
             SwitchToStandardModeCommand = new RelayCommand(_ => SelectedMode = ArchiveMode.Standard, _ => !IsProcessing);
             SwitchToMediaBrowserModeCommand = new RelayCommand(_ => SelectedMode = ArchiveMode.MediaBrowser, _ => !IsProcessing);
-            ExtractArchiveCommand = new RelayCommand(async _ => await ExtractArchiveAsync(), _ => !IsProcessing);
-            ListArchiveCommand = new RelayCommand(async _ => await ListArchiveAsync(), _ => !IsProcessing);
-            TestEncodeCommand = new RelayCommand(async _ => await TestEncodeAsync(), _ => !IsProcessing);
+            EncodeWithoutArchivingCommand = new RelayCommand(async _ => await EncodeWithoutArchivingAsync(), _ => !IsProcessing && _queueService.Count > 0);
         }
 
         private void SubscribeToEvents()
@@ -357,13 +409,8 @@ namespace DocBrake.ViewModels
 
         private async Task StartProcessingAsync()
         {
-            var selectedFiles = _mediaBrowserViewModel.Thumbnails
-                .Where(t => t.IsChecked)
-                .Select(t => t.FilePath)
-                .Where(p => !string.IsNullOrWhiteSpace(p) && File.Exists(p))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
+            // Files are already in the queue via checkbox selection
+            // Just add any checked folders that aren't already tracked
             var selectedFolders = _mediaBrowserViewModel.GetCheckedFolderPaths();
 
             foreach (var folder in selectedFolders)
@@ -371,12 +418,9 @@ namespace DocBrake.ViewModels
                 _queueService.AddFolder(folder);
             }
 
-            foreach (var file in selectedFiles)
-            {
-                _queueService.AddFile(file);
-            }
-
             _queueService.SortPendingByType();
+            
+            Console.WriteLine($"[PROCESSING] Queue has {_queueService.Count} items");
 
             if (_queueService.Count == 0)
             {
@@ -447,6 +491,7 @@ namespace DocBrake.ViewModels
 
                 var progress = new Progress<DocumentProcessingProgress>(p =>
                 {
+                    Console.WriteLine($"[PROGRESS] Current={p.Current}, Total={p.Total}, Status={p.Status}");
                     var progressPercentage = p.Total > 0 ? (double)p.Current / p.Total * 100 : 0;
                     OverallProgress = progressPercentage;
                     StatusMessage = string.IsNullOrWhiteSpace(_processingOptions.OutputArchivePath)
@@ -614,6 +659,9 @@ namespace DocBrake.ViewModels
                 _processingOptions.CopyFrom(workingOptions);
                 _settingsService.SaveSettings(_processingOptions);
                 StatusMessage = "Settings saved";
+                
+                // Sync UI settings to MediaBrowserViewModel immediately
+                _mediaBrowserViewModel.ShowThumbnailLabelsByDefault = _processingOptions.ShowThumbnailLabelsByDefault;
 
                 if (_phoneDetectionService != null)
                 {
@@ -717,17 +765,43 @@ namespace DocBrake.ViewModels
         {
             Application.Current.Dispatcher.Invoke(() =>
             {
-                StatusMessage = $"Phone connected: {phoneName}";
+                StatusMessage = $"📱 Device connected: {phoneName}";
+                _logger.LogInformation("Phone/device connected: {PhoneName}", phoneName);
+                
+                // Show snackbar notification
+                ShowNotification(
+                    "📱 Device Connected",
+                    $"{phoneName} is now available. Browse files in the Media Browser.",
+                    ControlAppearance.Success,
+                    6000);
+                
                 if (_phoneDetectionService != null)
                 {
                     try
                     {
                         var phones = _phoneDetectionService.GetConnectedPhones();
                         _mediaBrowserViewModel.SyncPhoneRoots(phones);
+                        
+                        // Log details about detected devices
+                        foreach (var phone in phones)
+                        {
+                            _logger.LogInformation("Device details: Name={Name}, Path={Path}, IsMtp={IsMtp}, Type={Type}", 
+                                phone.Name, phone.Path, phone.IsMtpDevice, phone.DeviceType);
+                            
+                            if (phone.Storages.Count > 0)
+                            {
+                                foreach (var storage in phone.Storages)
+                                {
+                                    _logger.LogInformation("  Storage: {Name} at {Path}", storage.Name, storage.Path);
+                                }
+                            }
+                        }
+                        
                         TryPromptPhoneArchiveAsync(phones);
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        _logger.LogError(ex, "Error processing phone connection");
                     }
                 }
             });
@@ -736,10 +810,18 @@ namespace DocBrake.ViewModels
         private List<(DocumentItem Item, string Path)> BuildProcessingPlan(List<DocumentItem> pendingItems, string[] mediaExtensions)
         {
             // QueueService already expands folders into individual files. Keep the per-item mapping intact.
-            return pendingItems
+            var plan = pendingItems
                 .Where(i => !string.IsNullOrWhiteSpace(i.FilePath) && File.Exists(i.FilePath))
                 .Select(i => (i, i.FilePath))
                 .ToList();
+            
+            Console.WriteLine($"[PROCESSING-PLAN] Built plan with {plan.Count} items from {pendingItems.Count} pending items");
+            foreach (var (item, path) in plan)
+            {
+                Console.WriteLine($"[PROCESSING-PLAN] Item: {item.FileName}, Path: {path}, Exists: {File.Exists(path)}");
+            }
+            
+            return plan;
         }
 
         private void OnFolderCheckChanged(string folderPath, bool? isChecked)
@@ -863,19 +945,12 @@ namespace DocBrake.ViewModels
 
         private async Task PromptAndStageFilesAsync(PhoneDevice phone, List<string> newFiles)
         {
-            if (_stagingService == null)
+            // Only prompt for staging if it's a real device (MTP or removable drive), not a local directory
+            bool isRealDevice = phone.IsMtpDevice || phone.DeviceCategory != MobileDeviceType.Unknown;
+            
+            if (_stagingService == null || !isRealDevice)
             {
-                // No staging service, fall back to direct archive
-                var fallbackResult = MessageBox.Show(
-                    "Device detected - some user files are not archived per database - would you like to compress and archive them now?",
-                    "Device detected",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question);
-
-                if (fallbackResult == MessageBoxResult.Yes)
-                {
-                    await ArchivePhoneAsync(phone);
-                }
+                // No staging service or not a real device - don't prompt
                 return;
             }
 
@@ -913,11 +988,7 @@ namespace DocBrake.ViewModels
                 // Stage files first
                 await StageFilesFromDeviceAsync(phone, newFiles);
             }
-            else
-            {
-                // Archive directly without staging
-                await ArchivePhoneAsync(phone);
-            }
+            // Note: if user clicks No, we do nothing - they declined to stage files
         }
 
         private async Task StageFilesFromDeviceAsync(PhoneDevice phone, List<string> files)
@@ -1017,9 +1088,8 @@ namespace DocBrake.ViewModels
                     var settings = new OpenArcFFI.CompressionSettings
                     {
                         BpgQuality = _processingOptions.BpgQuality,
-                        BpgLossless = _processingOptions.BpgLossless,
+                        BpgLossless = false,
                         BpgBitDepth = _processingOptions.BpgBitDepth,
-                        BpgChromaFormat = _processingOptions.BpgChromaFormat,
                         BpgEncoderType = _processingOptions.BpgEncoderType,
                         BpgCompressionLevel = _processingOptions.BpgCompressionLevel,
                         VideoCodec = (int)_processingOptions.VideoCodec,
@@ -1175,114 +1245,140 @@ namespace DocBrake.ViewModels
             }
         }
 
-        private async Task TestEncodeAsync()
+        private async Task EncodeWithoutArchivingAsync()
         {
-            var inputFile = _fileDialogService.OpenFileDialog(
-                "Select a file to test encode",
-                "Images (*.jpg;*.jpeg;*.png;*.bmp;*.tiff)|*.jpg;*.jpeg;*.png;*.bmp;*.tiff|Videos (*.mp4;*.mov;*.avi;*.mkv)|*.mp4;*.mov;*.avi;*.mkv|All Files (*.*)|*.*");
+            // Get all queued items  
+            var queueItems = _queueService.Items.Where(i => i.Status == DocumentStatus.Pending).ToList();
 
-            if (string.IsNullOrEmpty(inputFile))
-                return;
-
-            var fileInfo = new FileInfo(inputFile);
-            var ext = fileInfo.Extension.ToLower();
-
-            // Determine if this is an image or video
-            bool isImage = new[] { ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".raw", ".cr2", ".nef", ".arw" }.Contains(ext);
-            bool isVideo = new[] { ".mp4", ".mov", ".avi", ".mkv", ".webm" }.Contains(ext);
-
-            if (!isImage && !isVideo)
+            if (queueItems.Count == 0)
             {
-                MessageBox.Show("Please select an image or video file.", "Invalid File Type", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("No files in queue to encode.", "Queue Empty", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            // Create output path in same directory as input
-            var outputFileName = Path.GetFileNameWithoutExtension(inputFile) + "_encoded";
-            var outputExtension = isImage ? ".bpg" : ".mp4";
-            var outputPath = Path.Combine(fileInfo.DirectoryName ?? Path.GetTempPath(), outputFileName + outputExtension);
-
-            // If file exists, add timestamp
-            if (File.Exists(outputPath))
+            // Ensure output folder exists
+            var outputFolder = _processingOptions.EncodeOutputFolder;
+            try
             {
-                outputPath = Path.Combine(fileInfo.DirectoryName ?? Path.GetTempPath(),
-                    $"{outputFileName}_{DateTime.Now:yyyyMMdd_HHmmss}{outputExtension}");
+                Directory.CreateDirectory(outputFolder);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to create output folder:\n{outputFolder}\n\nError: {ex.Message}", "Folder Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
             }
 
             IsProcessing = true;
-            StatusMessage = $"Test encoding {fileInfo.Name}...";
             var startTime = DateTime.Now;
+            var processedCount = 0;
+            var errorCount = 0;
 
             try
             {
                 _cancellationTokenSource = new CancellationTokenSource();
 
-                bool success;
-                if (isImage)
+                foreach (var item in queueItems)
                 {
-                    success = await _processingService.EncodeBpgFileAsync(inputFile, outputPath, _processingOptions, _cancellationTokenSource.Token);
-                }
-                else
-                {
-                    success = await _processingService.EncodeVideoFileAsync(inputFile, outputPath, _processingOptions, _cancellationTokenSource.Token);
-                }
+                    if (_cancellationTokenSource.Token.IsCancellationRequested)
+                        break;
 
-                if (success)
-                {
-                    var outputFileInfo = new FileInfo(outputPath);
-                    var encodingTime = DateTime.Now - startTime;
+                    StatusMessage = $"Encoding {item.FileName} ({processedCount + 1}/{queueItems.Count})...";
+                    item.Status = DocumentStatus.Processing;
 
-                    if (outputFileInfo.Exists)
+                    bool isImage = item.FileType == FileType.Image;
+                    bool isVideo = item.FileType == FileType.Video;
+
+                    if (!isImage && !isVideo)
                     {
-                        var compressionRatio = ((1.0 - ((double)outputFileInfo.Length / fileInfo.Length)) * 100);
+                        item.Status = DocumentStatus.Error;
+                        item.ErrorMessage = "Not a media file";
+                        errorCount++;
+                        continue;
+                    }
 
-                        var message = $"Test encoding completed!\n\n" +
-                                      $"File Type: {(isImage ? "Image (BPG)" : "Video (MP4)")}\n" +
-                                      $"Original: {FormatFileSize(fileInfo.Length)}\n" +
-                                      $"Encoded: {FormatFileSize(outputFileInfo.Length)}\n" +
-                                      $"Compression: {compressionRatio:F1}%\n" +
-                                      $"Time: {encodingTime.TotalSeconds:F1}s\n\n" +
-                                      $"Settings used:\n" +
-                                      (isImage
-                                        ? $"- BPG Quality: {_processingOptions.BpgQuality}\n" +
-                                          $"- Bit Depth: {_processingOptions.BpgBitDepth}\n" +
-                                          $"- Chroma: {GetChromaFormatName(_processingOptions.BpgChromaFormat)}\n" +
-                                          $"- Encoder: {(_processingOptions.BpgEncoderType == 0 ? "Default" : "Slow")}"
-                                        : $"- Video Codec: {_processingOptions.VideoCodec}\n" +
-                                          $"- Video Speed: {_processingOptions.VideoSpeed}\n" +
-                                          $"- Video CRF: {_processingOptions.VideoCrf}") +
-                                      $"\n\nOutput saved to:\n{outputPath}";
+                    try
+                    {
+                        var inputFile = item.FilePath;
+                        var outputExtension = isImage ? ".bpg" : ".mp4";
+                        var outputFileName = Path.GetFileNameWithoutExtension(item.FileName) + outputExtension;
+                        var outputPath = Path.Combine(outputFolder, outputFileName);
 
-                        var result = MessageBox.Show(message, "Test Encode Results", MessageBoxButton.YesNo, MessageBoxImage.Information);
-
-                        // Open file location if user clicks Yes
-                        if (result == MessageBoxResult.Yes)
+                        // Handle duplicate filenames
+                        int counter = 1;
+                        while (File.Exists(outputPath))
                         {
-                            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{outputPath}\"");
+                            outputFileName = $"{Path.GetFileNameWithoutExtension(item.FileName)}_{counter}{outputExtension}";
+                            outputPath = Path.Combine(outputFolder, outputFileName);
+                            counter++;
                         }
 
-                        StatusMessage = $"Test encoding completed - saved to {Path.GetFileName(outputPath)}";
+                        bool success;
+                        if (isImage)
+                        {
+                            success = await _processingService.EncodeBpgFileAsync(inputFile, outputPath, _processingOptions, _cancellationTokenSource.Token);
+                        }
+                        else
+                        {
+                            success = await _processingService.EncodeVideoFileAsync(inputFile, outputPath, _processingOptions, _cancellationTokenSource.Token);
+                        }
+
+                        if (success && File.Exists(outputPath))
+                        {
+                            item.Status = DocumentStatus.Completed;
+                            item.OutputPath = outputPath;
+                            processedCount++;
+                        }
+                        else
+                        {
+                            item.Status = DocumentStatus.Error;
+                            item.ErrorMessage = "Encoding failed";
+                            errorCount++;
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        MessageBox.Show("Encoding completed but output file not found.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        StatusMessage = "Test encoding completed but output file missing";
+                        item.Status = DocumentStatus.Error;
+                        item.ErrorMessage = ex.Message;
+                        errorCount++;
+                        _logger.LogError(ex, $"Error encoding {item.FileName}");
                     }
+                }
+
+                var totalTime = DateTime.Now - startTime;
+
+                // Show completion popup
+                if (processedCount > 0)
+                {
+                    var message = $"Encoding completed!\n\n" +
+                                  $"Processed: {processedCount} file(s)\n" +
+                                  (errorCount > 0 ? $"Errors: {errorCount}\n" : "") +
+                                  $"Time: {totalTime.TotalSeconds:F1}s\n\n" +
+                                  $"Files saved to:\n{outputFolder}\n\n" +
+                                  $"Open output folder?";
+
+                    var result = MessageBox.Show(message, "Encoding Complete", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        System.Diagnostics.Process.Start("explorer.exe", outputFolder);
+                    }
+
+                    StatusMessage = $"Encoded {processedCount} file(s) to {outputFolder}";
                 }
                 else
                 {
-                    MessageBox.Show($"Test encoding failed. Check the error log for details.", "Test Encode Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    StatusMessage = "Test encoding failed";
+                    MessageBox.Show($"Encoding failed for all files. Check error log for details.", "Encoding Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                    StatusMessage = "Encoding failed";
                 }
             }
             catch (OperationCanceledException)
             {
-                StatusMessage = "Test encoding cancelled";
+                StatusMessage = "Encoding cancelled";
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Test encoding failed");
-                MessageBox.Show($"Test encoding error:\n{ex.Message}", "Test Encode Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                _logger.LogError(ex, "Encode without archiving failed");
+                MessageBox.Show($"Encoding error:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 StatusMessage = $"Error: {ex.Message}";
             }
             finally

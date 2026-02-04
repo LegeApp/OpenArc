@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -36,6 +37,7 @@ namespace DocBrake.MediaBrowser.ViewModels
         private int _totalCount;
         private ThumbnailItem? _selectedItem;
         private int _thumbnailSize = 200;
+        private int _thumbnailPadding = 0;
         private double _viewportWidth = 1000; // Default width
         private int _columnsPerRow = 4; // Default columns
         private bool _disposed;
@@ -45,6 +47,7 @@ namespace DocBrake.MediaBrowser.ViewModels
         private bool _isPhoneModeActive;
         private PhoneDevice? _activePhoneDevice;
         private string _stagingDirectory = string.Empty;
+        private bool _showThumbnailLabelsByDefault = true;
 
         #endregion
 
@@ -76,6 +79,23 @@ namespace DocBrake.MediaBrowser.ViewModels
                 if (_isQueuePanelVisible != value)
                 {
                     _isQueuePanelVisible = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+        
+        public System.Collections.ObjectModel.ObservableCollection<DocBrake.Models.DocumentItem> QueueItems => _queueService.Items;
+        
+        public int QueueItemCount => _queueService.Count;
+        
+        public bool ShowThumbnailLabelsByDefault
+        {
+            get => _showThumbnailLabelsByDefault;
+            set
+            {
+                if (_showThumbnailLabelsByDefault != value)
+                {
+                    _showThumbnailLabelsByDefault = value;
                     OnPropertyChanged();
                 }
             }
@@ -247,6 +267,17 @@ namespace DocBrake.MediaBrowser.ViewModels
             }
         }
 
+        public int ThumbnailPadding
+        {
+            get => _thumbnailPadding;
+            set
+            {
+                _thumbnailPadding = Math.Max(0, Math.Min(20, value));
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ThumbnailMargin));
+            }
+        }
+
         public double ViewportWidth
         {
             get => _viewportWidth;
@@ -268,11 +299,11 @@ namespace DocBrake.MediaBrowser.ViewModels
             }
         }
 
-        // Minimal spacing for dense aesthetic
-        public Thickness ThumbnailMargin => new Thickness(4);
+        // Padding for thumbnails (0 = wall-to-wall)
+        public Thickness ThumbnailMargin => new Thickness(_thumbnailPadding);
 
-        // Height for thumbnail image area (size minus text area)
-        public int ThumbnailImageHeight => Math.Max(60, ThumbnailSize - 35);
+        // Height for thumbnail image area - now uses full size since text is overlaid
+        public int ThumbnailImageHeight => ThumbnailSize;
 
         public string CacheSizeFormatted
         {
@@ -312,6 +343,7 @@ namespace DocBrake.MediaBrowser.ViewModels
         public ICommand ToggleDetailsViewCommand { get; }
         public ICommand ToggleQueuePanelCommand { get; }
         public ICommand AddPreparedToQueueCommand { get; }
+        public ICommand ClearQueueCommand { get; }
 
         #endregion
 
@@ -328,6 +360,12 @@ namespace DocBrake.MediaBrowser.ViewModels
             _cacheService = cacheService;
             _fileThumbnailService = new FileThumbnailService();
             _queueService = queueService;
+            
+            // Subscribe to queue changes to update QueueItemCount
+            _queueService.Items.CollectionChanged += (_, __) =>
+            {
+                OnPropertyChanged(nameof(QueueItemCount));
+            };
 
             PreparedItemsView = new ListCollectionView(Thumbnails)
             {
@@ -348,6 +386,7 @@ namespace DocBrake.MediaBrowser.ViewModels
 
             ToggleQueuePanelCommand = new RelayCommand(() => IsQueuePanelVisible = !IsQueuePanelVisible);
             AddPreparedToQueueCommand = new RelayCommand(AddPreparedToQueue, () => SelectedCount > 0);
+            ClearQueueCommand = new RelayCommand(ClearQueueAndSelection);
 
             UpdateResponsiveLayout();
             LoadDrives();
@@ -383,9 +422,11 @@ namespace DocBrake.MediaBrowser.ViewModels
 
         public void SyncPhoneRoots(System.Collections.Generic.IReadOnlyList<PhoneDevice> phones)
         {
+            // Group by path to handle any duplicates safely (take first of each group)
             var incoming = phones
                 .Where(p => !string.IsNullOrWhiteSpace(p.Path))
-                .ToDictionary(p => p.Path, p => p, StringComparer.OrdinalIgnoreCase);
+                .GroupBy(p => p.Path, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
             for (int i = RootFolders.Count - 1; i >= 0; i--)
             {
@@ -426,26 +467,27 @@ namespace DocBrake.MediaBrowser.ViewModels
 
         private void LoadDrives()
         {
-            LoadDrives(hideDesktopDrives: IsPhoneModeActive);
+            LoadDrives(hideDesktopDrives: false); // Never hide drives
         }
 
         private void LoadDrives(bool hideDesktopDrives)
         {
             try
             {
+                // Preserve existing phone roots (MTP devices) before clearing
+                var existingPhoneRoots = RootFolders
+                    .Where(f => f.IsPhoneRoot)
+                    .ToList();
+
                 RootFolders.Clear();
 
-                // If phone mode is active with staging, show staging folder first
-                if (IsPhoneModeActive && !string.IsNullOrEmpty(StagingDirectory) && Directory.Exists(StagingDirectory))
+                // Re-add phone roots first
+                foreach (var phoneRoot in existingPhoneRoots)
                 {
-                    var stagingNode = new FolderItem(StagingDirectory, false)
-                    {
-                        Name = "📦 Staging Area (Local)",
-                        Icon = "📦",
-                        IsPhoneRoot = false
-                    };
-                    RootFolders.Add(stagingNode);
+                    RootFolders.Add(phoneRoot);
                 }
+
+                // Note: Staging area is no longer shown separately - MTP devices browse directly
 
                 var drives = DriveInfo.GetDrives()
                     .Where(d => d.IsReady)
@@ -455,9 +497,8 @@ namespace DocBrake.MediaBrowser.ViewModels
 
                 foreach (var drive in drives)
                 {
-                    // In phone mode, hide desktop/fixed drives
-                    if (hideDesktopDrives && drive.DriveType == DriveType.Fixed)
-                        continue;
+                    // Always show all drives, both fixed and removable
+                    // (Removed hideDesktopDrives logic)
 
                     try
                     {
@@ -557,7 +598,7 @@ namespace DocBrake.MediaBrowser.ViewModels
             IsPhoneModeActive = true;
 
             StatusMessage = $"Phone mode activated: {device.Name}";
-            LoadDrives(hideDesktopDrives: true);
+            LoadDrives(hideDesktopDrives: false); // Show all drives
         }
 
         /// <summary>
@@ -629,12 +670,45 @@ namespace DocBrake.MediaBrowser.ViewModels
 
         private void SelectAll()
         {
+            int addedCount = 0;
             foreach (var item in Thumbnails)
             {
-                item.IsChecked = true;
+                if (!item.IsChecked)
+                {
+                    item.IsChecked = true;
+                    // Add to queue (don't call OnThumbnailCheckedChanged to avoid multiple status updates)
+                    string? pathToAdd = null;
+                    
+                    if (item.IsMtpFile && !string.IsNullOrEmpty(item.MtpDeviceId) && !string.IsNullOrEmpty(item.MtpObjectId))
+                    {
+                        var localPath = MtpFileService.GetLocalPath(item.MtpDeviceId, item.MtpObjectId, item.FileName);
+                        if (!string.IsNullOrEmpty(localPath))
+                        {
+                            pathToAdd = localPath;
+                            item.ResolvedLocalPath = localPath;
+                        }
+                        else
+                        {
+                            item.IsChecked = false; // Can't cache, revert
+                            continue;
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(item.FilePath) && System.IO.File.Exists(item.FilePath))
+                    {
+                        pathToAdd = item.FilePath;
+                        item.ResolvedLocalPath = item.FilePath;
+                    }
+                    
+                    if (pathToAdd != null)
+                    {
+                        _queueService.AddFile(pathToAdd, item.FileName);
+                        addedCount++;
+                    }
+                }
             }
             OnPropertyChanged(nameof(SelectedCount));
             OnPropertyChanged(nameof(SelectionSummary));
+            StatusMessage = $"Selected all - {addedCount} files added to queue ({_queueService.Count} total)";
         }
 
         private void ClearSelection()
@@ -643,8 +717,17 @@ namespace DocBrake.MediaBrowser.ViewModels
             {
                 item.IsChecked = false;
             }
+            // Clear the queue as well since selection = queue
+            _queueService.Clear();
             OnPropertyChanged(nameof(SelectedCount));
             OnPropertyChanged(nameof(SelectionSummary));
+            StatusMessage = "Selection and queue cleared";
+        }
+        
+        private void ClearQueueAndSelection()
+        {
+            // Same as ClearSelection - they're now unified
+            ClearSelection();
         }
 
         private void ProcessSelected()
@@ -665,6 +748,69 @@ namespace DocBrake.MediaBrowser.ViewModels
             OnPropertyChanged(nameof(SelectedCount));
             OnPropertyChanged(nameof(SelectionSummary));
         }
+        
+        /// <summary>
+        /// Handle checkbox state change - directly add/remove from queue
+        /// </summary>
+        public void OnThumbnailCheckedChanged(ThumbnailItem item)
+        {
+            OnPropertyChanged(nameof(SelectedCount));
+            OnPropertyChanged(nameof(SelectionSummary));
+            
+            if (item.IsChecked)
+            {
+                // Add to queue
+                string? pathToAdd = null;
+                
+                if (item.IsMtpFile && !string.IsNullOrEmpty(item.MtpDeviceId) && !string.IsNullOrEmpty(item.MtpObjectId))
+                {
+                    // For MTP files, resolve to local path
+                    Console.WriteLine($"[QUEUE-ADD] MTP file: {item.FileName}, caching...");
+                    var localPath = MtpFileService.GetLocalPath(item.MtpDeviceId, item.MtpObjectId, item.FileName);
+                    if (!string.IsNullOrEmpty(localPath))
+                    {
+                        pathToAdd = localPath;
+                        item.ResolvedLocalPath = localPath;
+                        Console.WriteLine($"[QUEUE-ADD] Cached to: {localPath}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[QUEUE-ADD] Failed to cache MTP file: {item.FileName}");
+                        StatusMessage = $"Failed to cache {item.FileName}";
+                        item.IsChecked = false; // Revert checkbox
+                        return;
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(item.FilePath) && System.IO.File.Exists(item.FilePath))
+                {
+                    pathToAdd = item.FilePath;
+                    item.ResolvedLocalPath = item.FilePath;
+                }
+                else
+                {
+                    Console.WriteLine($"[QUEUE-ADD] File doesn't exist: {item.FilePath}");
+                    item.IsChecked = false;
+                    return;
+                }
+                
+                if (pathToAdd != null)
+                {
+                    // Add with original display name
+                    _queueService.AddFile(pathToAdd, item.FileName);
+                    StatusMessage = $"Added {item.FileName} to queue ({_queueService.Count} total)";
+                }
+            }
+            else
+            {
+                // Remove from queue
+                var pathToRemove = item.ResolvedLocalPath ?? item.FilePath;
+                if (!string.IsNullOrEmpty(pathToRemove))
+                {
+                    _queueService.RemoveByPath(pathToRemove);
+                    StatusMessage = $"Removed {item.FileName} from queue ({_queueService.Count} total)";
+                }
+            }
+        }
 
         public void NotifyFolderCheckChanged(FolderItem folder)
         {
@@ -674,10 +820,61 @@ namespace DocBrake.MediaBrowser.ViewModels
         private void AddPreparedToQueue()
         {
             var selected = Thumbnails.Where(x => x.IsChecked).ToList();
+            Console.WriteLine($"[MTP-QUEUE] Adding {selected.Count} selected items to queue");
+            
+            int addedCount = 0;
             foreach (var item in selected)
             {
-                _queueService.AddFile(item.FilePath);
+                string pathToAdd = item.FilePath;
+                
+                // For MTP files, resolve to local path first
+                if (item.IsMtpFile && !string.IsNullOrEmpty(item.MtpDeviceId) && !string.IsNullOrEmpty(item.MtpObjectId))
+                {
+                    Console.WriteLine($"[MTP-QUEUE] MTP file detected: {item.FileName}, DeviceId={item.MtpDeviceId}, ObjectId={item.MtpObjectId}");
+                    var localPath = MtpFileService.GetLocalPath(item.MtpDeviceId, item.MtpObjectId, item.FileName);
+                    if (!string.IsNullOrEmpty(localPath))
+                    {
+                        pathToAdd = localPath;
+                        Console.WriteLine($"[MTP-QUEUE] Resolved {item.FileName} to local: {pathToAdd}, exists: {System.IO.File.Exists(pathToAdd)}");
+                    }
+                    else
+                    {
+                        StatusMessage = $"Failed to download {item.FileName} from device";
+                        Console.WriteLine($"[MTP-QUEUE] FAILED to cache {item.FileName}");
+                        continue;
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[MTP-QUEUE] Regular file: {item.FileName}, path: {pathToAdd}, exists: {System.IO.File.Exists(pathToAdd)}");
+                }
+                
+                int beforeCount = _queueService.Count;
+                _queueService.AddFile(pathToAdd);
+                int afterCount = _queueService.Count;
+                
+                if (afterCount > beforeCount)
+                {
+                    addedCount++;
+                    Console.WriteLine($"[MTP-QUEUE] Successfully added to queue: {pathToAdd}");
+                }
+                else
+                {
+                    Console.WriteLine($"[MTP-QUEUE] File was NOT added (rejected or duplicate): {pathToAdd}");
+                }
             }
+            
+            Console.WriteLine($"[MTP-QUEUE] Queue now has {_queueService.Count} items (added {addedCount})");
+            StatusMessage = $"Added {addedCount} file(s) to queue";
+            
+            // Clear selection after adding to queue
+            foreach (var item in selected)
+            {
+                item.IsChecked = false;
+            }
+            OnPropertyChanged(nameof(SelectedCount));
+            OnPropertyChanged(nameof(SelectionSummary));
+            PreparedItemsView.Refresh();
         }
 
 
@@ -691,7 +888,9 @@ namespace DocBrake.MediaBrowser.ViewModels
         /// </summary>
         public async Task LoadDirectoryAsync(string directoryPath)
         {
-            if (!Directory.Exists(directoryPath))
+            bool isMtpPath = MtpFileService.IsMtpPath(directoryPath);
+            
+            if (!isMtpPath && !Directory.Exists(directoryPath))
             {
                 StatusMessage = $"Directory not found: {directoryPath}";
                 return;
@@ -706,7 +905,7 @@ namespace DocBrake.MediaBrowser.ViewModels
             TotalCount = 0;
 
             IsLoading = true;
-            StatusMessage = "Scanning for files...";
+            StatusMessage = isMtpPath ? "Scanning MTP device..." : "Scanning for files...";
 
             _loadingCts = new CancellationTokenSource();
             var token = _loadingCts.Token;
@@ -720,14 +919,38 @@ namespace DocBrake.MediaBrowser.ViewModels
 
                     try
                     {
-                        var files = Directory.EnumerateFiles(directoryPath, "*.*", SearchOption.TopDirectoryOnly)
-                                             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+                        IEnumerable<(string filePath, string? mtpDeviceId, string? mtpObjectId, string name, long size)> files;
+                        
+                        if (isMtpPath)
+                        {
+                            // Parse MTP path: mtp://deviceId[/objectId]
+                            files = GetMtpFiles(directoryPath);
+                        }
+                        else
+                        {
+                            // Regular filesystem
+                            files = Directory.EnumerateFiles(directoryPath, "*.*", SearchOption.TopDirectoryOnly)
+                                             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                                             .Select(f => (f, (string?)null, (string?)null, Path.GetFileName(f), 0L));
+                        }
 
-                        foreach (var file in files)
+                        foreach (var (filePath, mtpDeviceId, mtpObjectId, name, size) in files)
                         {
                             if (token.IsCancellationRequested) break;
 
-                            batch.Add(new ThumbnailItem(file));
+                            var item = new ThumbnailItem(filePath)
+                            {
+                                MtpDeviceId = mtpDeviceId,
+                                MtpObjectId = mtpObjectId,
+                                FileName = name
+                            };
+                            
+                            if (isMtpPath)
+                            {
+                                item.FileSize = size;
+                            }
+                            
+                            batch.Add(item);
                             count++;
 
                             // Batch update UI every 50 items
@@ -738,12 +961,14 @@ namespace DocBrake.MediaBrowser.ViewModels
                                 
                                 Application.Current.Dispatcher.Invoke(() =>
                                 {
-                                    foreach (var item in currentBatch)
+                                    foreach (var batchItem in currentBatch)
                                     {
-                                        Thumbnails.Add(item);
+                                        Thumbnails.Add(batchItem);
                                     }
                                     TotalCount = Thumbnails.Count;
-                                    StatusMessage = $"Found {TotalCount} files...";
+                                    StatusMessage = isMtpPath 
+                                        ? $"Found {TotalCount} files on device..." 
+                                        : $"Found {TotalCount} files...";
                                 });
                             }
                         }
@@ -777,7 +1002,9 @@ namespace DocBrake.MediaBrowser.ViewModels
                     return;
                 }
 
-                StatusMessage = $"Loading thumbnails for {Thumbnails.Count} files...";
+                StatusMessage = isMtpPath 
+                    ? $"Loading thumbnails from device ({Thumbnails.Count} files)..." 
+                    : $"Loading thumbnails for {Thumbnails.Count} files...";
 
                 // Start loading thumbnails
                 await LoadThumbnailsAsync(token);
@@ -862,15 +1089,32 @@ namespace DocBrake.MediaBrowser.ViewModels
         /// </summary>
         public void OnThumbnailDoubleClick(ThumbnailItem item)
         {
-            if (IsImageFile(item.FilePath) || IsVideoFile(item.FilePath))
+            if (IsImageFile(item.FileName) || IsVideoFile(item.FileName))
             {
-                ImageSelected?.Invoke(item.FilePath);
+                // For MTP files, we need to provide a local path if possible
+                string path = item.IsMtpFile && !string.IsNullOrEmpty(item.MtpDeviceId)
+                    ? DocBrake.Services.MtpFileService.GetLocalPath(item.MtpDeviceId, item.MtpObjectId, item.FileName) ?? item.FilePath
+                    : item.FilePath;
+                
+                ImageSelected?.Invoke(path);
                 return;
             }
 
             try
             {
-                Process.Start(new ProcessStartInfo(item.FilePath) { UseShellExecute = true });
+                string path = item.FilePath;
+                if (item.IsMtpFile && !string.IsNullOrEmpty(item.MtpDeviceId))
+                {
+                    StatusMessage = $"Downloading {item.FileName}...";
+                    path = DocBrake.Services.MtpFileService.GetLocalPath(item.MtpDeviceId, item.MtpObjectId, item.FileName);
+                    if (path == null)
+                    {
+                        StatusMessage = "Failed to download file from device";
+                        return;
+                    }
+                }
+                
+                Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
             }
             catch (Exception ex)
             {
@@ -885,29 +1129,61 @@ namespace DocBrake.MediaBrowser.ViewModels
         private async Task LoadThumbnailsAsync(CancellationToken cancellationToken)
         {
             // Load thumbnails in parallel batches
+            // Limit concurrency to prevent freezing the UI or overwhelming the MTP connection
+            var semaphore = new SemaphoreSlim(4);
+            
             var tasks = Thumbnails.Select(async item =>
             {
-                if (cancellationToken.IsCancellationRequested)
-                    return;
+                await semaphore.WaitAsync(cancellationToken);
+                try 
+                {
+                    if (cancellationToken.IsCancellationRequested) return;
 
-                bool success;
-                if (IsImageFile(item.FilePath))
-                {
-                    success = await _cacheService.LoadThumbnailAsync(item, cancellationToken);
-                }
-                else
-                {
-                    success = await Task.Run(() => _fileThumbnailService.TryLoadThumbnail(item, _cacheServiceThumbnailSize), cancellationToken);
-                }
-
-                await Application.Current.Dispatcher.InvokeAsync(() =>
-                {
-                    LoadedCount++;
-                    if (LoadedCount % 10 == 0 || LoadedCount == TotalCount)
+                    // 1. Handle MTP Files specifically
+                    if (MtpFileService.IsMtpPath(item.FilePath) && !string.IsNullOrEmpty(item.MtpDeviceId) && !string.IsNullOrEmpty(item.MtpObjectId))
                     {
-                        StatusMessage = $"Loading thumbnails... {LoadedCount}/{TotalCount}";
+                        // Route all MTP thumbnail work through the cache service.
+                        // The cache service serializes MTP/WPD access and prefers device-provided thumbnails.
+                        Console.WriteLine($"[MTP-THUMB] Processing: {item.FileName}, DeviceId={item.MtpDeviceId}, ObjectId={item.MtpObjectId}");
+
+                        bool ok = await _cacheService.LoadThumbnailAsync(item, cancellationToken);
+                        if (!ok)
+                        {
+                            Console.WriteLine($"[MTP-THUMB] Thumbnail generation failed for {item.FileName}: {item.ErrorMessage}");
+                        }
                     }
-                });
+                    else 
+                    {
+                        // 2. Handle Standard Files (or local files)
+                        // Use FileName for extension check as MTP paths don't contain it
+                        if (IsImageFile(item.FileName)) 
+                        {
+                            await _cacheService.LoadThumbnailAsync(item, cancellationToken);
+                        }
+                        else
+                        {
+                            await Task.Run(() => _fileThumbnailService.TryLoadThumbnail(item, _cacheServiceThumbnailSize), cancellationToken);
+                        }
+                    }
+
+                    // Update Progress
+                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        LoadedCount++;
+                        if (LoadedCount % 5 == 0 || LoadedCount == TotalCount)
+                        {
+                            StatusMessage = $"Loading thumbnails... {LoadedCount}/{TotalCount}";
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error loading thumb: {ex.Message}");
+                }
+                finally 
+                {
+                    semaphore.Release();
+                }
             });
 
             await Task.WhenAll(tasks);
@@ -1009,6 +1285,50 @@ namespace DocBrake.MediaBrowser.ViewModels
             _loadingCts?.Cancel();
             _loadingCts?.Dispose();
             _loadingCts = null;
+        }
+
+        #endregion
+
+        #region Helper Methods
+
+        /// <summary>
+        /// Check if a path is an MTP path (uses MtpFileService)
+        /// </summary>
+        private static bool IsMtpShellPath(string path) => MtpFileService.IsMtpPath(path);
+
+        /// <summary>
+        /// Get files from an MTP folder path
+        /// Returns tuples of (localPath, deviceId, objectId, fileName, size)
+        /// </summary>
+        private static IEnumerable<(string filePath, string? mtpDeviceId, string? mtpObjectId, string name, long size)> GetMtpFiles(string mtpPath)
+        {
+            // Parse: mtp://deviceId[/objectId]
+            if (!mtpPath.StartsWith("mtp://", StringComparison.OrdinalIgnoreCase))
+                yield break;
+
+            var uri = mtpPath.Substring(6);
+            var parts = uri.Split(new[] { '/' }, 2);
+            var deviceId = parts[0];
+            var objectId = parts.Length > 1 ? parts[1] : null;
+
+            Console.WriteLine($"[MTP] GetMtpFiles: Path={mtpPath} Device={deviceId} Object={objectId ?? "(root)"}");
+
+            var result = DocBrake.NativeInterop.OpenArcFFI.GetMtpFolderContents(deviceId, objectId);
+            if (!result.success || result.data == null)
+            {
+                Console.WriteLine($"[MTP] Failed to get contents: {result.error}");
+                yield break;
+            }
+
+            var items = result.data.Where(o => !o.is_folder).OrderBy(o => o.name).ToList();
+            Console.WriteLine($"[MTP] Found {items.Count} files in {mtpPath}");
+
+            foreach (var item in items)
+            {
+                // Return MTP URI as path (will be resolved to local temp path when needed)
+                var itemPath = $"mtp://{deviceId}/{item.id}";
+                yield return (itemPath, deviceId, item.id, item.name, (long)item.size);
+            }
         }
 
         #endregion
