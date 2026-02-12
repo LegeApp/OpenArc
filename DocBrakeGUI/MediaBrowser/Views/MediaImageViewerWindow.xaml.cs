@@ -327,18 +327,44 @@ namespace DocBrake.MediaBrowser.Views
                 return;
             }
 
-            if (e.Key == Key.Left || e.Key == Key.Up)
+            // Arrow key behavior: Pan when in manual zoom mode, navigate when fit-to-window
+            if (e.Key == Key.Left || e.Key == Key.Up || e.Key == Key.Right || e.Key == Key.Down)
             {
-                NavigateRelative(-1);
-                e.Handled = true;
-                return;
-            }
+                // If in actual size mode (not fit-to-window), use arrow keys for panning
+                if (!ViewModel.IsFitToWindow && !ViewModel.IsVideo)
+                {
+                    // Pan the image with increased speed
+                    const double panSpeed = 100.0; // pixels per keypress
 
-            if (e.Key == Key.Right || e.Key == Key.Down)
-            {
-                NavigateRelative(1);
-                e.Handled = true;
-                return;
+                    if (e.Key == Key.Left)
+                        ViewModel.PanWithArrowKey(-panSpeed, 0);
+                    else if (e.Key == Key.Right)
+                        ViewModel.PanWithArrowKey(panSpeed, 0);
+                    else if (e.Key == Key.Up)
+                        ViewModel.PanWithArrowKey(0, -panSpeed);
+                    else if (e.Key == Key.Down)
+                        ViewModel.PanWithArrowKey(0, panSpeed);
+
+                    e.Handled = true;
+                    return;
+                }
+                else
+                {
+                    // In fit-to-window mode, navigate to prev/next image
+                    if (e.Key == Key.Left || e.Key == Key.Up)
+                    {
+                        NavigateRelative(-1);
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (e.Key == Key.Right || e.Key == Key.Down)
+                    {
+                        NavigateRelative(1);
+                        e.Handled = true;
+                        return;
+                    }
+                }
             }
 
             if (e.Key == Key.D0 || e.Key == Key.NumPad0)

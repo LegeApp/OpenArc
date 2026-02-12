@@ -20,11 +20,28 @@ namespace DocBrake
 {
     public partial class App : Application
     {
+        private static void DebugLog(string message)
+        {
+            try
+            {
+                var logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
+                var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                System.IO.File.AppendAllText(logPath, $"[{timestamp}] [App] {message}\n");
+            }
+            catch
+            {
+                // Ignore logging errors
+            }
+        }
+
         private IHost? _host;
 
         private static int _isHandlingDispatcherException;
         private static int _isHandlingDomainException;
         private static int _hasShownCriticalError;
+
+        // Track missing DLLs for status display
+        public static string? MissingDllMessage { get; private set; }
 
         public IHost? Host => _host;
         
@@ -33,6 +50,8 @@ namespace DocBrake
 
         public App()
         {
+            DebugLog("App constructor starting");
+            
 #if SHOW_CONSOLE
             // Show console window in Debug mode for diagnostic logging
             AllocConsole();
@@ -45,15 +64,19 @@ namespace DocBrake
                 var logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app_constructor.log");
                 File.WriteAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] App constructor called\n");
                 File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Base Directory: {AppDomain.CurrentDomain.BaseDirectory}\n");
+                DebugLog("App constructor log files created");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error in App constructor: {ex.Message}");
+                DebugLog($"App constructor error: {ex.Message}");
             }
             
             // Add global exception handlers
             AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
             DispatcherUnhandledException += OnDispatcherUnhandledException;
+            
+            DebugLog("App constructor completed");
         }
 
         protected override void OnStartup(StartupEventArgs e)
@@ -77,13 +100,78 @@ namespace DocBrake
                     return;
                 }
                 
-                // Check for required OpenArc FFI DLL
+                // Check for required DLLs
+                var missingDlls = new System.Collections.Generic.List<string>();
+
                 var openArcDllPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "openarc_ffi.dll");
                 File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Checking for OpenArc FFI DLL at: {openArcDllPath}\n");
                 File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] DLL exists: {File.Exists(openArcDllPath)}\n");
                 if (!File.Exists(openArcDllPath))
                 {
                     File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] WARNING: openarc_ffi.dll not found - archiving functionality will not work\n");
+                    missingDlls.Add("openarc_ffi.dll (archiving disabled)");
+                }
+
+                var bpgViewerDllPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bpg_viewer.dll");
+                File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Checking for BPG Viewer DLL at: {bpgViewerDllPath}\n");
+                File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] DLL exists: {File.Exists(bpgViewerDllPath)}\n");
+                if (!File.Exists(bpgViewerDllPath))
+                {
+                    File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] WARNING: bpg_viewer.dll not found - thumbnails will not work\n");
+                    missingDlls.Add("bpg_viewer.dll (thumbnails disabled)");
+                }
+
+                if (missingDlls.Count > 0)
+                {
+                    MissingDllMessage = "⚠️ Missing DLLs: " + string.Join(", ", missingDlls);
+                    File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {MissingDllMessage}\n");
+                }
+                
+                // Test GPU initialization at startup
+                File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Testing GPU initialization...\n");
+                DebugLog("Starting GPU initialization test");
+                
+                try
+                {
+                    DebugLog("Creating NativeGpuService instance");
+                    var gpuService = DocBrake.Services.NativeGpuService.Instance;
+                    DebugLog("NativeGpuService instance created");
+                    
+                    var gpuAvailable = gpuService.HasGpu;
+                    var gpuBackend = gpuService.ActiveBackendName;
+                    var gpuDevice = gpuService.DeviceName;
+                    
+                    var gpuMsg = $"GPU Status: Available={gpuAvailable}, Backend={gpuBackend}, Device={gpuDevice}";
+                    File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {gpuMsg}\n");
+                    DebugLog(gpuMsg);
+                    
+                    // Also output to console for immediate visibility
+                    Console.WriteLine($"=== GPU INITIALIZATION AT STARTUP ===");
+                    Console.WriteLine($"GPU Available: {gpuAvailable}");
+                    Console.WriteLine($"Backend: {gpuBackend}");
+                    Console.WriteLine($"Device: {gpuDevice}");
+                    Console.WriteLine($"========================================");
+                    Console.Out.Flush();
+                    
+                    // Test GPU pipeline initialization
+                    DebugLog("Calling gpu_thumbnail_pipeline_init");
+                    int gpuResult = DocBrake.MediaBrowser.NativeInterop.BpgViewerFFI.gpu_thumbnail_pipeline_init();
+                    var pipelineResult = gpuResult == 0 ? "SUCCESS" : $"FAILED (code: {gpuResult})";
+                    File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] GPU Pipeline Init: {pipelineResult}\n");
+                    DebugLog($"GPU pipeline result: {pipelineResult}");
+                    
+                    Console.WriteLine($"GPU Pipeline: {pipelineResult}");
+                    Console.WriteLine($"========================================");
+                    Console.Out.Flush();
+                }
+                catch (Exception ex)
+                {
+                    var errorMsg = $"GPU initialization failed: {ex.Message}";
+                    File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] ERROR: {errorMsg}\n");
+                    DebugLog($"GPU initialization error: {errorMsg}");
+                    DebugLog($"GPU exception stack trace: {ex.StackTrace}");
+                    Console.WriteLine($"GPU ERROR: {errorMsg}");
+                    Console.Out.Flush();
                 }
                 
                 // Set application theme colors

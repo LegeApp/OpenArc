@@ -241,7 +241,7 @@ namespace DocBrake.MediaBrowser.Models
         {
             // Use hash of full path + modification time for cache key
             string cacheKey = $"{FilePath}_{LastModified.Ticks}".GetHashCode().ToString("X8");
-            return Path.Combine(cacheDirectory, $"{cacheKey}.png");
+            return Path.Combine(cacheDirectory, $"{cacheKey}.jpg");
         }
 
         public void Dispose()

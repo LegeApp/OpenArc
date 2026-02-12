@@ -39,7 +39,7 @@
 #include <memory.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <iomanip>
+
 #include <assert.h>
 #include "TComDataCU.h"
 #include "Debug.h"

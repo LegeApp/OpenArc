@@ -27,6 +27,7 @@ void bpg_encoder_get_default_config(BPGEncoderConfig* config) {
     config->chroma_format = 1;  /* 4:2:0 */
     config->encoder_type = 0;   /* x265 */
     config->compress_level = 8;
+    config->color_space = 3;    /* YCbCr BT.709 (better for HEIC/HEIF sources) */
 }
 
 /* Create encoder with default configuration */
@@ -127,7 +128,7 @@ extern int bpgenc_encode_from_memory_buffer(
     int width, int height, int stride,
     int input_format,
     int quality, int bit_depth, int lossless, int chroma_format,
-    int compress_level,
+    int compress_level, int encoder_type,
     uint8_t **output_data, size_t *output_size);
 
 /* Encode from file - loads the file and encodes in memory */
@@ -195,6 +196,8 @@ int bpg_encode_from_memory(
         ctx->config.lossless,
         ctx->config.chroma_format,
         ctx->config.compress_level,
+        ctx->config.encoder_type,
+        ctx->config.color_space,
         output_data, output_size);
 
     if (ret < 0) {

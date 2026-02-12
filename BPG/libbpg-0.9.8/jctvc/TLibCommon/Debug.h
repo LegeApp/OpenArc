@@ -1,3 +1,4 @@
+#if 0 // Disabled for GCC 15.2 compatibility
 /* The copyright in this software is being made available under the BSD
  * License, included below. This software may be subject to other third party
  * and contributor rights, including patent rights, and no such rights are
@@ -264,3 +265,5 @@ std::string indentNewLines(const std::string &input, const UInt indentBy);
 
 
 #endif /* __DEBUG__ */
+
+#endif
