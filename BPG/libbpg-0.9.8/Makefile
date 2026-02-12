@@ -8,8 +8,8 @@
 USE_X265=y
 # Use system x265 library
 CONFIG_SYSTEM_X265=1
-# Disable JCTVC code (using x265 instead)
-# USE_JCTVC=y
+# Enable JCTVC code (using both x265 and JCTVC)
+USE_JCTVC=y
 # Compile bpgview (SDL and SDL_image libraries needed)
 #USE_BPGVIEW=y
 # Enable it to use bit depths > 12 (need more tests to validate encoder)
@@ -309,3 +309,4 @@ clean: x265_clean
 -include $(wildcard jctvc/TLibVideoIO/*.d)
 -include $(wildcard jctvc/TLibCommon/*.d)
 -include $(wildcard jctvc/libmd5/*.d)
+

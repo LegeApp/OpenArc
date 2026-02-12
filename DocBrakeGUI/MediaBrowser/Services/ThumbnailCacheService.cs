@@ -20,23 +20,64 @@ namespace DocBrake.MediaBrowser.Services
         private readonly SemaphoreSlim _localSemaphore;
         private static readonly SemaphoreSlim _mtpSemaphore = new SemaphoreSlim(1, 1);
         private bool _disposed;
+        private static bool _gpuAvailable = false;
+        private static bool _gpuInitialized = false;
 
-        public ThumbnailCacheService(int thumbnailWidth = 256, int thumbnailHeight = 256, int maxConcurrency = 12)
+        private static void DebugLog(string message)
+        {
+            try
+            {
+                var logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
+                var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                System.IO.File.AppendAllText(logPath, $"[{timestamp}] [ThumbnailCache] {message}\n");
+            }
+            catch
+            {
+                // Ignore logging errors
+            }
+        }
+
+        public ThumbnailCacheService(int thumbnailWidth = 128, int thumbnailHeight = 128, int maxConcurrency = 8)
         {
             _thumbnailWidth = thumbnailWidth;
             _thumbnailHeight = thumbnailHeight;
-            // Local files can be processed concurrently.
+
+            // Tokio async pipeline manages its own concurrency (8 concurrent operations)
+            // Semaphore here is just for rate limiting C# side requests
             _localSemaphore = new SemaphoreSlim(maxConcurrency);
 
             // Create cache directory in AppData\Local
             string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             _cacheDirectory = Path.Combine(
                 appDataPath,
-                "OpenArc",  // Updated from "BpgViewer" to "OpenArc"
+                "OpenArc",
                 "Cache",
                 "Thumbnails");
 
             Directory.CreateDirectory(_cacheDirectory);
+
+            // Tokio async pipeline initialization (CPU-only mode)
+            if (!_gpuInitialized)
+            {
+                DebugLog("Initializing Tokio async thumbnail pipeline");
+                _gpuInitialized = true;
+                _gpuAvailable = false; // GPU disabled, CPU-only
+
+                var msg = "================================================\n" +
+                         "THUMBNAIL PIPELINE: Tokio Async (CPU-only)\n" +
+                         "Mode: CPU with fast_image_resize\n" +
+                         "Concurrency: 8 parallel operations\n" +
+                         "Expected: 50-200ms per thumbnail\n" +
+                         "================================================";
+
+                Console.WriteLine(msg);
+                Console.Out.Flush();
+
+                System.Diagnostics.Debug.WriteLine("[ThumbnailCache] Tokio async pipeline initialized (CPU-only)");
+                System.Diagnostics.Trace.WriteLine("[ThumbnailCache] Tokio async pipeline initialized (CPU-only)");
+
+                DebugLog("Tokio async thumbnail pipeline ready");
+            }
         }
 
         public string CacheDirectory => _cacheDirectory;
@@ -123,11 +164,91 @@ namespace DocBrake.MediaBrowser.Services
             }, cancellationToken);
         }
 
+        private bool TryUnifiedThumbnail(string sourceFilePath, string fileName, string cachePath)
+        {
+            Console.WriteLine($">> PROCESSING: {fileName}");
+            Console.Out.Flush();
+
+            // Use ManualResetEventSlim to wait for async completion
+            using var completionEvent = new ManualResetEventSlim(false);
+            int result = -1;
+
+            try
+            {
+                ulong sourceId = (ulong)sourceFilePath.GetHashCode();
+                IntPtr errorPtr = IntPtr.Zero;
+
+                // IMPORTANT: Keep callback delegate alive to prevent GC collection
+                // Store in variable before passing to native code
+                BpgViewerFFI.ThumbnailCallback callback = (sid, res, errPtr) => {
+                    result = res;
+                    errorPtr = errPtr;
+                    completionEvent.Set();
+                };
+
+                // Use new Tokio async pipeline (CPU-only, no COM conflicts)
+                int queueResult = BpgViewerFFI.bpg_generate_thumbnail_async(
+                    sourceId,
+                    sourceFilePath,
+                    cachePath,
+                    85, // quality
+                    callback);
+
+                if (queueResult != 0)
+                {
+                    Console.WriteLine($"!! QUEUE FAILED: {fileName} (error: {queueResult})");
+                    Console.Out.Flush();
+                    return false;
+                }
+
+                // Wait for completion with timeout
+                if (!completionEvent.Wait(TimeSpan.FromSeconds(30)))
+                {
+                    Console.WriteLine($"!! TIMEOUT: {fileName}");
+                    Console.Out.Flush();
+                    GC.KeepAlive(callback); // Ensure callback stays alive
+                    return false;
+                }
+
+                // Keep callback alive until after it's been invoked
+                GC.KeepAlive(callback);
+
+                if (result != 0)
+                {
+                    string errorMsg = "";
+                    if (errorPtr != IntPtr.Zero)
+                    {
+                        errorMsg = System.Runtime.InteropServices.Marshal.PtrToStringAnsi(errorPtr) ?? "";
+                        BpgViewerFFI.bpg_error_free(errorPtr);
+                    }
+                    Console.WriteLine($"!! THUMBNAIL FAILED: {fileName} (error: {result}, message: {errorMsg})");
+                    Console.Out.Flush();
+                    return false;
+                }
+
+                if (!File.Exists(cachePath))
+                {
+                    Console.WriteLine($"!! OUTPUT MISSING: {fileName}");
+                    Console.Out.Flush();
+                    return false;
+                }
+
+                Console.WriteLine($"<< SUCCESS (CPU): {fileName}");
+                Console.Out.Flush();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"!! EXCEPTION: {fileName} - {ex.Message}");
+                Console.Out.Flush();
+                return false;
+            }
+        }
+
         private async Task<bool> GenerateThumbnailAsync(ThumbnailItem item, string cachePath, CancellationToken cancellationToken)
         {
             return await Task.Run(() =>
             {
-                IntPtr handle = IntPtr.Zero;
                 string? tempFilePath = null;
                 bool isMtpFile = item.IsMtpFile;
 
@@ -158,37 +279,11 @@ namespace DocBrake.MediaBrowser.Services
                         tempFilePath = mtpResult.data; // Rust manages temp file cleanup
                     }
 
-                    handle = BpgViewerFFI.universal_thumbnail_create_with_size(
-                        (uint)_thumbnailWidth,
-                        (uint)_thumbnailHeight);
-
-                    if (handle == IntPtr.Zero)
+                    // Use unified thumbnail API (auto-selects GPU or CPU backend)
+                    // This replaces the old two-path approach (GPU then CPU fallback)
+                    if (TryUnifiedThumbnail(sourceFilePath, Path.GetFileName(sourceFilePath), cachePath))
                     {
-                        item.HasError = true;
-                        item.ErrorMessage = "Create handle failed";
-                        item.IsLoading = false;
-                        return false;
-                    }
-
-                    // Generate thumbnail using universal FFI
-                    int thumbResult = BpgViewerFFI.universal_thumbnail_generate_png(
-                        handle,
-                        sourceFilePath,
-                        cachePath);
-
-                    if (thumbResult != 0)
-                    {
-                        item.HasError = true;
-                        item.ErrorMessage = isMtpFile ? $"Decode failed from device ({thumbResult})" : $"Decode failed ({thumbResult})";
-                        item.IsLoading = false;
-                        return false;
-                    }
-
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    // Load the generated thumbnail using stream
-                    if (File.Exists(cachePath))
-                    {
+                        // Success - load thumbnail
                         using var stream = new FileStream(cachePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
                         var bitmap = new BitmapImage();
                         bitmap.BeginInit();
@@ -201,9 +296,10 @@ namespace DocBrake.MediaBrowser.Services
                         item.IsLoading = false;
                         return true;
                     }
-
+                    
+                    // Unified thumbnail failed
                     item.HasError = true;
-                    item.ErrorMessage = "No output";
+                    item.ErrorMessage = "Thumbnail generation failed";
                     item.IsLoading = false;
                     return false;
                 }
@@ -218,17 +314,6 @@ namespace DocBrake.MediaBrowser.Services
                     item.IsLoading = false;
                     return false;
                 }
-                finally
-                {
-                    if (handle != IntPtr.Zero)
-                    {
-                        BpgViewerFFI.universal_thumbnail_free(handle);
-                    }
-                    
-                    // Clean up temp file if it was created (optional - could keep for cache)
-                    // Note: We keep temp files for performance; they act as a second-level cache
-                    // Rust MTP backend handles temp file management
-                }
             }, cancellationToken);
         }
 
@@ -241,6 +326,11 @@ namespace DocBrake.MediaBrowser.Services
             {
                 if (Directory.Exists(_cacheDirectory))
                 {
+                    foreach (var file in Directory.GetFiles(_cacheDirectory, "*.jpg"))
+                    {
+                        try { File.Delete(file); } catch { }
+                    }
+                    // Also clean up legacy PNG cache files
                     foreach (var file in Directory.GetFiles(_cacheDirectory, "*.png"))
                     {
                         try { File.Delete(file); } catch { }
@@ -261,6 +351,15 @@ namespace DocBrake.MediaBrowser.Services
                     return 0;
 
                 long size = 0;
+                foreach (var file in Directory.GetFiles(_cacheDirectory, "*.jpg"))
+                {
+                    try
+                    {
+                        size += new FileInfo(file).Length;
+                    }
+                    catch { }
+                }
+                // Also count legacy PNG cache files
                 foreach (var file in Directory.GetFiles(_cacheDirectory, "*.png"))
                 {
                     try

@@ -45,6 +45,13 @@
 
 #include "TLibCommon/Debug.h"
 
+// Stub function since Debug.h is disabled for GCC 15.2 compatibility
+#if PRINT_MACRO_VALUES
+void printMacroSettings() {
+  std::cout << "Macro printing disabled for GCC 15.2 compatibility" << std::endl;
+}
+#endif
+
 // ====================================================================================================================
 // Main function
 // ====================================================================================================================

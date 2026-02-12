@@ -212,7 +212,8 @@ namespace DocBrake.MediaBrowser.ViewModels
                               "Right Click: Close\n" +
                               "Drag: Move Window\n" +
                               "F: Fullscreen Toggle\n" +
-                              "Arrow Keys: Prev/Next Image\n" +
+                              "Arrow Keys: Pan (actual size) or\n" +
+                              "            Prev/Next (fit mode)\n" +
                               "0: Fit to Window\n" +
                               "1: Actual Size (100%)\n" +
                               "Mouse Wheel: Zoom In/Out";
@@ -288,11 +289,20 @@ namespace DocBrake.MediaBrowser.ViewModels
         /// </summary>
         public void HandleMouseWheel(int delta, Point mousePosition)
         {
-            if (!IsImageLoaded)
+            if (!IsImageLoaded || CurrentImage == null)
                 return;
 
+            // If in fit-to-window mode, switch to manual zoom mode first
+            if (IsFitToWindow)
+            {
+                // Calculate initial zoom based on current fit
+                // This preserves the current visual size when transitioning
+                IsFitToWindow = false;
+                // ZoomLevel is already set correctly from FitToWindow, keep it
+            }
+
             // Zoom factor based on wheel delta
-            double zoomFactor = delta > 0 ? 1.1 : 0.9;
+            double zoomFactor = delta > 0 ? 1.15 : (1.0 / 1.15);
 
             // Store old zoom
             double oldZoom = ZoomLevel;
@@ -306,6 +316,21 @@ namespace DocBrake.MediaBrowser.ViewModels
                 mousePosition.X - (mousePosition.X - PanOffset.X) * zoomChange,
                 mousePosition.Y - (mousePosition.Y - PanOffset.Y) * zoomChange
             );
+        }
+
+        /// <summary>
+        /// Pan the image using arrow keys (for actual size mode)
+        /// </summary>
+        /// <param name="deltaX">Horizontal pan delta (positive = scroll right)</param>
+        /// <param name="deltaY">Vertical pan delta (positive = scroll down)</param>
+        public void PanWithArrowKey(double deltaX, double deltaY)
+        {
+            if (!IsImageLoaded || IsFitToWindow)
+                return;
+
+            // Set pan offset as delta (will be consumed by ScrollViewer and reset)
+            // This triggers PropertyChanged which the control listens to
+            PanOffset = new Point(deltaX, deltaY);
         }
 
         /// <summary>

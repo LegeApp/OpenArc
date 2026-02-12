@@ -3,11 +3,9 @@
 use anyhow::Result;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use openarc_core::orchestrator::{create_archive, OrchestratorSettings};
+use openarc::orchestrator::{create_archive, OrchestratorSettings};
+use openarc::cli::{Cli, Commands};
 use std::sync::Arc;
-
-mod cli;
-use cli::{Cli, Commands};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();

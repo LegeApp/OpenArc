@@ -31,6 +31,7 @@
  */
 
 #include <stdint.h>
+#include "internal.h"
 #include "bswap.h"
 #include "intreadwrite.h"
 #include "md5.h"

@@ -1,0 +1,23 @@
+[package]
+name = "gpu-thumbnail-dll"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "openarc_gpu_thumbnails"
+crate-type = ["cdylib"]
+
+[dependencies]
+thumbnail-gpu = { path = "../bpg-viewer/gpu-thumbnail-src" }
+zune-image = { path = "../zune-image" }
+codecs = { path = "../codecs" }
+image = { workspace = true, default-features = false, features = ["jpeg"] }
+parking_lot = { workspace = true }
+anyhow = { workspace = true }
+libc = "0.2"
+
+[dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+]

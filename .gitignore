@@ -44,4 +44,12 @@ temp/
 
 # Windows-specific files
 nul
-NUL
+
+# Unwanted folders for this PR
+bpg-viewer/
+llm-doc/
+quick-image-viewer/
+
+# Exclude markdown files except README
+*.md
+!README.md

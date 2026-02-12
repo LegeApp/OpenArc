@@ -41,7 +41,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <assert.h>
-#include <iomanip>
+
 
 #include "TAppEncTop.h"
 #include "TLibEncoder/AnnexBwrite.h"
@@ -665,7 +665,7 @@ Void TAppEncTop::printRateSummary()
 
 Void TAppEncTop::printChromaFormat()
 {
-  std::cout << std::setw(43) << "Input ChromaFormatIDC = ";
+  std::cout << "                              Input ChromaFormatIDC = ";
   switch (m_InputChromaFormatIDC)
   {
   case CHROMA_400:  std::cout << "  4:0:0"; break;
@@ -678,7 +678,7 @@ Void TAppEncTop::printChromaFormat()
   }
   std::cout << std::endl;
 
-  std::cout << std::setw(43) << "Output (internal) ChromaFormatIDC = ";
+  std::cout << "                              Output (internal) ChromaFormatIDC = ";
   switch (m_cTEncTop.getChromaFormatIdc())
   {
   case CHROMA_400:  std::cout << "  4:0:0"; break;

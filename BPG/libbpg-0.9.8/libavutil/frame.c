@@ -23,6 +23,7 @@
 #include "common.h"
 #include "dict.h"
 #include "frame.h"
+#include "internal.h"
 #include "imgutils.h"
 #include "mem.h"
 #include "samplefmt.h"

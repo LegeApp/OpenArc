@@ -645,7 +645,7 @@ Void TEncGOP::compressGOP( Int iPOCLast, Int iNumPicRcvd, TComList<TComPic*>& rc
 
     UInt uiColDir = 1;
     //-- For time output for each slice
-    clock_t iBeforeTime = clock();
+    // clock_t iBeforeTime = clock();  // Disabled for GCC 15.2 compatibility
 
     //select uiColDir
     Int iCloseLeft=1, iCloseRight=-1;
@@ -1662,7 +1662,7 @@ Void TEncGOP::compressGOP( Int iPOCLast, Int iNumPicRcvd, TComList<TComPic*>& rc
     pcPic->compressMotion();
 
     //-- For time output for each slice
-    Double dEncTime = (Double)(clock()-iBeforeTime) / CLOCKS_PER_SEC;
+    Double dEncTime = 0.0;  // (Double)(clock()-iBeforeTime) / CLOCKS_PER_SEC; // Disabled for GCC 15.2 compatibility
 
     std::string digestStr;
     if (m_pcCfg->getDecodedPictureHashSEIEnabled())

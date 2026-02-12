@@ -360,7 +360,7 @@ namespace DocBrake.MediaBrowser.ViewModels
             _cacheService = cacheService;
             _fileThumbnailService = new FileThumbnailService();
             _queueService = queueService;
-            
+
             // Subscribe to queue changes to update QueueItemCount
             _queueService.Items.CollectionChanged += (_, __) =>
             {
@@ -390,6 +390,12 @@ namespace DocBrake.MediaBrowser.ViewModels
 
             UpdateResponsiveLayout();
             LoadDrives();
+
+            // Check for missing DLLs and display warning
+            if (!string.IsNullOrEmpty(App.MissingDllMessage))
+            {
+                StatusMessage = App.MissingDllMessage;
+            }
         }
 
         public System.Collections.Generic.IReadOnlyList<string> GetCheckedFolderPaths()
@@ -1128,25 +1134,24 @@ namespace DocBrake.MediaBrowser.ViewModels
 
         private async Task LoadThumbnailsAsync(CancellationToken cancellationToken)
         {
-            // Load thumbnails in parallel batches
-            // Limit concurrency to prevent freezing the UI or overwhelming the MTP connection
-            var semaphore = new SemaphoreSlim(4);
-            
-            var tasks = Thumbnails.Select(async item =>
+            // Use Parallel.ForEachAsync for proper bounded concurrency.
+            // This avoids creating 650+ tasks upfront (which caused thread pool starvation
+            // and the "stops at ~90" bug with the old Select+WhenAll pattern).
+            await Parallel.ForEachAsync(
+                Thumbnails,
+                new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = cancellationToken },
+                async (item, ct) =>
             {
-                await semaphore.WaitAsync(cancellationToken);
                 try 
                 {
-                    if (cancellationToken.IsCancellationRequested) return;
+                    if (ct.IsCancellationRequested) return;
 
                     // 1. Handle MTP Files specifically
                     if (MtpFileService.IsMtpPath(item.FilePath) && !string.IsNullOrEmpty(item.MtpDeviceId) && !string.IsNullOrEmpty(item.MtpObjectId))
                     {
-                        // Route all MTP thumbnail work through the cache service.
-                        // The cache service serializes MTP/WPD access and prefers device-provided thumbnails.
                         Console.WriteLine($"[MTP-THUMB] Processing: {item.FileName}, DeviceId={item.MtpDeviceId}, ObjectId={item.MtpObjectId}");
 
-                        bool ok = await _cacheService.LoadThumbnailAsync(item, cancellationToken);
+                        bool ok = await _cacheService.LoadThumbnailAsync(item, ct);
                         if (!ok)
                         {
                             Console.WriteLine($"[MTP-THUMB] Thumbnail generation failed for {item.FileName}: {item.ErrorMessage}");
@@ -1155,14 +1160,13 @@ namespace DocBrake.MediaBrowser.ViewModels
                     else 
                     {
                         // 2. Handle Standard Files (or local files)
-                        // Use FileName for extension check as MTP paths don't contain it
                         if (IsImageFile(item.FileName)) 
                         {
-                            await _cacheService.LoadThumbnailAsync(item, cancellationToken);
+                            await _cacheService.LoadThumbnailAsync(item, ct);
                         }
                         else
                         {
-                            await Task.Run(() => _fileThumbnailService.TryLoadThumbnail(item, _cacheServiceThumbnailSize), cancellationToken);
+                            await Task.Run(() => _fileThumbnailService.TryLoadThumbnail(item, _cacheServiceThumbnailSize), ct);
                         }
                     }
 
@@ -1170,23 +1174,21 @@ namespace DocBrake.MediaBrowser.ViewModels
                     await Application.Current.Dispatcher.InvokeAsync(() =>
                     {
                         LoadedCount++;
-                        if (LoadedCount % 5 == 0 || LoadedCount == TotalCount)
+                        if (LoadedCount % 10 == 0 || LoadedCount == TotalCount)
                         {
                             StatusMessage = $"Loading thumbnails... {LoadedCount}/{TotalCount}";
                         }
                     });
                 }
+                catch (OperationCanceledException)
+                {
+                    // Expected on navigation/cancel
+                }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"Error loading thumb: {ex.Message}");
                 }
-                finally 
-                {
-                    semaphore.Release();
-                }
             });
-
-            await Task.WhenAll(tasks);
         }
 
         private int _cacheServiceThumbnailSize => 256;

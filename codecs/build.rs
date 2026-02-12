@@ -28,19 +28,5 @@ fn main() {
     println!("cargo:rustc-link-lib=winpthread");
     println!("cargo:rustc-link-lib=gomp");
 
-    // Link libheif for HEIC/HEIF decoding when feature is enabled
-    #[cfg(feature = "heif")]
-    {
-        // Check for libheif in libs directory or system
-        let heif_lib = libs_dir.join("libheif.a");
-        if heif_lib.exists() {
-            println!("cargo:rustc-link-lib=static=heif");
-            // libheif dependencies
-            println!("cargo:rustc-link-lib=de265");  // HEVC decoder
-            println!("cargo:rustc-link-lib=x265");   // HEVC encoder (optional)
-        } else {
-            // Try dynamic linking from system
-            println!("cargo:rustc-link-lib=heif");
-        }
-    }
+    // HEIC/HEIF decoding now uses pure Rust heic-decoder crate - no FFI needed
 }

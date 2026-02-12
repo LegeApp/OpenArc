@@ -2649,13 +2649,16 @@ static int mem_write_func(void *opaque, const uint8_t *buf, int buf_len)
  *
  * Returns 0 on success, negative on error.
  * output_data is allocated here; caller must free() it.
+ *
+ * For YCbCr420P (input_format=5), stride is Y stride. Chroma strides are (stride+1)/2.
+ * For YCbCr444P (input_format=6), all planes use the same stride.
  */
 int bpgenc_encode_from_memory_buffer(
     const uint8_t *input_data,
     int width, int height, int stride,
     int input_format,
     int quality, int bit_depth, int lossless, int chroma_format,
-    int compress_level,
+    int compress_level, int encoder_type, int color_space,
     uint8_t **output_data, size_t *output_size)
 {
     Image *img = NULL;
@@ -2675,51 +2678,55 @@ int bpgenc_encode_from_memory_buffer(
     if (input_format == 5 || input_format == 6) {
         /* YCbCr planar input - no color conversion needed */
         BPGImageFormatEnum bpg_fmt;
-        int c_w, c_h, y_size;
+        int c_w, c_h, c_stride, y_size, c_size;
 
         if (input_format == 5) {
             bpg_fmt = BPG_FORMAT_420;
             c_w = (width + 1) / 2;
             c_h = (height + 1) / 2;
+            c_stride = (stride + 1) / 2;  /* Chroma stride is half of luma stride */
         } else {
             bpg_fmt = BPG_FORMAT_444;
             c_w = width;
             c_h = height;
+            c_stride = stride;  /* Same stride for 4:4:4 */
         }
-        y_size = width * height;
+        /* Use stride for plane offsets, not width */
+        y_size = height * stride;
+        c_size = c_h * c_stride;
 
-        img = image_alloc(width, height, bpg_fmt, 0, BPG_CS_YCbCr, bit_depth);
+        img = image_alloc(width, height, bpg_fmt, 0, color_space, bit_depth);
         if (!img) return -2;
 
-        /* Copy Y plane (8-bit to 16-bit) */
+        /* Copy Y plane (8-bit to 16-bit) - use stride for row offset */
         for (y = 0; y < height; y++) {
             PIXEL *dst = (PIXEL *)(img->data[0] + y * img->linesize[0]);
-            const uint8_t *src = input_data + y * width;
+            const uint8_t *src = input_data + y * stride;  /* Use stride, not width */
             int x;
             for (x = 0; x < width; x++)
                 dst[x] = src[x];
         }
 
-        /* Copy Cb and Cr planes */
+        /* Copy Cb and Cr planes - use stride-based offsets */
         {
             const uint8_t *cb_src = input_data + y_size;
-            const uint8_t *cr_src = cb_src + c_w * c_h;
+            const uint8_t *cr_src = cb_src + c_size;
             for (y = 0; y < c_h; y++) {
                 PIXEL *cb_dst = (PIXEL *)(img->data[1] + y * img->linesize[1]);
                 PIXEL *cr_dst = (PIXEL *)(img->data[2] + y * img->linesize[2]);
                 int x;
                 for (x = 0; x < c_w; x++) {
-                    cb_dst[x] = cb_src[y * c_w + x];
-                    cr_dst[x] = cr_src[y * c_w + x];
+                    cb_dst[x] = cb_src[y * c_stride + x];  /* Use c_stride */
+                    cr_dst[x] = cr_src[y * c_stride + x];  /* Use c_stride */
                 }
             }
         }
     } else if (input_format == 0) {
         /* Grayscale */
         img = image_alloc(width, height, BPG_FORMAT_GRAY, 0,
-                          BPG_CS_YCbCr, bit_depth);
+                          color_space, bit_depth);
         if (!img) return -2;
-        convert_init(cvt, 8, bit_depth, BPG_CS_YCbCr, 0);
+        convert_init(cvt, 8, bit_depth, color_space, 0);
         for (y = 0; y < height; y++) {
             gray8_to_gray(cvt,
                           (PIXEL *)(img->data[0] + y * img->linesize[0]),
@@ -2738,11 +2745,11 @@ int bpgenc_encode_from_memory_buffer(
         }
 
         img = image_alloc(width, height, BPG_FORMAT_444, has_alpha,
-                          BPG_CS_YCbCr, bit_depth);
+                          color_space, bit_depth);
         if (!img) return -2;
 
-        convert_init(cvt, 8, bit_depth, BPG_CS_YCbCr, 0);
-        convert_func = rgb_to_cs[0][BPG_CS_YCbCr]; /* 8-bit RGB to YCbCr */
+        convert_init(cvt, 8, bit_depth, color_space, 0);
+        convert_func = rgb_to_cs[0][color_space]; /* 8-bit RGB to YCbCr */
 
         for (y = 0; y < height; y++) {
             const uint8_t *src_row = input_data + y * stride;
@@ -2787,6 +2794,7 @@ int bpgenc_encode_from_memory_buffer(
     p->compress_level = (compress_level >= 1 && compress_level <= 9) ?
                          compress_level : DEFAULT_COMPRESS_LEVEL;
     p->preferred_chroma_format = chroma_format;
+    p->encoder_type = encoder_type;  /* 0 = x265, 1 = jctvc */
 
     enc_ctx = bpg_encoder_open(p);
     if (!enc_ctx) {

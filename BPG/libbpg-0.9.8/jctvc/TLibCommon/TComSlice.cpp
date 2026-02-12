@@ -2091,13 +2091,13 @@ Void TComScalingList::outputScalingLists(std::ostream &os) const
         {
           for(UInt x=0; x<size; x++, src++)
           {
-            os << std::setw(3) << (*src) << ", ";
+            os << (*src) << ", ";
           }
           os << (y+1<size?"\n  ":"\n");
         }
         if(sizeIdc > SCALING_LIST_8x8)
         {
-          os << MatrixType_DC[sizeIdc][listIdc] << " = \n  " << std::setw(3) << getScalingListDC(sizeIdc, listIdc) << "\n";
+          os << MatrixType_DC[sizeIdc][listIdc] << " = \n  " << getScalingListDC(sizeIdc, listIdc) << "\n";
         }
         os << "\n";
       }
