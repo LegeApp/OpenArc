@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use openarc_core::orchestrator::{self, OrchestratorSettings};
+use openarc::orchestrator::{self, OrchestratorSettings};
 
 // MTP device support module
 pub mod mtp;
@@ -287,7 +287,7 @@ pub unsafe extern "C" fn VerifyArchive(
     };
 
     match thread::spawn(move || -> Result<c_int> {
-        openarc_core::hash::verify_tar_zst_archive_with_level(&archive_path, 3)?;
+        openarc::hash::verify_tar_zst_archive_with_level(&archive_path, 3)?;
         Ok(0)
     })
     .join()
@@ -628,7 +628,7 @@ fn collect_phone_files(phone_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     if dirs.is_empty() {
         return Ok(Vec::new());
     }
-    openarc_core::orchestrator::collect_files(&dirs)
+    openarc::orchestrator::collect_files(&dirs)
 }
 
 fn compute_phone_status(phone_root: &Path) -> anyhow::Result<(PhoneStatus, Vec<PathBuf>, PhoneDb)> {
@@ -1046,10 +1046,10 @@ pub unsafe extern "C" fn GetAllArchives(
     };
 
     let result = (|| -> Result<c_int> {
-        let mut catalog = openarc_core::backup_catalog::BackupCatalog::new(catalog_db_path)?;
+        let mut catalog = openarc::backup_catalog::BackupCatalog::new(catalog_db_path)?;
 
         // Create archive tracker using the same connection as the backup catalog
-        let tracker = openarc_core::archive_tracker::ArchiveTracker::new(catalog.get_connection_mut())?;
+        let tracker = openarc::archive_tracker::ArchiveTracker::new(catalog.get_connection_mut())?;
         let archive_records = tracker.get_all_archives()?;
 
         // Allocate memory for the array of archive records
@@ -1182,7 +1182,7 @@ pub unsafe extern "C" fn EncodeBpgFile(
     let compression_settings = *settings;
 
     match thread::spawn(move || -> Result<c_int> {
-        use openarc_core::bpg_wrapper::{BpgConfig, encode_image_to_bpg};
+        use openarc::bpg_wrapper::{BpgConfig, encode_image_to_bpg};
 
         let config = BpgConfig {
             quality: compression_settings.bpg_quality as u8,
@@ -1244,7 +1244,7 @@ pub unsafe extern "C" fn EncodeVideoFile(
     let compression_settings = *settings;
 
     match thread::spawn(move || -> Result<c_int> {
-        use openarc_core::codecs::ffmpeg::{FFmpegEncoder, FfmpegEncodeOptions, VideoCodec, VideoSpeedPreset};
+        use openarc::codecs::ffmpeg::{FFmpegEncoder, FfmpegEncodeOptions, VideoCodec, VideoSpeedPreset};
 
         let codec = match compression_settings.video_codec {
             0 => VideoCodec::H264,

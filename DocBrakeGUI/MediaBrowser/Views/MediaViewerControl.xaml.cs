@@ -20,6 +20,38 @@ namespace DocBrake.MediaBrowser.Views
             // Add keyboard handler for "1" key (actual size)
             KeyDown += OnKeyDown;
             Focusable = true;
+
+            // Subscribe to ViewModel property changes to handle arrow key scrolling
+            DataContextChanged += (s, e) =>
+            {
+                if (ViewModel != null)
+                {
+                    ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+                }
+            };
+        }
+
+        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            // When PanOffset changes (from arrow keys), scroll the ScrollViewer
+            if (e.PropertyName == nameof(MediaViewerViewModel.PanOffset))
+            {
+                if (ViewModel != null && !ViewModel.IsFitToWindow && ImageScrollViewer != null)
+                {
+                    // Get the pan delta from the stored offset
+                    // Since PanOffset represents cumulative pan, we'll use it directly
+                    var panOffset = ViewModel.PanOffset;
+
+                    // Scroll by the specified amount
+                    // Positive pan offset = scroll right/down (move viewport)
+                    // Negative pan offset = scroll left/up
+                    ImageScrollViewer.ScrollToHorizontalOffset(ImageScrollViewer.HorizontalOffset + panOffset.X);
+                    ImageScrollViewer.ScrollToVerticalOffset(ImageScrollViewer.VerticalOffset + panOffset.Y);
+
+                    // Reset pan offset after applying (so next pan is relative)
+                    ViewModel.PanOffset = new Point(0, 0);
+                }
+            }
         }
 
         private void OnKeyDown(object sender, KeyEventArgs e)
@@ -40,11 +72,11 @@ namespace DocBrake.MediaBrowser.Views
             if (ViewModel == null || ViewModel.CurrentImage == null)
                 return;
 
-            // Simple zoom in/out based on wheel direction
-            if (e.Delta > 0)
-                ViewModel.ZoomInCommand.Execute(null);
-            else
-                ViewModel.ZoomOutCommand.Execute(null);
+            // Get mouse position relative to this control
+            Point mousePos = e.GetPosition(this);
+
+            // Use improved zoom that works from fit-to-window mode
+            ViewModel.HandleMouseWheel(e.Delta, mousePos);
 
             e.Handled = true;
         }

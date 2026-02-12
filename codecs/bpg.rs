@@ -22,6 +22,7 @@ pub struct BPGEncoderConfig {
     pub chroma_format: c_int,
     pub encoder_type: c_int,
     pub compress_level: c_int,
+    pub color_space: c_int,
 }
 
 // Error codes
@@ -134,6 +135,7 @@ impl NativeBPGEncoder {
             chroma_format: 1,
             encoder_type: 0,
             compress_level: 8,
+            color_space: 3, // YCbCr BT.709 (better for HEIC/HEIF sources)
         };
         unsafe {
             bpg_encoder_get_default_config(&mut config);
