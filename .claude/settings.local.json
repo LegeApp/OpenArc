@@ -15,7 +15,26 @@
       "Bash(gcc:*)",
       "Bash(cargo build:*)",
       "Bash(tree:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(cmd /c \"dir /b D:\\\\misc\\\\arc\\\\openarc\\\\target\\\\release\\\\*.dll\")",
+      "Bash(cargo clean:*)",
+      "Bash(.DocBrakeGUI.exe)",
+      "Bash(dumpbin:*)",
+      "Bash(ls:*)",
+      "Bash(grep:*)",
+      "Bash(while read f)",
+      "Bash(do grep -l \"fast_image_resize\\\\|fast-image-resize\" \"$f\")",
+      "Bash(done)",
+      "Bash(powershell:*)",
+      "Bash(findstr:*)",
+      "Bash(cmd /c \"cd /d D:\\\\misc\\\\arc\\\\openarc\\\\target\\\\debug && dir /s /b *.dll 2>nul\")",
+      "Bash(cmd /c \"cd /d D:\\\\misc\\\\arc\\\\openarc\\\\target\\\\debug && dir /b *openarc* 2>nul\")",
+      "Bash(cargo metadata:*)",
+      "Bash(python:*)",
+      "Bash(cargo test:*)",
+      "WebSearch",
+      "Bash(Copy-Item \"D:\\\\misc\\\\arc\\\\openarc\\\\target\\\\release\\\\bpg_viewer.dll\" \"D:\\\\misc\\\\arc\\\\openarc\\\\DocBrakeGUI\\\\bin\\\\Debug\\\\net8.0-windows10.0.26100.0\"\" -Force)",
+      "Bash(dumpbin.exe:*)"
     ]
   }
 }

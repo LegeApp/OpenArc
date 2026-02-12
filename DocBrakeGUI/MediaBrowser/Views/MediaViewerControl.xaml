@@ -36,19 +36,25 @@
             <ScrollViewer x:Name="ImageScrollViewer"
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Auto"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          HorizontalContentAlignment="Center"
+                          VerticalContentAlignment="Center"
                           Background="Transparent"
                           Padding="0"
                           Visibility="{Binding IsFitToWindow, Converter={StaticResource InverseBoolToVisibilityConverter}}">
 
-                <Image x:Name="DisplayImage"
-                       Source="{Binding DisplayBitmap}"
-                       RenderOptions.BitmapScalingMode="HighQuality"
-                       Stretch="None">
-                    <Image.LayoutTransform>
-                        <ScaleTransform ScaleX="{Binding ZoomLevel}"
-                                        ScaleY="{Binding ZoomLevel}"/>
-                    </Image.LayoutTransform>
-                </Image>
+                <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Image x:Name="DisplayImage"
+                           Source="{Binding DisplayBitmap}"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           Stretch="None">
+                        <Image.LayoutTransform>
+                            <ScaleTransform ScaleX="{Binding ZoomLevel}"
+                                            ScaleY="{Binding ZoomLevel}"/>
+                        </Image.LayoutTransform>
+                    </Image>
+                </Grid>
             </ScrollViewer>
         </Grid>
 

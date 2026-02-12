@@ -1,0 +1,62 @@
+# HEIC to BPG Green Tint Fix - Summary
+
+## Problem Identified
+HEIC files were encoding to BPG with a green tint in the output. This was caused by a **color space mismatch**:
+- HEIC files use **BT.709** color space (k_r=0.2126, k_b=0.0722)
+- BPG encoder was defaulting to **BT.601** color space (k_r=0.299, k_b=0.114)
+- The different color coefficients cause YCbCr→RGB conversion to shift colors toward green
+
+## Root Cause
+In `bpgenc.c`, the `image_alloc()` calls were hardcoded to use `BPG_CS_YCbCr` (BT.601) instead of respecting the configured color space.
+
+## Changes Made
+
+### 1. BPG API Enhancement (`bpg_api.h` & `bpg_api.c`)
+- Added `color_space` field to `BPGEncoderConfig` struct
+- Updated default config to use BT.709 (color_space = 3)
+- Added color_space parameter to encoding pipeline
+
+### 2. BPG Encoder Core (`bpgenc.c`)
+- Modified `bpgenc_encode_from_memory_buffer()` to accept color_space parameter
+- Updated all `image_alloc()` calls to use the passed color_space instead of hardcoded BT.601
+- Fixed grayscale and RGB format handling to respect color space
+
+### 3. Rust FFI Updates (`codecs/bpg.rs`)
+- Added `color_space` field to Rust `BPGEncoderConfig` struct
+- Updated `default_config()` to use BT.709 (color_space = 3)
+
+### 4. Application Logic (`openarc-core/src/orchestrator.rs`)
+- Explicitly set `cfg.color_space = 3` for HEIC files to ensure BT.709 encoding
+- Added comment explaining the color space matching
+
+### 5. BPG Wrapper (`openarc-core/src/bpg_wrapper.rs`)
+- Updated `to_encoder_config()` method to include BT.709 color space
+
+## Color Space Values Used
+- `0` = YCbCr BT.601 (JPEG standard)
+- `1` = RGB
+- `2` = YCgCo
+- `3` = YCbCr BT.709 (HEIC/HEIF standard) ← **NOW USED FOR HEIC**
+- `4` = YCbCr BT.2020 (HDR standard)
+
+## Testing Recommendation
+To verify the fix:
+1. Encode a HEIC file to BPG using the updated build
+2. Decode the BPG back to an image
+3. Compare colors with original HEIC - green tint should be eliminated
+
+## Files Modified
+- `BPG/libbpg-0.9.8/bpg_api.h`
+- `BPG/libbpg-0.9.8/bpg_api.c`
+- `BPG/libbpg-0.9.8/bpgenc.c`
+- `codecs/bpg.rs`
+- `openarc-core/src/orchestrator.rs`
+- `openarc-core/src/bpg_wrapper.rs`
+
+## Build Status
+✅ BPG library rebuilt successfully
+✅ Rust workspace compiled successfully  
+✅ GUI application built successfully
+✅ Ready for testing
+
+The fix ensures that HEIC files (which use BT.709) are encoded with the correct color space coefficients, eliminating the green tint issue.

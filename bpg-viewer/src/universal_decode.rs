@@ -1,22 +1,67 @@
 // Universal Image Decoding Module
 // Supports full-resolution decoding of BPG, standard image formats, HEIC/HEIF, RAW, DNG, and JPEG2000 files
-// Returns BGRA data suitable for WPF/Windows display
+// Returns either BGRA (for UI) or native YCbCr (for JPEG thumbnails) to avoid conversion overhead
 
 use std::path::Path;
 use anyhow::{Result, anyhow};
 use image::{DynamicImage, ImageBuffer, Rgba};
 
 use crate::decoder::decode_file as decode_bpg_file;
+use crate::image_data::ImageData;
 
-/// Decoded image data in BGRA format
+/// Decoded image data with flexible format support
 pub struct UniversalDecodedImage {
     pub width: u32,
     pub height: u32,
-    pub data: Vec<u8>, // BGRA format
+    /// Image data in either BGRA or YCbCr format
+    /// - BGRA: For UI display (WPF, WinForms)
+    /// - YCbCr: For JPEG/HEIC native format (avoids conversion)
+    pub data: ImageData,
+}
+
+/// Convenience function: decode any supported image file to interleaved RGB.
+/// Used by the GPU thumbnail pipeline to feed non-JPEG images into the YCbCr conversion.
+pub fn decode_to_rgb(path: &Path) -> Result<(Vec<u8>, u32, u32), String> {
+    let decoded = UniversalDecodedImage::decode_file(path)
+        .map_err(|e| format!("Decode failed for {}: {}", path.display(), e))?;
+
+    // Get BGRA data (convert if necessary)
+    let bgra = decoded.to_bgra()
+        .map_err(|e| format!("BGRA conversion failed: {}", e))?;
+
+    // Convert BGRA → RGB
+    let pixel_count = (decoded.width * decoded.height) as usize;
+    let mut rgb = Vec::with_capacity(pixel_count * 3);
+    for chunk in bgra.chunks_exact(4) {
+        rgb.push(chunk[2]); // R (from BGRA[2])
+        rgb.push(chunk[1]); // G (from BGRA[1])
+        rgb.push(chunk[0]); // B (from BGRA[0])
+    }
+
+    Ok((rgb, decoded.width, decoded.height))
 }
 
 impl UniversalDecodedImage {
-    /// Decode any supported image file to full-resolution BGRA
+    /// Convert image data to BGRA format (for UI compatibility)
+    ///
+    /// If data is already BGRA, this is a cheap clone.
+    /// If data is YCbCr, this performs conversion.
+    pub fn to_bgra(&self) -> Result<Vec<u8>> {
+        self.data.to_bgra8(self.width, self.height)
+    }
+
+    /// Check if image is in native YCbCr format
+    pub fn is_ycbcr(&self) -> bool {
+        self.data.is_ycbcr()
+    }
+
+    /// Decode any supported image file
+    ///
+    /// Returns image in native format:
+    /// - HEIC/HEIF: YCbCr 4:2:0 (optimal for JPEG thumbnails)
+    /// - JPEG: BGRA (YCbCr decode not yet implemented)
+    /// - PNG, BMP, etc.: BGRA
+    /// - BPG: BGRA
     pub fn decode_file(input_path: &Path) -> Result<Self> {
         let file_ext = input_path
             .extension()
@@ -36,14 +81,14 @@ impl UniversalDecodedImage {
         }
     }
 
-    /// Decode BPG file
+    /// Decode BPG file (returns BGRA)
     fn decode_bpg(input_path: &Path) -> Result<Self> {
         let decoded = decode_bpg_file(input_path.to_str().unwrap())?;
         let bgra = decoded.to_bgra32()?;
         Ok(Self {
             width: decoded.width,
             height: decoded.height,
-            data: bgra,
+            data: ImageData::from_bgra(bgra),
         })
     }
 
@@ -55,32 +100,57 @@ impl UniversalDecodedImage {
         Self::from_dynamic_image(img)
     }
 
-    /// Decode HEIC/HEIF files
+    /// Decode HEIC/HEIF files (returns YCbCr 4:2:0 for optimal thumbnail encoding)
     fn decode_heic(input_path: &Path) -> Result<Self> {
-        let decoded = codecs::heic::decode_heic_file(input_path)?;
+        // Try YCbCr decode first (optimal path for JPEG thumbnails)
+        let mut codec = codecs::heic::HeicCodec::new()
+            .map_err(|e| anyhow!("Failed to create HEIC codec: {}", e))?;
 
-        let mut rgba = Vec::with_capacity(decoded.width as usize * decoded.height as usize * 4);
-        if decoded.has_alpha {
-            rgba.extend_from_slice(&decoded.data);
-        } else {
-            for rgb in decoded.data.chunks(3) {
-                if rgb.len() == 3 {
-                    rgba.push(rgb[0]);
-                    rgba.push(rgb[1]);
-                    rgba.push(rgb[2]);
-                    rgba.push(255);
+        match codec.decode_file_ycbcr420(input_path) {
+            Ok(ycbcr) => {
+                // Return native YCbCr format (avoids conversion for JPEG thumbnails)
+                Ok(Self {
+                    width: ycbcr.width,
+                    height: ycbcr.height,
+                    data: ImageData::from_ycbcr420(
+                        ycbcr.y_plane,
+                        ycbcr.cb_plane,
+                        ycbcr.cr_plane,
+                        ycbcr.width,
+                        ycbcr.height,
+                        ycbcr.y_stride,
+                        ycbcr.cb_stride,
+                    ),
+                })
+            }
+            Err(_) => {
+                // Fallback to RGB decode (for images that don't support YCbCr)
+                let decoded = codecs::heic::decode_heic_file(input_path)?;
+
+                let mut rgba = Vec::with_capacity(decoded.width as usize * decoded.height as usize * 4);
+                if decoded.has_alpha {
+                    rgba.extend_from_slice(&decoded.data);
+                } else {
+                    for rgb in decoded.data.chunks(3) {
+                        if rgb.len() == 3 {
+                            rgba.push(rgb[0]);
+                            rgba.push(rgb[1]);
+                            rgba.push(rgb[2]);
+                            rgba.push(255);
+                        }
+                    }
                 }
+
+                // Convert RGBA to BGRA
+                let bgra = Self::rgba_to_bgra(&rgba);
+
+                Ok(Self {
+                    width: decoded.width,
+                    height: decoded.height,
+                    data: ImageData::from_bgra(bgra),
+                })
             }
         }
-
-        // Convert RGBA to BGRA
-        let bgra = Self::rgba_to_bgra(&rgba);
-
-        Ok(Self {
-            width: decoded.width,
-            height: decoded.height,
-            data: bgra,
-        })
     }
 
     /// Decode RAW files
@@ -120,7 +190,7 @@ impl UniversalDecodedImage {
         Ok(Self {
             width: width as u32,
             height: height as u32,
-            data: bgra_data,
+            data: ImageData::from_bgra(bgra_data),
         })
     }
 
@@ -248,7 +318,7 @@ impl UniversalDecodedImage {
         Ok(Self {
             width: w as u32,
             height: h as u32,
-            data: bgra,
+            data: ImageData::from_bgra(bgra),
         })
     }
 
@@ -261,7 +331,7 @@ impl UniversalDecodedImage {
         Ok(Self {
             width,
             height,
-            data: bgra,
+            data: ImageData::from_bgra(bgra),
         })
     }
 
