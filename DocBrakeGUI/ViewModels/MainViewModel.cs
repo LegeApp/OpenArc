@@ -172,9 +172,10 @@ namespace DocBrake.ViewModels
 
             _mediaBrowserViewModel.ImageSelected += OpenImageViewerWindow;
             _mediaBrowserViewModel.FolderCheckChanged += OnFolderCheckChanged;
-            
+
             // Sync UI settings to MediaBrowserViewModel
             _mediaBrowserViewModel.ShowThumbnailLabelsByDefault = _processingOptions.ShowThumbnailLabelsByDefault;
+            _mediaBrowserViewModel.SetProcessingOptions(_processingOptions);
 
             InitializeCommands();
             SubscribeToEvents();
@@ -659,9 +660,10 @@ namespace DocBrake.ViewModels
                 _processingOptions.CopyFrom(workingOptions);
                 _settingsService.SaveSettings(_processingOptions);
                 StatusMessage = "Settings saved";
-                
+
                 // Sync UI settings to MediaBrowserViewModel immediately
                 _mediaBrowserViewModel.ShowThumbnailLabelsByDefault = _processingOptions.ShowThumbnailLabelsByDefault;
+                _mediaBrowserViewModel.SetProcessingOptions(_processingOptions);
 
                 if (_phoneDetectionService != null)
                 {

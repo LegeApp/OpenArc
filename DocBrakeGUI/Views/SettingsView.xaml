@@ -202,6 +202,11 @@
                     <CheckBox Content="Enable Catalog" IsChecked="{Binding EnableCatalog}" FontSize="10" Margin="0,4,0,2"/>
                     <CheckBox Content="Enable Deduplication" IsChecked="{Binding EnableDedup}" FontSize="10" Margin="0,2,0,6"/>
 
+                    <CheckBox Content="Enable Thumbnails"
+                              IsChecked="{Binding EnableThumbnails}"
+                              FontSize="10" Margin="0,0,0,2"
+                              ToolTip="When unchecked, display file stats instead of thumbnails to improve performance and reduce crashes."/>
+
                     <CheckBox Content="Show thumbnail labels by default (hide on mouseover)"
                               IsChecked="{Binding ShowThumbnailLabelsByDefault}"
                               FontSize="10" Margin="0,0,0,0"
