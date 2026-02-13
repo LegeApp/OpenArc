@@ -41,7 +41,8 @@
   - ⏱️ Duration (videos)
   - 📊 Bitrate (videos)
 
-- **CLI Tool**: Command-line interface for batch processing and automation
+- **Interactive CLI Wizard**: Drag-and-drop files, configure settings, and process with just 4 Enter presses
+- **Advanced CLI**: Full command-line interface for batch processing, automation, and scripting
 
 ## Why OpenARC?
 
@@ -119,28 +120,40 @@ The script will:
 
 ### CLI Usage
 
+**Interactive Mode** (Recommended for beginners):
 ```bash
-# Basic archive creation
-openarc archive /path/to/photos -o my-archive.oarc
+# Launch wizard - just run with no arguments
+openarc
 
-# With specific settings
-openarc archive /path/to/photos \
-  --bpg-quality 28 \
-  --video-codec h265 \
-  --video-crf 23 \
-  --compression-level 18
-
-# Extract archive
-openarc extract my-archive.oarc -o /path/to/output
-
-# List archive contents
-openarc list my-archive.oarc
-
-# Phone backup mode (auto-detect MTP)
-openarc phone-backup -o phone-backup.oarc
+# Follow prompts:
+# 1. Drag-and-drop or paste file/folder paths
+# 2. Configure settings (or press Enter for defaults)
+# 3. Select mode (encode-only or encode+archive)
+# 4. Choose output location
+# 5. Press Enter to start!
 ```
 
-Run `openarc --help` for full CLI documentation.
+**Command Line Mode** (For automation/scripting):
+```bash
+# Create archive with defaults
+openarc create -o my-archive.oarc ~/Pictures ~/Videos
+
+# Custom settings
+openarc create \
+  -o archive.oarc \
+  --bpg-quality 25 \
+  --video-preset 1 \
+  --compression-level 22 \
+  ~/Photos
+
+# Extract archive
+openarc extract -i archive.oarc -o output_folder
+
+# List contents
+openarc list archive.oarc
+```
+
+See **[CLI_GUIDE.md](CLI_GUIDE.md)** for detailed documentation and examples.
 
 ## Project Structure
 
