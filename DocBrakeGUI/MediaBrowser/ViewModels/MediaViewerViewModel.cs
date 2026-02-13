@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using DocBrake.MediaBrowser.Models;
 using DocBrake.Commands;
@@ -274,11 +275,26 @@ namespace DocBrake.MediaBrowser.ViewModels
                     return;
                 }
 
+                // Check if image is very large and downsample if needed to prevent memory issues
+                const int MaxDimension = 4096;
+                WriteableBitmap? displayBitmap = image.Bitmap;
+
+                if (image.Width > MaxDimension || image.Height > MaxDimension)
+                {
+                    // Downsample large image on background thread
+                    displayBitmap = await Task.Run(() => DownsampleBitmap(image.Bitmap, MaxDimension));
+
+                    if (displayBitmap != null)
+                    {
+                        StatusMessage = $"Downsampled large image from {image.Width}x{image.Height} to {displayBitmap.PixelWidth}x{displayBitmap.PixelHeight}";
+                    }
+                }
+
                 // Update UI on dispatcher thread
                 await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     CurrentImage = image;
-                    DisplayBitmap = image.Bitmap;
+                    DisplayBitmap = displayBitmap ?? image.Bitmap;
                     IsImageLoaded = true;
                     IsFitToWindow = true;
 
@@ -464,6 +480,46 @@ namespace DocBrake.MediaBrowser.ViewModels
                        $"Date Taken: {CurrentImage.DateTaken}\n" +
                        $"Camera: {CurrentImage.CameraModel}\n" +
                        $"Lens: {CurrentImage.LensModel}";
+        }
+
+        /// <summary>
+        /// Downsample a bitmap to fit within maxDimension while preserving aspect ratio
+        /// </summary>
+        private WriteableBitmap? DownsampleBitmap(WriteableBitmap? source, int maxDimension)
+        {
+            if (source == null)
+                return null;
+
+            int width = source.PixelWidth;
+            int height = source.PixelHeight;
+
+            // If already smaller than max, return original
+            if (width <= maxDimension && height <= maxDimension)
+                return source;
+
+            // Calculate new dimensions preserving aspect ratio
+            double scale = Math.Min((double)maxDimension / width, (double)maxDimension / height);
+            int newWidth = (int)(width * scale);
+            int newHeight = (int)(height * scale);
+
+            try
+            {
+                // Create downsampled bitmap using TransformedBitmap
+                var transformedBitmap = new TransformedBitmap(
+                    source,
+                    new ScaleTransform(scale, scale));
+
+                // Convert to WriteableBitmap for consistency
+                var downsampled = new WriteableBitmap(transformedBitmap);
+                downsampled.Freeze();
+
+                return downsampled;
+            }
+            catch
+            {
+                // If downsampling fails, return original
+                return source;
+            }
         }
 
         private string FormatFileSize(long bytes)
