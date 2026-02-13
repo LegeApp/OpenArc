@@ -28,7 +28,7 @@
                      Stretch="Uniform"
                      Visibility="{Binding IsFitToWindow, Converter={StaticResource BoolToVisibilityConverter}}">
                 <Image Source="{Binding DisplayBitmap}"
-                       RenderOptions.BitmapScalingMode="HighQuality"
+                       RenderOptions.BitmapScalingMode="Fant"
                        Stretch="Uniform" />
             </Viewbox>
 
@@ -47,7 +47,7 @@
                 <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Image x:Name="DisplayImage"
                            Source="{Binding DisplayBitmap}"
-                           RenderOptions.BitmapScalingMode="HighQuality"
+                           RenderOptions.BitmapScalingMode="LowQuality"
                            Stretch="None">
                         <Image.LayoutTransform>
                             <ScaleTransform ScaleX="{Binding ZoomLevel}"
