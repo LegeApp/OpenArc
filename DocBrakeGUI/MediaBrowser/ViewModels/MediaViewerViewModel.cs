@@ -275,30 +275,15 @@ namespace DocBrake.MediaBrowser.ViewModels
                     return;
                 }
 
-                // Check if image is very large and downsample if needed to prevent memory issues
-                const int MaxDimension = 4096;
-                WriteableBitmap? displayBitmap = image.Bitmap;
-
-                if (image.Width > MaxDimension || image.Height > MaxDimension)
-                {
-                    // Downsample large image on background thread
-                    displayBitmap = await Task.Run(() => DownsampleBitmap(image.Bitmap, MaxDimension));
-
-                    if (displayBitmap != null)
-                    {
-                        StatusMessage = $"Downsampled large image from {image.Width}x{image.Height} to {displayBitmap.PixelWidth}x{displayBitmap.PixelHeight}";
-                    }
-                }
-
                 // Update UI on dispatcher thread
                 await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     CurrentImage = image;
-                    DisplayBitmap = displayBitmap ?? image.Bitmap;
+                    DisplayBitmap = image.Bitmap; // Always use full resolution bitmap
                     IsImageLoaded = true;
                     IsFitToWindow = true;
 
-                    // Reset to actual size (100% zoom) when loading new image
+                    // Reset zoom when loading new image
                     ZoomLevel = 1.0;
                     PanOffset = new Point(0, 0);
 
