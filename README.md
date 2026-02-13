@@ -278,15 +278,6 @@ You may choose either license for your use.
 - **zune-image**: Fast image processing library
 - **rawloader**: RAW image decoder
 
-## Roadmap
-
-- [ ] Linux/macOS support
-- [ ] Cloud storage integration (Google Photos, OneDrive)
-- [ ] Incremental backup mode
-- [ ] Archive encryption
-- [ ] Web-based UI for remote management
-- [ ] Mobile companion app
-
 ---
 
 **Star ⭐ this repository** if you find it useful!
