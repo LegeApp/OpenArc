@@ -2,8 +2,10 @@ using System;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using DocBrake.MediaBrowser.Models;
 using DocBrake.Commands;
@@ -227,7 +229,7 @@ namespace DocBrake.MediaBrowser.ViewModels
         /// Load any supported image from file path using universal native decoder
         /// Supports BPG, HEIC, RAW, DNG, JPEG2000, and standard formats
         /// </summary>
-        public void LoadImage(string filePath)
+        public async Task LoadImageAsync(string filePath)
         {
             try
             {
@@ -253,23 +255,40 @@ namespace DocBrake.MediaBrowser.ViewModels
                 VideoSource = null;
 
                 // Use universal decoder for all formats (handles HEIC, RAW, etc.)
-                var image = MediaItem.LoadUniversal(filePath);
-                if (image == null)
+                // Run decoding on background thread to prevent UI blocking
+                MediaItem? image = null;
+                try
                 {
-                    StatusMessage = $"Failed to load image: {filePath}";
+                    image = await Task.Run(() => MediaItem.LoadUniversal(filePath));
+                }
+                catch (Exception decodeEx)
+                {
+                    StatusMessage = $"Decoder error: {decodeEx.Message}";
+                    IsImageLoaded = false;
                     return;
                 }
 
-                CurrentImage = image;
-                DisplayBitmap = image.Bitmap;
-                IsImageLoaded = true;
-                IsFitToWindow = true;
+                if (image == null)
+                {
+                    StatusMessage = $"Failed to load image: {System.IO.Path.GetFileName(filePath)}";
+                    IsImageLoaded = false;
+                    return;
+                }
 
-                // Reset to actual size (100% zoom) when loading new image
-                ZoomLevel = 1.0;
-                PanOffset = new Point(0, 0);
+                // Update UI on dispatcher thread
+                await Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    CurrentImage = image;
+                    DisplayBitmap = image.Bitmap; // Always use full resolution bitmap
+                    IsImageLoaded = true;
+                    IsFitToWindow = true;
 
-                StatusMessage = $"Loaded: {System.IO.Path.GetFileName(filePath)} ({image.Width}x{image.Height})";
+                    // Reset zoom when loading new image
+                    ZoomLevel = 1.0;
+                    PanOffset = new Point(0, 0);
+
+                    StatusMessage = $"Loaded: {System.IO.Path.GetFileName(filePath)} ({image.Width}x{image.Height})";
+                });
             }
             catch (Exception ex)
             {
@@ -373,7 +392,7 @@ namespace DocBrake.MediaBrowser.ViewModels
 
         #region Private Methods
 
-        private void OpenFile()
+        private async void OpenFile()
         {
             var dialog = new OpenFileDialog
             {
@@ -383,7 +402,7 @@ namespace DocBrake.MediaBrowser.ViewModels
 
             if (dialog.ShowDialog() == true)
             {
-                LoadImage(dialog.FileName);
+                await LoadImageAsync(dialog.FileName);
             }
         }
 
@@ -446,6 +465,46 @@ namespace DocBrake.MediaBrowser.ViewModels
                        $"Date Taken: {CurrentImage.DateTaken}\n" +
                        $"Camera: {CurrentImage.CameraModel}\n" +
                        $"Lens: {CurrentImage.LensModel}";
+        }
+
+        /// <summary>
+        /// Downsample a bitmap to fit within maxDimension while preserving aspect ratio
+        /// </summary>
+        private WriteableBitmap? DownsampleBitmap(WriteableBitmap? source, int maxDimension)
+        {
+            if (source == null)
+                return null;
+
+            int width = source.PixelWidth;
+            int height = source.PixelHeight;
+
+            // If already smaller than max, return original
+            if (width <= maxDimension && height <= maxDimension)
+                return source;
+
+            // Calculate new dimensions preserving aspect ratio
+            double scale = Math.Min((double)maxDimension / width, (double)maxDimension / height);
+            int newWidth = (int)(width * scale);
+            int newHeight = (int)(height * scale);
+
+            try
+            {
+                // Create downsampled bitmap using TransformedBitmap
+                var transformedBitmap = new TransformedBitmap(
+                    source,
+                    new ScaleTransform(scale, scale));
+
+                // Convert to WriteableBitmap for consistency
+                var downsampled = new WriteableBitmap(transformedBitmap);
+                downsampled.Freeze();
+
+                return downsampled;
+            }
+            catch
+            {
+                // If downsampling fails, return original
+                return source;
+            }
         }
 
         private string FormatFileSize(long bytes)

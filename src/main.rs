@@ -5,12 +5,21 @@ use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use openarc::orchestrator::{create_archive, OrchestratorSettings};
 use openarc::cli::{Cli, Commands};
+use openarc::interactive;
 use std::sync::Arc;
 
 fn main() -> Result<()> {
+    // If no arguments provided, launch interactive mode
+    if std::env::args().len() == 1 {
+        return interactive::run_interactive();
+    }
+
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Interactive => {
+            interactive::run_interactive()
+        }
         Commands::Create {
             output,
             inputs,
