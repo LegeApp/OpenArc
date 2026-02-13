@@ -28,7 +28,9 @@ namespace DocBrake.MediaBrowser.ViewModels
         private readonly ThumbnailCacheService _cacheService;
         private readonly FileThumbnailService _fileThumbnailService;
         private readonly IQueueService _queueService;
+        private readonly MediaStatsService _mediaStatsService;
         private CancellationTokenSource? _loadingCts;
+        private DocBrake.Models.ProcessingOptions? _processingOptions;
 
         private string _currentDirectory = string.Empty;
         private string _statusMessage = "Select a folder to browse media files.";
@@ -318,6 +320,19 @@ namespace DocBrake.MediaBrowser.ViewModels
             }
         }
 
+        /// <summary>
+        /// Set the processing options to access settings like EnableThumbnails
+        /// </summary>
+        public void SetProcessingOptions(DocBrake.Models.ProcessingOptions options)
+        {
+            _processingOptions = options;
+        }
+
+        /// <summary>
+        /// Check if thumbnails are enabled in settings
+        /// </summary>
+        private bool AreThumbnailsEnabled => _processingOptions?.EnableThumbnails ?? true;
+
         #endregion
 
         #region Events
@@ -359,6 +374,7 @@ namespace DocBrake.MediaBrowser.ViewModels
         {
             _cacheService = cacheService;
             _fileThumbnailService = new FileThumbnailService();
+            _mediaStatsService = new MediaStatsService();
             _queueService = queueService;
 
             // Subscribe to queue changes to update QueueItemCount
@@ -1142,31 +1158,54 @@ namespace DocBrake.MediaBrowser.ViewModels
                 new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = cancellationToken },
                 async (item, ct) =>
             {
-                try 
+                try
                 {
                     if (ct.IsCancellationRequested) return;
 
-                    // 1. Handle MTP Files specifically
-                    if (MtpFileService.IsMtpPath(item.FilePath) && !string.IsNullOrEmpty(item.MtpDeviceId) && !string.IsNullOrEmpty(item.MtpObjectId))
+                    // Check if thumbnails are disabled - if so, gather stats instead
+                    if (!AreThumbnailsEnabled)
                     {
-                        Console.WriteLine($"[MTP-THUMB] Processing: {item.FileName}, DeviceId={item.MtpDeviceId}, ObjectId={item.MtpObjectId}");
+                        item.IsStatsMode = true;
+                        item.IsLoading = true;
 
-                        bool ok = await _cacheService.LoadThumbnailAsync(item, ct);
-                        if (!ok)
+                        // Gather file stats
+                        var stats = await _mediaStatsService.GatherStatsAsync(item.FilePath);
+
+                        await Application.Current.Dispatcher.InvokeAsync(() =>
                         {
-                            Console.WriteLine($"[MTP-THUMB] Thumbnail generation failed for {item.FileName}: {item.ErrorMessage}");
-                        }
+                            item.StatsText = stats.DisplayText;
+                            item.IsLoading = false;
+                            item.HasError = stats.HasError;
+                            if (stats.HasError)
+                                item.ErrorMessage = stats.ErrorMessage;
+                        });
                     }
-                    else 
+                    else
                     {
-                        // 2. Handle Standard Files (or local files)
-                        if (IsImageFile(item.FileName)) 
+                        item.IsStatsMode = false;
+
+                        // 1. Handle MTP Files specifically
+                        if (MtpFileService.IsMtpPath(item.FilePath) && !string.IsNullOrEmpty(item.MtpDeviceId) && !string.IsNullOrEmpty(item.MtpObjectId))
                         {
-                            await _cacheService.LoadThumbnailAsync(item, ct);
+                            Console.WriteLine($"[MTP-THUMB] Processing: {item.FileName}, DeviceId={item.MtpDeviceId}, ObjectId={item.MtpObjectId}");
+
+                            bool ok = await _cacheService.LoadThumbnailAsync(item, ct);
+                            if (!ok)
+                            {
+                                Console.WriteLine($"[MTP-THUMB] Thumbnail generation failed for {item.FileName}: {item.ErrorMessage}");
+                            }
                         }
                         else
                         {
-                            await Task.Run(() => _fileThumbnailService.TryLoadThumbnail(item, _cacheServiceThumbnailSize), ct);
+                            // 2. Handle Standard Files (or local files)
+                            if (IsImageFile(item.FileName))
+                            {
+                                await _cacheService.LoadThumbnailAsync(item, ct);
+                            }
+                            else
+                            {
+                                await Task.Run(() => _fileThumbnailService.TryLoadThumbnail(item, _cacheServiceThumbnailSize), ct);
+                            }
                         }
                     }
 
@@ -1176,7 +1215,8 @@ namespace DocBrake.MediaBrowser.ViewModels
                         LoadedCount++;
                         if (LoadedCount % 10 == 0 || LoadedCount == TotalCount)
                         {
-                            StatusMessage = $"Loading thumbnails... {LoadedCount}/{TotalCount}";
+                            var action = AreThumbnailsEnabled ? "thumbnails" : "stats";
+                            StatusMessage = $"Loading {action}... {LoadedCount}/{TotalCount}";
                         }
                     });
                 }

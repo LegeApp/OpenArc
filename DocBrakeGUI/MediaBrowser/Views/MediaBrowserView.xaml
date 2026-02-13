@@ -66,6 +66,22 @@
                           Visibility="{Binding ThumbnailImage, Converter={StaticResource NullToVisibilityConverter}}"
                           MouseLeftButtonDown="ThumbnailImage_MouseLeftButtonDown"/>
 
+                    <!-- Stats mode card (when thumbnails are disabled) -->
+                    <Border x:Name="StatsCard"
+                           Visibility="{Binding IsStatsMode, Converter={StaticResource BoolToVisibilityConverter}}"
+                           Background="{Binding ExtensionColor}"
+                           Padding="8"
+                           MouseLeftButtonDown="ThumbnailImage_MouseLeftButtonDown">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <TextBlock Text="{Binding StatsText}"
+                                      Foreground="{Binding ExtensionTextColor}"
+                                      FontSize="9"
+                                      FontFamily="Consolas, Courier New"
+                                      TextWrapping="Wrap"
+                                      LineHeight="14"/>
+                        </ScrollViewer>
+                    </Border>
+
                     <!-- Checkbox overlay in top-left -->
                     <CheckBox x:Name="ThumbCheckBox"
                               IsChecked="{Binding IsChecked, Mode=TwoWay}"

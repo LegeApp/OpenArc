@@ -68,6 +68,7 @@ namespace DocBrake.Models
         
         // UI Settings
         private bool _showThumbnailLabelsByDefault = true;
+        private bool _enableThumbnails = true;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -185,6 +186,12 @@ namespace DocBrake.Models
             set => SetProperty(ref _showThumbnailLabelsByDefault, value);
         }
 
+        public bool EnableThumbnails
+        {
+            get => _enableThumbnails;
+            set => SetProperty(ref _enableThumbnails, value);
+        }
+
         public ProcessingOptions Clone()
         {
             return new ProcessingOptions
@@ -209,8 +216,9 @@ namespace DocBrake.Models
 
                 PhoneSourcePath = PhoneSourcePath,
                 AutoDetectPhone = AutoDetectPhone,
-                
-                ShowThumbnailLabelsByDefault = ShowThumbnailLabelsByDefault
+
+                ShowThumbnailLabelsByDefault = ShowThumbnailLabelsByDefault,
+                EnableThumbnails = EnableThumbnails
             };
         }
 
@@ -238,8 +246,9 @@ namespace DocBrake.Models
 
             PhoneSourcePath = other.PhoneSourcePath;
             AutoDetectPhone = other.AutoDetectPhone;
-            
+
             ShowThumbnailLabelsByDefault = other.ShowThumbnailLabelsByDefault;
+            EnableThumbnails = other.EnableThumbnails;
         }
 
         protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
