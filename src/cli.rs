@@ -13,6 +13,9 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Interactive wizard mode (drag-and-drop, easy setup)
+    Interactive,
+
     /// Create a new archive from files or directories
     Create {
         /// Output archive file (.oarc or .tar.zst)
