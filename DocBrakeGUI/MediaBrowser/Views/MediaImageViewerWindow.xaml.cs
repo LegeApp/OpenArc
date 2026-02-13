@@ -215,10 +215,10 @@ namespace DocBrake.MediaBrowser.Views
             }
         }
 
-        private void LoadAndPresent(string filePath)
+        private async void LoadAndPresent(string filePath)
         {
             _currentFilePath = filePath;
-            ViewModel.LoadImage(filePath);
+            await ViewModel.LoadImageAsync(filePath);
 
             if (_folderFiles.Count == 0)
             {
