@@ -64,6 +64,8 @@ namespace DocBrake.ViewModels
             OnPropertyChanged(nameof(EnableCatalog));
             OnPropertyChanged(nameof(EnableDedup));
             OnPropertyChanged(nameof(SkipAlreadyCompressedVideos));
+            OnPropertyChanged(nameof(ShowThumbnailLabelsByDefault));
+            OnPropertyChanged(nameof(EnableThumbnails));
         }
 
         // BPG Image Settings
@@ -204,6 +206,16 @@ namespace DocBrake.ViewModels
             set
             {
                 _options.ShowThumbnailLabelsByDefault = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool EnableThumbnails
+        {
+            get => _options.EnableThumbnails;
+            set
+            {
+                _options.EnableThumbnails = value;
                 OnPropertyChanged();
             }
         }

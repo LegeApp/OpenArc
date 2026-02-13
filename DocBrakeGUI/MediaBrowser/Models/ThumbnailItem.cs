@@ -22,6 +22,8 @@ namespace DocBrake.MediaBrowser.Models
         private bool _disposed;
         private string _fileName;
         private long _fileSize;
+        private string _statsText = string.Empty;
+        private bool _isStatsMode;
 
         // Extension color mapping - pastel/primary colors
         private static readonly Dictionary<string, Color> ExtensionColors = new(StringComparer.OrdinalIgnoreCase)
@@ -214,6 +216,32 @@ namespace DocBrake.MediaBrowser.Models
         /// Combined info string for overlay: "filename.ext | 2.1 MB"
         /// </summary>
         public string OverlayText => $"{FileName} | {FileSizeFormatted}";
+
+        /// <summary>
+        /// Stats text for stats mode (when thumbnails are disabled)
+        /// </summary>
+        public string StatsText
+        {
+            get => _statsText;
+            set
+            {
+                _statsText = value;
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>
+        /// True if displaying stats instead of thumbnail
+        /// </summary>
+        public bool IsStatsMode
+        {
+            get => _isStatsMode;
+            set
+            {
+                _isStatsMode = value;
+                OnPropertyChanged();
+            }
+        }
 
         public ThumbnailItem(string filePath)
         {
