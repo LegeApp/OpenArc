@@ -41,8 +41,13 @@
 #include "libGRZip.h"
 
 // Forward declarations for memory functions
+#ifdef __cplusplus
+extern void* BigAlloc(size_t size) throw();
+extern void BigFree(void* ptr) throw();
+#else
 extern void* BigAlloc(size_t size);
 extern void BigFree(void* ptr);
+#endif
 
 #define BWT_MaxByte                 256
 #define BWT_MaxWord                 65536

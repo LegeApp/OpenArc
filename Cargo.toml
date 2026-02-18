@@ -61,6 +61,7 @@ parking_lot = "0.12"
 sysinfo = "0.30"
 bytemuck = { version = "1.23", features = ["extern_crate_alloc"] }
 log = "0.4"
+dirs = "6.0"
 
 # Proc-macro dependencies (required by windows-rs)
 proc-macro2 = { version = "1.0", default-features = false }
@@ -97,8 +98,8 @@ authors.workspace = true
 description = "OpenArc media archiver - library and CLI"
 
 [features]
-default = ["heif"]
-heif = ["codecs/heif"]
+default = []
+# heif feature removed - we use pure Rust heic-decoder-rs instead of libheif
 
 [dependencies]
 # CLI dependencies
@@ -132,6 +133,7 @@ parking_lot.workspace = true
 sysinfo.workspace = true
 bytemuck.workspace = true
 log.workspace = true
+dirs.workspace = true
 
 # Compression
 zstd.workspace = true

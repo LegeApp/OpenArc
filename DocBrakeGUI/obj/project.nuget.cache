@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "gneDFiU5e70=",
+  "dgSpecHash": "YhTwC8sIN48=",
   "success": true,
-  "projectFilePath": "D:\\misc\\arc\\openarc\\docbrakegui\\DocBrakeGUI.csproj",
+  "projectFilePath": "D:\\misc\\arc\\openarc\\DocBrakeGUI\\DocBrakeGUI.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\dk\\.nuget\\packages\\communitytoolkit.mvvm\\8.2.2\\communitytoolkit.mvvm.8.2.2.nupkg.sha512",
     "C:\\Users\\dk\\.nuget\\packages\\metadataextractor\\2.8.1\\metadataextractor.2.8.1.nupkg.sha512",
