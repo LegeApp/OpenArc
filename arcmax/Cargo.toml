@@ -33,9 +33,10 @@ tar = { workspace = true, optional = true }
 name = "arcmax"
 path = "src/lib.rs"
 
-[[bin]]
-name = "arcmax"
-path = "src/main.rs"
+# Binary merged into openarc CLI - see openarc/src/cli.rs for arcmax commands
+# [[bin]]
+# name = "arcmax"
+# path = "src/main.rs"
 
 [build-dependencies]
 cc = "1.2"

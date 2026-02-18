@@ -90,6 +90,7 @@ impl<'a> Drop for HeavyGuard<'a> {
 
 use crate::archive_tracker::{ArchiveTracker, ArchiveRecord, ArchiveFileMapping};
 use crate::backup_catalog::{normalize_path, BackupCatalog, BackupEntry};
+use crate::file_tracker::{FileTracker, ProcessedFileRecord};
 use crate::hash;
 
 /// Check current memory usage and return the percentage of memory used
@@ -481,6 +482,8 @@ pub struct OrchestratorSettings {
     pub heic_quality: u8,
     /// Quality for JPEG output during extraction (1-100)
     pub jpeg_quality: u8,
+    /// Enable file-level tracking in central DB
+    pub enable_tracking: bool,
 }
 
 impl Default for OrchestratorSettings {
@@ -501,6 +504,7 @@ impl Default for OrchestratorSettings {
             staging_dir: None,
             heic_quality: 90,
             jpeg_quality: 92,
+            enable_tracking: true,
         }
     }
 }
@@ -533,6 +537,7 @@ pub struct OrchestratorResult {
     pub processed: Vec<ProcessedFile>,
     pub skipped_by_catalog: Vec<PathBuf>,
     pub dedup_groups: usize,
+    pub tracking_report: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -656,8 +661,29 @@ pub fn create_archive(
             processed: Vec::new(),
             skipped_by_catalog: Vec::new(),
             dedup_groups: 0,
+            tracking_report: None,
         });
     }
+
+    // Phase 1 (tracking): Hash all files and batch query DB for duplicates
+    let tracker = if settings.enable_tracking {
+        FileTracker::new().ok()
+    } else {
+        None
+    };
+    let mut tracking_hashes: HashMap<PathBuf, String> = HashMap::new();
+    let tracking_duplicates = if let Some(ref tracker) = tracker {
+        // Hash all discovered files for tracking
+        for p in &discovered {
+            if let Ok(h) = hash::sha256_file_hex(p) {
+                tracking_hashes.insert(p.clone(), h);
+            }
+        }
+        let unique_hashes: Vec<String> = tracking_hashes.values().cloned().collect();
+        tracker.find_duplicates(&unique_hashes).unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
 
     let catalog_path = output_archive.with_extension("catalog.sqlite");
     let mut catalog = if settings.enable_catalog {
@@ -1197,11 +1223,63 @@ pub fn create_archive(
 
     let dedup_groups = if settings.enable_dedup { dedup_canon.len() } else { 0 };
 
+    // Phase 3 (tracking): Batch record all processed files, generate & save log
+    let tracking_report = if let Some(ref tracker) = tracker {
+        let now = crate::file_tracker::iso8601_now();
+        let archive_name = output_archive.file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string());
+        let archive_hash = hash::sha256_file_hex(output_archive).ok();
+
+        let records: Vec<ProcessedFileRecord> = processed.iter().map(|p| {
+            let file_hash = tracking_hashes
+                .get(&p.original_path)
+                .cloned()
+                .unwrap_or_default();
+            ProcessedFileRecord {
+                file_name: p.original_path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
+                file_hash,
+                file_size: p.original_size as i64,
+                processed_at: now.clone(),
+                run_id: tracker.run_id().to_string(),
+                archive_name: archive_name.clone(),
+                archive_hash: archive_hash.clone(),
+                output_path: p.output_path.to_string_lossy().to_string(),
+                processing_mode: "archive".to_string(),
+            }
+        }).collect();
+
+        if let Err(e) = tracker.record_batch(&records) {
+            eprintln!("Warning: Failed to record tracking data: {}", e);
+        }
+
+        let log_content = tracker.generate_run_log(
+            &tracking_duplicates,
+            processed.len(),
+            "archive",
+        );
+        if let Err(e) = tracker.write_run_log(&log_content) {
+            eprintln!("Warning: Failed to write run log: {}", e);
+        }
+
+        if !tracking_duplicates.is_empty() {
+            FileTracker::print_duplicate_report(&tracking_duplicates);
+        }
+
+        Some(log_content)
+    } else {
+        None
+    };
+
     Ok(OrchestratorResult {
         discovered_files: discovered,
         processed,
         skipped_by_catalog,
         dedup_groups,
+        tracking_report,
     })
 }
 

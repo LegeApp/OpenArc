@@ -128,7 +128,7 @@ extern int bpgenc_encode_from_memory_buffer(
     int width, int height, int stride,
     int input_format,
     int quality, int bit_depth, int lossless, int chroma_format,
-    int compress_level, int encoder_type,
+    int compress_level, int encoder_type, int color_space,
     uint8_t **output_data, size_t *output_size);
 
 /* Encode from file - loads the file and encodes in memory */

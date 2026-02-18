@@ -57,6 +57,10 @@ pub enum Commands {
         /// Don't skip already compressed videos
         #[arg(long)]
         no_skip_compressed: bool,
+
+        /// Disable file-level tracking
+        #[arg(long)]
+        no_tracking: bool,
     },
     
     /// Extract an archive
@@ -136,5 +140,57 @@ pub enum Commands {
         /// Copy audio stream
         #[arg(long)]
         copy_audio: bool,
+    },
+
+    // === ArcMax Compression Commands ===
+    // These commands provide direct access to FreeARC compression algorithms
+
+    /// Compress files with FreeARC algorithms (arcmax)
+    ArcCompress {
+        /// Input files to compress
+        #[arg(required = true)]
+        input: Vec<PathBuf>,
+
+        /// Output archive file
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Compression method (store, lzma2, ppmd, tornado, etc.)
+        #[arg(short, long, default_value = "lzma2")]
+        method: String,
+
+        /// Compression level (1-9)
+        #[arg(short, long, default_value = "5")]
+        level: i32,
+
+        /// Dictionary size in bytes
+        #[arg(short, long, default_value = "33554432")]
+        dict_size: u32,
+    },
+
+    /// Extract FreeARC archive (arcmax)
+    ArcExtract {
+        /// Archive file to extract
+        #[arg(required = true)]
+        archive: PathBuf,
+
+        /// Output directory
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Password for encrypted archives
+        #[arg(short, long)]
+        password: Option<String>,
+    },
+
+    /// Test FreeARC compression (arcmax)
+    ArcTest {
+        /// Test data to compress and decompress
+        #[arg(short, long, default_value = "Hello, World! This is a test of FreeARC compression.")]
+        data: String,
+
+        /// Compression method to test
+        #[arg(short, long, default_value = "lzma2")]
+        method: String,
     },
 }

@@ -57,12 +57,11 @@ if (Test-Path $codecMakefile) {
 # Step 2: Build Rust workspace (CLI, Core, ArcMax, ZSTD, FFI, BPG-Viewer)
 Write-Host ""
 Write-Host "Step 2: Building Rust workspace components..." -ForegroundColor Green
-Write-Host "  - openarc-core (Core library)"
-Write-Host "  - openarc-ffi (FFI library)"
+Write-Host "  - openarc (Unified CLI with arcmax commands)"
+Write-Host "  - openarc-ffi (FFI library for GUI)"
 Write-Host "  - bpg-viewer (BPG processing library)"
-Write-Host "  - arcmax (Compression library)"
-Write-Host "  - zstd-archive (ZSTD wrapper)"
-Write-Host "  - openarc (CLI)"
+Write-Host "  - arcmax (Compression library - merged into CLI)"
+Write-Host "  - codecs (Image/video codec support)"
 
 Push-Location "$PSScriptRoot"
 try {
@@ -110,12 +109,11 @@ Write-Host ""
 Write-Host "=== Build Complete ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "Built components:" -ForegroundColor Cyan
-Write-Host "  - openarc (CLI)"
-Write-Host "  - openarc-core (Core library)"
-Write-Host "  - arcmax (Compression library)"
-Write-Host "  - zstd-archive (ZSTD wrapper)"
-Write-Host "  - openarc-ffi (FFI library)"
+Write-Host "  - openarc (Unified CLI - includes arcmax compression commands)"
+Write-Host "  - openarc-ffi (FFI library for GUI interop)"
 Write-Host "  - bpg-viewer (BPG processing library)"
+Write-Host "  - arcmax (Compression library - integrated into CLI)"
+Write-Host "  - codecs (Image/video codec support)"
 Write-Host "  - DocBrakeGUI (Self-Contained WPF GUI)"
 Write-Host ""
 

@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\misc\\arc\\openarc\\docbrakegui\\DocBrakeGUI.csproj": {}
+    "D:\\misc\\arc\\openarc\\DocBrakeGUI\\DocBrakeGUI.csproj": {}
   },
   "projects": {
-    "D:\\misc\\arc\\openarc\\docbrakegui\\DocBrakeGUI.csproj": {
+    "D:\\misc\\arc\\openarc\\DocBrakeGUI\\DocBrakeGUI.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\misc\\arc\\openarc\\docbrakegui\\DocBrakeGUI.csproj",
+        "projectUniqueName": "D:\\misc\\arc\\openarc\\DocBrakeGUI\\DocBrakeGUI.csproj",
         "projectName": "DocBrakeGUI",
-        "projectPath": "D:\\misc\\arc\\openarc\\docbrakegui\\DocBrakeGUI.csproj",
+        "projectPath": "D:\\misc\\arc\\openarc\\DocBrakeGUI\\DocBrakeGUI.csproj",
         "packagesPath": "C:\\Users\\dk\\.nuget\\packages\\",
-        "outputPath": "D:\\misc\\arc\\openarc\\docbrakegui\\obj\\",
+        "outputPath": "D:\\misc\\arc\\openarc\\DocBrakeGUI\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

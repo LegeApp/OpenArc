@@ -23,13 +23,22 @@ export AR=ar
 export RANLIB=ranlib
 
 # Compiler flags
-COMMON_FLAGS="-O2 -fPIC -Wall -Wextra -D_WIN32 -DWIN32 -DWIN32_LEAN_AND_MEAN -DNOMINMAX -DNDEBUG -DWINVER=0x0601 -D_WIN32_WINNT=0x0601 -DNOVERSETCONDITIONMASK -D__USE_MINGW_ANSI_STDIO=0"
+UNAME_S="$(uname -s)"
+if [[ "$UNAME_S" == "Linux" || "$UNAME_S" == "Darwin" ]]; then
+    # Native Unix build: avoid forcing Windows preprocessor paths.
+    COMMON_FLAGS="-O2 -fPIC -Wall -Wextra -DNDEBUG -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_REENTRANT"
+else
+    # MinGW/MSYS build path.
+    COMMON_FLAGS="-O2 -fPIC -Wall -Wextra -D_WIN32 -DWIN32 -DWIN32_LEAN_AND_MEAN -DNOMINMAX -DNDEBUG -DWINVER=0x0601 -D_WIN32_WINNT=0x0601 -DNOVERSETCONDITIONMASK -D__USE_MINGW_ANSI_STDIO=0"
+fi
 CXX_FLAGS="${COMMON_FLAGS} -std=c++11"
 
 # Create directories
 echo -e "${GREEN}Creating build directories...${NC}"
 mkdir -p "${STAGING_PATH}"
 mkdir -p "${BUILD_PATH}"
+rm -f "${STAGING_PATH}"/*.o "${STAGING_PATH}"/*.a 2>/dev/null || true
+rm -rf "${BUILD_PATH:?}"/*
 
 # Function to build a codec
 build_codec() {
@@ -96,11 +105,6 @@ copy_common_objects() {
     ${CXX} ${CXX_FLAGS} -I"${FREEARC_PATH}" -I"${FREEARC_PATH}/Compression" \
         -c "${FREEARC_PATH}/Compression/CELS.cpp" -o "${common_build_dir}/CELS.o"
     
-    # MultiThreading.cpp
-    echo "  Compiling MultiThreading.cpp..."
-    ${CXX} ${CXX_FLAGS} -I"${FREEARC_PATH}" -I"${FREEARC_PATH}/Compression" \
-        -c "${FREEARC_PATH}/Compression/MultiThreading.cpp" -o "${common_build_dir}/MultiThreading.o"
-    
     # Copy to staging
     cp "${common_build_dir}"/*.o "${STAGING_PATH}/"
     
@@ -115,7 +119,7 @@ echo -e "${GREEN}Building codecs...${NC}"
 
 # LZMA2
 build_codec "lzma2" \
-    "${FREEARC_PATH}/Compression/LZMA2/LZMA2.cpp" \
+    "${FREEARC_PATH}/Compression/LZMA2/C_LZMA.cpp" \
     "${FREEARC_PATH} ${FREEARC_PATH}/Compression ${FREEARC_PATH}/Compression/LZMA2" \
     "lzma2"
 

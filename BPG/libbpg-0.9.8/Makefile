@@ -244,7 +244,7 @@ libbpg.a: $(LIBBPG_OBJS)
 
 # Native library for FFI: decoder + in-memory encoder + API
 bpgenc_lib.o: bpgenc.c
-	$(CC) $(CFLAGS) -DBPG_ENCODER_LIB -DUSE_X265 -Wno-unused-but-set-variable -Wno-unused-function $(shell pkg-config --cflags x265 2>/dev/null) -c -o $@ $<
+	$(CC) $(CFLAGS) -UUSE_JCTVC -DBPG_ENCODER_LIB -DUSE_X265 -Wno-unused-but-set-variable -Wno-unused-function $(shell pkg-config --cflags x265 2>/dev/null) -c -o $@ $<
 
 bpg_api.o: bpg_api.c
 	$(CC) $(CFLAGS) -c -o $@ $<

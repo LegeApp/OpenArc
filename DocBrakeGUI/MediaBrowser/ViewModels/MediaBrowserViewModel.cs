@@ -1213,7 +1213,7 @@ namespace DocBrake.MediaBrowser.ViewModels
                     await Application.Current.Dispatcher.InvokeAsync(() =>
                     {
                         LoadedCount++;
-                        if (LoadedCount % 10 == 0 || LoadedCount == TotalCount)
+                        if (LoadedCount % 5 == 0 || LoadedCount == TotalCount)
                         {
                             var action = AreThumbnailsEnabled ? "thumbnails" : "stats";
                             StatusMessage = $"Loading {action}... {LoadedCount}/{TotalCount}";

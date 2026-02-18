@@ -10,7 +10,9 @@ use std::time::Instant;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::bpg_wrapper::{self, BpgConfig};
-use crate::orchestrator::{create_archive, OrchestratorSettings};
+use crate::file_tracker::{FileTracker, ProcessedFileRecord};
+use crate::hash;
+use crate::orchestrator::{create_archive, extract_archive, OrchestratorSettings};
 use codecs::ffmpeg::{FfmpegEncodeOptions, FFmpegEncoder, VideoCodec, VideoSpeedPreset};
 use codecs::video_analyzer::analyze_video_compression;
 
@@ -49,6 +51,12 @@ pub enum ProcessingMode {
     EncodeAndArchive,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartAction {
+    EncodeWorkflow,
+    ExtractArchive,
+}
+
 pub struct InteractiveConfig {
     pub bpg_quality: i32,
     pub bpg_lossless: bool,
@@ -60,6 +68,7 @@ pub struct InteractiveConfig {
     pub enable_catalog: bool,
     pub enable_dedup: bool,
     pub skip_compressed_videos: bool,
+    pub enable_tracking: bool,
     pub mode: ProcessingMode,
     pub output_path: PathBuf,
     pub input_paths: Vec<PathBuf>,
@@ -78,6 +87,7 @@ impl Default for InteractiveConfig {
             enable_catalog: true,
             enable_dedup: true,
             skip_compressed_videos: true,
+            enable_tracking: true,
             mode: ProcessingMode::EncodeAndArchive,
             output_path: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             input_paths: Vec::new(),
@@ -96,6 +106,11 @@ pub fn run_interactive() -> Result<()> {
     println!();
     println!("Welcome! This wizard will guide you through compressing");
     println!("images (to BPG) and videos (to H.264/H.265).\n");
+
+    let action = prompt_start_action()?;
+    if action == StartAction::ExtractArchive {
+        return run_extract_interactive();
+    }
 
     let mut config = InteractiveConfig::default();
 
@@ -141,6 +156,101 @@ pub fn run_interactive() -> Result<()> {
 
     // Process!
     process_files(&config, media_files)?;
+
+    Ok(())
+}
+
+fn prompt_start_action() -> Result<StartAction> {
+    println!("{}Choose action:{}", COLORS.info, COLORS.reset);
+    println!(
+        "[1] {}Encode/Archive{} - Create compressed .oarc archive",
+        COLORS.highlight, COLORS.reset
+    );
+    println!(
+        "[2] {}Extract Archive{} - Extract existing .oarc archive",
+        COLORS.highlight, COLORS.reset
+    );
+    print!("{}Choice [1]:{} ", COLORS.prompt, COLORS.reset);
+    io::stdout().flush()?;
+
+    let choice = read_number_or_default(1, 1, 2)?;
+    Ok(if choice == 2 {
+        StartAction::ExtractArchive
+    } else {
+        StartAction::EncodeWorkflow
+    })
+}
+
+fn run_extract_interactive() -> Result<()> {
+    println!("\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
+    println!("{}Archive Extraction{}", COLORS.highlight, COLORS.reset);
+    println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
+
+    print!("{}Archive path (.oarc):{} ", COLORS.prompt, COLORS.reset);
+    io::stdout().flush()?;
+    let mut archive_input = String::new();
+    io::stdin().read_line(&mut archive_input)?;
+    let archive_path = PathBuf::from(archive_input.trim());
+    if archive_path.as_os_str().is_empty() {
+        return Err(anyhow!("No archive path provided"));
+    }
+    if !archive_path.exists() {
+        return Err(anyhow!("Archive not found: {}", archive_path.display()));
+    }
+
+    let default_output = std::env::current_dir()?.join("extracted_openarc");
+    print!(
+        "{}Output folder [{}]:{} ",
+        COLORS.prompt,
+        default_output.display(),
+        COLORS.reset
+    );
+    io::stdout().flush()?;
+    let mut output_input = String::new();
+    io::stdin().read_line(&mut output_input)?;
+    let output_dir = if output_input.trim().is_empty() {
+        default_output
+    } else {
+        PathBuf::from(output_input.trim())
+    };
+
+    println!("\nArchive: {}", archive_path.display());
+    println!("Output:  {}", output_dir.display());
+    println!("\n{}Press Enter to start extraction, or Ctrl+C to cancel...{}", COLORS.prompt, COLORS.reset);
+    let mut confirm = String::new();
+    io::stdin().read_line(&mut confirm)?;
+
+    let pb = ProgressBar::new(1);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
+    let pb_clone = pb.clone();
+    let progress_fn = Arc::new(move |current: usize, total: usize, msg: &str| {
+        pb_clone.set_length(total as u64);
+        pb_clone.set_position(current as u64);
+        pb_clone.set_message(msg.to_string());
+    });
+
+    let result = extract_archive(
+        &archive_path,
+        &output_dir,
+        OrchestratorSettings::default().compression_level,
+        Some(progress_fn),
+    )?;
+    pb.finish_with_message("Complete!");
+
+    println!("\n{}╔════════════════════════════════════════╗{}", COLORS.success, COLORS.reset);
+    println!("{}║         Extraction Complete!           ║{}", COLORS.success, COLORS.reset);
+    println!("{}╚════════════════════════════════════════╝{}", COLORS.success, COLORS.reset);
+    println!("\n{}Statistics:{}", COLORS.info, COLORS.reset);
+    println!("  • Files extracted: {}", result.files_extracted);
+    println!("  • Total size: {} MB", result.total_size / 1_000_000);
+    println!("  • Decoded images: {}", result.decoded_files);
+    println!("  • Output: {}", output_dir.display());
 
     Ok(())
 }
@@ -342,6 +452,18 @@ fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
         };
     }
 
+    // File tracking toggle
+    println!("\n{}File Tracking:{}", COLORS.info, COLORS.reset);
+    println!("Tracks processed files across runs, detects duplicates.");
+    print!("{}Enable tracking? (Y/n):{} ", COLORS.prompt, COLORS.reset);
+    io::stdout().flush()?;
+    config.enable_tracking = read_yes_no(true)?;
+    if config.enable_tracking {
+        println!("{}✓ File tracking enabled{}", COLORS.success, COLORS.reset);
+    } else {
+        println!("{}  File tracking disabled{}", COLORS.info, COLORS.reset);
+    }
+
     Ok(())
 }
 
@@ -449,6 +571,7 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
         println!("  • Compression: level {}", config.compression_level);
         println!("  • Catalog: {}", if config.enable_catalog { "enabled" } else { "disabled" });
         println!("  • Deduplication: {}", if config.enable_dedup { "enabled" } else { "disabled" });
+        println!("  • File tracking: {}", if config.enable_tracking { "enabled" } else { "disabled" });
     } else {
         println!("{}Output folder:{} {}", COLORS.info, COLORS.reset, config.output_path.display());
     }
@@ -478,6 +601,7 @@ fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Resul
                 staging_dir: None,
                 heic_quality: 90,
                 jpeg_quality: 92,
+                enable_tracking: config.enable_tracking,
             };
 
             let pb = ProgressBar::new(100);
@@ -527,6 +651,10 @@ fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Resul
                 COLORS.reset);
 
             println!("\n{}Output:{} {}", COLORS.highlight, COLORS.reset, config.output_path.display());
+
+            if result.tracking_report.is_some() {
+                println!("{}  • File tracking: recorded{}", COLORS.info, COLORS.reset);
+            }
         }
         ProcessingMode::EncodeOnly => {
             encode_only_mode(config, &media_files)?;
@@ -705,6 +833,58 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
     }
 
     println!("\n{}Output:{} {}", COLORS.highlight, COLORS.reset, output_dir.display());
+
+    // File tracking for encode-only mode
+    if config.enable_tracking {
+        if let Ok(tracker) = FileTracker::new() {
+            let now = crate::file_tracker::iso8601_now();
+
+            // Hash all input files and check for duplicates
+            let mut hashes: Vec<String> = Vec::new();
+            let mut file_hashes: Vec<(String, String, i64)> = Vec::new(); // (name, hash, size)
+            for path in media_files {
+                if let Ok(h) = hash::sha256_file_hex(path) {
+                    hashes.push(h.clone());
+                    let size = fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
+                    let name = path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    file_hashes.push((name, h, size));
+                }
+            }
+
+            let duplicates = tracker.find_duplicates(&hashes).unwrap_or_default();
+            if !duplicates.is_empty() {
+                FileTracker::print_duplicate_report(&duplicates);
+            }
+
+            let records: Vec<ProcessedFileRecord> = file_hashes.iter().map(|(name, h, size)| {
+                ProcessedFileRecord {
+                    file_name: name.clone(),
+                    file_hash: h.clone(),
+                    file_size: *size,
+                    processed_at: now.clone(),
+                    run_id: tracker.run_id().to_string(),
+                    archive_name: None,
+                    archive_hash: None,
+                    output_path: output_dir.to_string_lossy().to_string(),
+                    processing_mode: "encode_only".to_string(),
+                }
+            }).collect();
+
+            if let Err(e) = tracker.record_batch(&records) {
+                eprintln!("Warning: Failed to record tracking data: {}", e);
+            }
+
+            let log_content = tracker.generate_run_log(&duplicates, media_files.len(), "encode_only");
+            if let Err(e) = tracker.write_run_log(&log_content) {
+                eprintln!("Warning: Failed to write run log: {}", e);
+            }
+
+            println!("{}  • File tracking: recorded{}", COLORS.info, COLORS.reset);
+        }
+    }
 
     Ok(())
 }
