@@ -34,7 +34,17 @@
       "Bash(cargo test:*)",
       "WebSearch",
       "Bash(Copy-Item \"D:\\\\misc\\\\arc\\\\openarc\\\\target\\\\release\\\\bpg_viewer.dll\" \"D:\\\\misc\\\\arc\\\\openarc\\\\DocBrakeGUI\\\\bin\\\\Debug\\\\net8.0-windows10.0.26100.0\"\" -Force)",
-      "Bash(dumpbin.exe:*)"
+      "Bash(dumpbin.exe:*)",
+      "Bash(dotnet publish:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git stash:*)",
+      "Bash(git pull:*)",
+      "Bash(objdump:*)",
+      "Bash(./target/release/openarc.exe:*)",
+      "Bash(./target/x86_64-pc-windows-gnu/release/openarc.exe:*)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

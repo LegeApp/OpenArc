@@ -16,9 +16,10 @@ fn main() {
     // Ensure codec libraries are available
     check_codec_dependencies(&manifest_dir);
     
-    // Build GUI components in release mode
+    // Build GUI components only on Windows release builds.
     let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
-    if profile == "release" {
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if profile == "release" && target_os == "windows" {
         build_gui_components(&manifest_dir);
     }
 }

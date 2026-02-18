@@ -1,6 +1,14 @@
-/* Minimal unistd.h replacement for Windows */
+/* Minimal unistd.h replacement for Windows.
+ * On non-Windows, forward to the system unistd.h.
+ */
 #ifndef UNISTD_H
 #define UNISTD_H
+
+#if !defined(_WIN32) && !defined(WIN32)
+
+#include_next <unistd.h>
+
+#else
 
 #include <io.h>
 #include <process.h>
@@ -42,5 +50,7 @@
 #define STDIN_FILENO 0
 #define STDOUT_FILENO 1
 #define STDERR_FILENO 2
+
+#endif
 
 #endif /* UNISTD_H */

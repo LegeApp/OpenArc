@@ -1,11 +1,17 @@
-use std::ffi::CString;
-use std::path::Path;
 use anyhow::{anyhow, Result};
+use std::path::Path;
+
+#[cfg(feature = "libraw")]
 use image::{ImageBuffer, Rgb};
+#[cfg(feature = "libraw")]
+use std::ffi::CString;
+#[cfg(feature = "libraw")]
+use std::os::raw::c_int;
+#[cfg(feature = "libraw")]
 use tempfile::NamedTempFile;
 
+#[cfg(feature = "libraw")]
 use super::libraw_sys::*;
-use std::os::raw::c_int;
 
 pub struct RawConverter;
 
@@ -14,9 +20,10 @@ impl RawConverter {
         Self
     }
 
+    #[cfg(feature = "libraw")]
     pub fn convert_to_png(&self, raw_path: &Path) -> Result<Vec<u8>> {
         let raw_path_c = CString::new(raw_path.to_string_lossy().as_bytes())?;
-        
+
         // Initialize libraw
         let lr = unsafe { libraw_init(0) };
         if lr.is_null() {
@@ -50,7 +57,7 @@ impl RawConverter {
         // Write to temporary PPM file
         let temp_ppm = NamedTempFile::new()?;
         let temp_ppm_path = CString::new(temp_ppm.path().to_string_lossy().as_bytes())?;
-        
+
         let result = unsafe { libraw_dcraw_ppm_tiff_writer(lr, temp_ppm_path.as_ptr()) };
         if result != libraw_errors_t::LIBRAW_SUCCESS as c_int {
             let error_msg = libraw_error_string(result);
@@ -65,32 +72,51 @@ impl RawConverter {
         self.ppm_to_png(&ppm_data)
     }
 
+    #[cfg(not(feature = "libraw"))]
+    pub fn convert_to_png(&self, _raw_path: &Path) -> Result<Vec<u8>> {
+        Err(anyhow!(
+            "RAW conversion support is disabled (build codecs with feature 'libraw')"
+        ))
+    }
+
+    #[cfg(feature = "libraw")]
     pub(crate) fn ppm_to_png(&self, ppm_data: &[u8]) -> Result<Vec<u8>> {
         let ppm_str = String::from_utf8_lossy(ppm_data);
         let mut lines = ppm_str.lines();
-        
+
         // Parse PPM header
-        let magic = lines.next().ok_or_else(|| anyhow!("Invalid PPM: no magic number"))?;
+        let magic = lines
+            .next()
+            .ok_or_else(|| anyhow!("Invalid PPM: no magic number"))?;
         if magic != "P6" {
             return Err(anyhow!("Unsupported PPM format: {}", magic));
         }
 
-        let dimensions = lines.next().ok_or_else(|| anyhow!("Invalid PPM: no dimensions"))?;
+        let dimensions = lines
+            .next()
+            .ok_or_else(|| anyhow!("Invalid PPM: no dimensions"))?;
         let mut parts = dimensions.split_whitespace();
-        let width: u32 = parts.next()
+        let width: u32 = parts
+            .next()
             .ok_or_else(|| anyhow!("Invalid PPM: no width"))?
             .parse()
             .map_err(|_| anyhow!("Invalid PPM: invalid width"))?;
-        let height: u32 = parts.next()
+        let height: u32 = parts
+            .next()
             .ok_or_else(|| anyhow!("Invalid PPM: no height"))?
             .parse()
             .map_err(|_| anyhow!("Invalid PPM: invalid height"))?;
 
-        let max_val = lines.next().ok_or_else(|| anyhow!("Invalid PPM: no max value"))?;
-        let max_val: u16 = max_val.parse().map_err(|_| anyhow!("Invalid PPM: invalid max value"))?;
+        let max_val = lines
+            .next()
+            .ok_or_else(|| anyhow!("Invalid PPM: no max value"))?;
+        let max_val: u16 = max_val
+            .parse()
+            .map_err(|_| anyhow!("Invalid PPM: invalid max value"))?;
 
         // Find start of binary data
-        let header_end = ppm_str.find("P6\n")
+        let header_end = ppm_str
+            .find("P6\n")
             .and_then(|i| ppm_str[i..].find('\n'))
             .and_then(|i| ppm_str[i..].find('\n'))
             .and_then(|i| ppm_str[i..].find('\n'))
@@ -101,14 +127,16 @@ impl RawConverter {
             .ok_or_else(|| anyhow!("Invalid PPM: cannot find data start"))?;
 
         let binary_data = &ppm_data[header_end..];
-        
+
         // Convert to 16-bit RGB image
         let mut img_data = Vec::with_capacity((width * height) as usize * 3);
-        
+
         if max_val == 65535 {
             // Already 16-bit
             for chunk in binary_data.chunks_exact(6) {
-                if chunk.len() < 6 { break; }
+                if chunk.len() < 6 {
+                    break;
+                }
                 let r = u16::from_be_bytes([chunk[0], chunk[1]]);
                 let g = u16::from_be_bytes([chunk[2], chunk[3]]);
                 let b = u16::from_be_bytes([chunk[4], chunk[5]]);
@@ -117,7 +145,9 @@ impl RawConverter {
         } else if max_val == 255 {
             // Convert 8-bit to 16-bit
             for chunk in binary_data.chunks_exact(3) {
-                if chunk.len() < 3 { break; }
+                if chunk.len() < 3 {
+                    break;
+                }
                 let r = (chunk[0] as u16) << 8;
                 let g = (chunk[1] as u16) << 8;
                 let b = (chunk[2] as u16) << 8;
@@ -128,20 +158,19 @@ impl RawConverter {
         }
 
         // Create image buffer
-        let img: ImageBuffer<Rgb<u16>, Vec<u16>> = ImageBuffer::from_raw(width, height, 
-            img_data.into_iter().flatten().collect())
-            .ok_or_else(|| anyhow!("Failed to create image buffer"))?;
+        let img: ImageBuffer<Rgb<u16>, Vec<u16>> =
+            ImageBuffer::from_raw(width, height, img_data.into_iter().flatten().collect())
+                .ok_or_else(|| anyhow!("Failed to create image buffer"))?;
 
         // Encode as PNG
-        let png_data = image::DynamicImage::ImageRgb16(img)
-            .into_rgb8();
-        
+        let png_data = image::DynamicImage::ImageRgb16(img).into_rgb8();
+
         let mut png_bytes = Vec::new();
         {
             let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
             png_data.write_with_encoder(encoder)?;
         }
-        
+
         Ok(png_bytes)
     }
 }
@@ -159,25 +188,22 @@ mod tests {
 
     #[test]
     fn test_raw_converter_new() {
-        let converter = RawConverter::new();
-        // Just test that it doesn't panic
-        assert!(true);
+        let _converter = RawConverter::new();
     }
 
     #[test]
     fn test_raw_converter_default() {
-        let converter = RawConverter::default();
-        // Just test that it doesn't panic
-        assert!(true);
+        let _converter = RawConverter::default();
     }
 
+    #[cfg(feature = "libraw")]
     #[test]
     fn test_ppm_to_png_invalid_format() {
         let converter = RawConverter::new();
-        
+
         // Test with invalid PPM format
         let ppm_data = b"P5\n2 2\n255\n1234"; // P5 is grayscale, not RGB
-        
+
         let result = converter.ppm_to_png(ppm_data);
         assert!(result.is_err());
     }
@@ -186,7 +212,7 @@ mod tests {
     fn test_convert_nonexistent_file() {
         let converter = RawConverter::new();
         let nonexistent_path = PathBuf::from("definitely_does_not_exist.cr2");
-        
+
         let result = converter.convert_to_png(&nonexistent_path);
         assert!(result.is_err());
     }

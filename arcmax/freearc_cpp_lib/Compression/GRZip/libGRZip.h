@@ -36,6 +36,7 @@
 #define GRZip_GLOBAL_H
 
 // Basic type definitions
+#ifndef FREEARC_COMMON_H
 typedef unsigned char uint8;
 typedef signed char sint8;
 typedef unsigned short uint16;
@@ -44,6 +45,7 @@ typedef unsigned int uint32;
 typedef signed int sint32;
 typedef unsigned long long uint64;
 typedef signed long long sint64;
+#endif
 
 #ifdef __GNUC__
 #define GINLINE __inline__

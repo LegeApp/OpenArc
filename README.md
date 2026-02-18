@@ -296,3 +296,25 @@ You may choose either license for your use.
 **Star ⭐ this repository** if you find it useful!
 
 **Report issues**: https://github.com/LegeApp/OpenArc/issues
+
+## Linux Backend Build (CLI Only)
+
+The WPF GUI (`DocBrakeGUI`) is Windows-only. On Linux, build and use the CLI/backend only.
+
+Use the Linux build helper:
+
+```bash
+cd OpenArc
+./build-linux-backend.sh --release
+```
+
+This script intentionally:
+- Builds backend native libs only (`BPG/libbpg-0.9.8`, `arcmax` codec staging)
+- Builds `openarc` CLI only (skips `DocBrakeGUI` and `openarc-ffi`/MTP)
+- Checks required native dependencies (`x265`, `libpng`, `libjpeg`, `lcms2`)
+- Validates Rust toolchain compatibility (`rustc >= 1.92`)
+
+Notes:
+- If your Rust toolchain is older, update with `rustup update stable`.
+- If you only want to rebuild Rust crates and keep existing native libs, use:
+  `./build-linux-backend.sh --release --skip-codecs`

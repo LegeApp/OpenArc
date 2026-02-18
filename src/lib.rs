@@ -5,6 +5,7 @@
 pub mod cli;
 pub mod archive_tracker;
 pub mod backup_catalog;
+pub mod file_tracker;
 pub mod hash;
 pub mod orchestrator;
 pub mod bpg_wrapper;
