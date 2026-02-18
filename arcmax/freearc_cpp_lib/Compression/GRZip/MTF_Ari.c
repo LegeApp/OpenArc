@@ -38,8 +38,13 @@
 #include "WFC_MTF.h"
 
 // Forward declarations for memory functions
+#ifdef __cplusplus
+extern void* BigAlloc(size_t size) throw();
+extern void BigFree(void* ptr) throw();
+#else
 extern void* BigAlloc(size_t size);
 extern void BigFree(void* ptr);
+#endif
 
 #define ARI_MaxByte            256
 

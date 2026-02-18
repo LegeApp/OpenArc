@@ -36,21 +36,25 @@ namespace DocBrake.MediaBrowser.Views
             // When PanOffset changes (from arrow keys), scroll the ScrollViewer
             if (e.PropertyName == nameof(MediaViewerViewModel.PanOffset))
             {
-                if (ViewModel != null && !ViewModel.IsFitToWindow && ImageScrollViewer != null)
+                // Ensure we're on the UI thread before accessing UI elements
+                Dispatcher.InvokeAsync(() =>
                 {
-                    // Get the pan delta from the stored offset
-                    // Since PanOffset represents cumulative pan, we'll use it directly
-                    var panOffset = ViewModel.PanOffset;
+                    if (ViewModel != null && !ViewModel.IsFitToWindow && ImageScrollViewer != null)
+                    {
+                        // Get the pan delta from the stored offset
+                        // Since PanOffset represents cumulative pan, we'll use it directly
+                        var panOffset = ViewModel.PanOffset;
 
-                    // Scroll by the specified amount
-                    // Positive pan offset = scroll right/down (move viewport)
-                    // Negative pan offset = scroll left/up
-                    ImageScrollViewer.ScrollToHorizontalOffset(ImageScrollViewer.HorizontalOffset + panOffset.X);
-                    ImageScrollViewer.ScrollToVerticalOffset(ImageScrollViewer.VerticalOffset + panOffset.Y);
+                        // Scroll by the specified amount
+                        // Positive pan offset = scroll right/down (move viewport)
+                        // Negative pan offset = scroll left/up
+                        ImageScrollViewer.ScrollToHorizontalOffset(ImageScrollViewer.HorizontalOffset + panOffset.X);
+                        ImageScrollViewer.ScrollToVerticalOffset(ImageScrollViewer.VerticalOffset + panOffset.Y);
 
-                    // Reset pan offset after applying (so next pan is relative)
-                    ViewModel.PanOffset = new Point(0, 0);
-                }
+                        // Reset pan offset after applying (so next pan is relative)
+                        ViewModel.PanOffset = new Point(0, 0);
+                    }
+                });
             }
         }
 

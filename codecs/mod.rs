@@ -6,6 +6,7 @@ pub mod heic;
 
 // Future codecs
 pub mod ffmpeg;
+#[cfg(feature = "libraw")]
 pub mod libraw_sys;
 pub mod raw;
 pub mod video_analyzer;
