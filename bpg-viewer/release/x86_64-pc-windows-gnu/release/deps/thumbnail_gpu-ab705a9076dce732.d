@@ -1,0 +1,18 @@
+D:\misc\arc\openarc\bpg-viewer\release\x86_64-pc-windows-gnu\release\deps\thumbnail_gpu-ab705a9076dce732.d: test-folder-for-jpeg-resizing\thumbnail-stage\src\lib.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\error.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\dx12_multi_queue.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\staging_ring.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\atlas.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\job_queue.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\compute.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\pipeline.rs D:\misc\arc\openarc\bpg-viewer\release\x86_64-pc-windows-gnu\release\build\thumbnail-gpu-bc49fdeb98d438a7\out\hlsl-shaders\shaders.rs D:/misc/arc/openarc/bpg-viewer/release/x86_64-pc-windows-gnu/release/build/thumbnail-gpu-bc49fdeb98d438a7/out/hlsl-shaders/ycbcr_resize.cso
+
+D:\misc\arc\openarc\bpg-viewer\release\x86_64-pc-windows-gnu\release\deps\libthumbnail_gpu-ab705a9076dce732.rlib: test-folder-for-jpeg-resizing\thumbnail-stage\src\lib.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\error.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\dx12_multi_queue.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\staging_ring.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\atlas.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\job_queue.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\compute.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\pipeline.rs D:\misc\arc\openarc\bpg-viewer\release\x86_64-pc-windows-gnu\release\build\thumbnail-gpu-bc49fdeb98d438a7\out\hlsl-shaders\shaders.rs D:/misc/arc/openarc/bpg-viewer/release/x86_64-pc-windows-gnu/release/build/thumbnail-gpu-bc49fdeb98d438a7/out/hlsl-shaders/ycbcr_resize.cso
+
+D:\misc\arc\openarc\bpg-viewer\release\x86_64-pc-windows-gnu\release\deps\libthumbnail_gpu-ab705a9076dce732.rmeta: test-folder-for-jpeg-resizing\thumbnail-stage\src\lib.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\error.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\dx12_multi_queue.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\staging_ring.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\atlas.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\job_queue.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\compute.rs test-folder-for-jpeg-resizing\thumbnail-stage\src\pipeline.rs D:\misc\arc\openarc\bpg-viewer\release\x86_64-pc-windows-gnu\release\build\thumbnail-gpu-bc49fdeb98d438a7\out\hlsl-shaders\shaders.rs D:/misc/arc/openarc/bpg-viewer/release/x86_64-pc-windows-gnu/release/build/thumbnail-gpu-bc49fdeb98d438a7/out/hlsl-shaders/ycbcr_resize.cso
+
+test-folder-for-jpeg-resizing\thumbnail-stage\src\lib.rs:
+test-folder-for-jpeg-resizing\thumbnail-stage\src\error.rs:
+test-folder-for-jpeg-resizing\thumbnail-stage\src\dx12_multi_queue.rs:
+test-folder-for-jpeg-resizing\thumbnail-stage\src\staging_ring.rs:
+test-folder-for-jpeg-resizing\thumbnail-stage\src\atlas.rs:
+test-folder-for-jpeg-resizing\thumbnail-stage\src\job_queue.rs:
+test-folder-for-jpeg-resizing\thumbnail-stage\src\compute.rs:
+test-folder-for-jpeg-resizing\thumbnail-stage\src\pipeline.rs:
+D:\misc\arc\openarc\bpg-viewer\release\x86_64-pc-windows-gnu\release\build\thumbnail-gpu-bc49fdeb98d438a7\out\hlsl-shaders\shaders.rs:
+D:/misc/arc/openarc/bpg-viewer/release/x86_64-pc-windows-gnu/release/build/thumbnail-gpu-bc49fdeb98d438a7/out/hlsl-shaders/ycbcr_resize.cso:
+
+# env-dep:SHADER_INCLUDE_PATH=D:\\misc\\arc\\openarc\\bpg-viewer\\release\\x86_64-pc-windows-gnu\\release\\build\\thumbnail-gpu-bc49fdeb98d438a7\\out\\hlsl-shaders\\shaders.rs

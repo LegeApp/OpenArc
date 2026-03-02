@@ -1,0 +1,4 @@
+cargo:rerun-if-changed=src/shaders
+cargo:rerun-if-changed=src/shaders\ycbcr_resize.hlsl
+cargo:warning=Compiling shader: src/shaders\ycbcr_resize.hlsl -> D:\misc\arc\openarc\bpg-viewer\release\x86_64-pc-windows-gnu\release\build\thumbnail-gpu-bc49fdeb98d438a7\out\hlsl-shaders\ycbcr_resize.cso
+cargo:rustc-env=SHADER_INCLUDE_PATH=D:\misc\arc\openarc\bpg-viewer\release\x86_64-pc-windows-gnu\release\build\thumbnail-gpu-bc49fdeb98d438a7\out\hlsl-shaders\shaders.rs

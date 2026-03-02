@@ -1,0 +1,41 @@
+<Application x:Class="BpgViewer.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="clr-namespace:BpgViewer.Converters"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <!-- Converters -->
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter"/>
+        <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+        <converters:ZeroToVisibilityConverter x:Key="ZeroToVisibilityConverter"/>
+        <converters:NonZeroToVisibilityConverter x:Key="NonZeroToVisibilityConverter"/>
+        <converters:ViewModeToVisibilityConverter x:Key="ViewModeToVisibilityConverter"/>
+        <converters:ViewModeToBoolConverter x:Key="ViewModeToBoolConverter"/>
+        <converters:PanningCursorConverter x:Key="PanningCursorConverter"/>
+
+        <!-- Modern Dark Theme Colors -->
+        <SolidColorBrush x:Key="BackgroundBrush" Color="#FF1E1E1E"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#FF252526"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#FF3F3F46"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#FFFFFFFF"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#FFCCCCCC"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#FF007ACC"/>
+
+        <!-- Default window style -->
+        <Style TargetType="Window">
+            <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        </Style>
+
+        <!-- Default menu style -->
+        <Style TargetType="Menu">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        </Style>
+
+        <Style TargetType="MenuItem">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        </Style>
+    </Application.Resources>
+</Application>

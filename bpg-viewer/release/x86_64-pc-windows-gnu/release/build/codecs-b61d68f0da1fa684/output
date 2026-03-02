@@ -1,0 +1,13 @@
+cargo:rustc-link-search=native=D:\misc\arc\openarc\codecs\..\libs
+cargo:rustc-link-search=native=C:/msys64/mingw64/lib
+cargo:rustc-link-lib=raw
+cargo:rustc-link-lib=static=bpg_native
+cargo:rustc-link-lib=x265
+cargo:rustc-link-lib=png
+cargo:rustc-link-lib=jpeg
+cargo:rustc-link-lib=z
+cargo:rustc-link-lib=lcms2
+cargo:rustc-link-lib=stdc++
+cargo:rustc-link-lib=gcc
+cargo:rustc-link-lib=winpthread
+cargo:rustc-link-lib=gomp

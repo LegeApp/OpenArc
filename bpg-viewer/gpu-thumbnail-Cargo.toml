@@ -1,0 +1,31 @@
+[package]
+name = "thumbnail-gpu"
+version = "0.1.0"
+edition = "2021"
+description = "GPU-accelerated thumbnail pipeline using D3D12 multi-queue architecture"
+build = "build.rs"
+
+[features]
+default = []
+debug-layers = []
+no-include-shaders = []
+
+[dependencies]
+thiserror = "2.0"
+parking_lot = "0.12"
+log = "0.4"
+
+[dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Security",
+    "Win32_System_Threading",
+]
+
+[build-dependencies]
+# build.rs uses only std for dxc shader compilation

@@ -1,0 +1,13 @@
+cargo:rustc-link-search=native=D:\misc\arc\openarc\bpg-viewer\libs
+cargo:rustc-link-lib=static=bpg_native
+cargo:rustc-link-lib=png
+cargo:rustc-link-lib=jpeg
+cargo:rustc-link-lib=z
+cargo:rustc-link-lib=lcms2
+cargo:rustc-link-lib=dylib=stdc++
+cargo:rustc-link-lib=dylib=gcc
+cargo:rustc-link-lib=dylib=winpthread
+cargo:rustc-link-lib=dylib=gomp
+cargo:rerun-if-changed=D:\misc\arc\openarc\bpg-viewer\libs
+cargo:rerun-if-changed=build.rs
+cargo:rerun-if-env-changed=BPG_LIB_PATH

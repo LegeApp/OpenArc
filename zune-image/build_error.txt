@@ -1,0 +1,59 @@
+   Compiling zune-image v0.1.0 (D:\misc\arc\openarc\zune-image)
+error[E0308]: mismatched types
+  --> src\decoder.rs:67:13
+   |
+67 |             ColorSpace::RGB => {
+   |             ^^^^^^^^^^^^^^^ expected `ColorSpace`, found `zune_core::colorspace::ColorSpace`
+   |
+note: two different versions of crate `zune_core` are being used; two types coming from two different versions of the same crate are different types even if they look the same
+  --> C:\Users\dk\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\zune-core-0.4.12\src\colorspace.rs:16:1
+   |
+16 | pub enum ColorSpace {
+   | ^^^^^^^^^^^^^^^^^^^ this is the found type `zune_core::colorspace::ColorSpace`
+   |
+  ::: C:\Users\dk\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\zune-core-0.5.1\src\colorspace.rs:16:1
+   |
+16 | pub enum ColorSpace {
+   | ^^^^^^^^^^^^^^^^^^^ this is the expected type `zune_jpeg::zune_core::colorspace::ColorSpace`
+   |
+  ::: src\decoder.rs:52:13
+   |
+52 |         use zune_jpeg::JpegDecoder as UpstreamDecoder;
+   |             --------- one version of crate `zune_core` used here, as a dependency of crate `zune_jpeg`
+   |
+  ::: src\lib.rs:7:9
+   |
+ 7 | pub use zune_core::colorspace;
+   |         --------- one version of crate `zune_core` used here, as a direct dependency of the current crate
+   = help: you can use `cargo tree` to explore your dependency tree
+
+error[E0308]: mismatched types
+  --> src\decoder.rs:70:13
+   |
+70 |             ColorSpace::Luma => {
+   |             ^^^^^^^^^^^^^^^^ expected `ColorSpace`, found `zune_core::colorspace::ColorSpace`
+   |
+note: two different versions of crate `zune_core` are being used; two types coming from two different versions of the same crate are different types even if they look the same
+  --> C:\Users\dk\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\zune-core-0.4.12\src\colorspace.rs:16:1
+   |
+16 | pub enum ColorSpace {
+   | ^^^^^^^^^^^^^^^^^^^ this is the found type `zune_core::colorspace::ColorSpace`
+   |
+  ::: C:\Users\dk\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\zune-core-0.5.1\src\colorspace.rs:16:1
+   |
+16 | pub enum ColorSpace {
+   | ^^^^^^^^^^^^^^^^^^^ this is the expected type `zune_jpeg::zune_core::colorspace::ColorSpace`
+   |
+  ::: src\decoder.rs:52:13
+   |
+52 |         use zune_jpeg::JpegDecoder as UpstreamDecoder;
+   |             --------- one version of crate `zune_core` used here, as a dependency of crate `zune_jpeg`
+   |
+  ::: src\lib.rs:7:9
+   |
+ 7 | pub use zune_core::colorspace;
+   |         --------- one version of crate `zune_core` used here, as a direct dependency of the current crate
+   = help: you can use `cargo tree` to explore your dependency tree
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `zune-image` (lib) due to 2 previous errors

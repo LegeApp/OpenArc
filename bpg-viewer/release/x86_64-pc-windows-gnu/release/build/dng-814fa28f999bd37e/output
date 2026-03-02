@@ -1,0 +1,4 @@
+cargo:rerun-if-changed=src/tags/ifd.json
+cargo:rerun-if-changed=src/tags/exif.json
+cargo:rerun-if-changed=src/tags/gps_info.json
+cargo:rustc-cfg=has_generated_feature
