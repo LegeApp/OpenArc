@@ -1,6 +1,6 @@
 # OpenARC
 
-![OpenARC Screenshot](https://github.com/LegeApp/OpenArc/blob/master/Screenshot%202026-01-28%20094946.png)
+![OpenARC Screenshot](Screenshot 2026-01-28 094946.png)
 
 **OpenARC** is a media archival tool designed to automatically compress and archive phone photos and videos with minimal quality loss. It converts images to BPG format (superior to HEIC) and compresses videos using ffmpeg, creating efficient archives that can reduce a 2.5MB JPEG to just 200KB with no perceptible quality loss.
 
