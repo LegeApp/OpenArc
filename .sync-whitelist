@@ -1,0 +1,40 @@
+# Top-level metadata
+.cargo/
+.gitignore
+.gitmodules
+Cargo.toml
+Cargo.lock
+README.md
+LICENSE
+Makefile
+
+# Build/runtime scripts
+build.rs
+build_all.rs
+build-all.ps1
+build-linux-backend.sh
+build-self-contained.ps1
+build-thumbnails.ps1
+combine_dlls.ps1
+copy-dll-to-csharp.ps1
+stage-gui.ps1
+
+# Core code
+src/
+arcmax/
+codecs/
+openarc-ffi/
+winmtp/
+zune-image/
+resize/
+openjp2/
+heic-decoder-rs/
+
+# GUI and related assets used by this project
+DocBrakeGUI/
+BPG/
+libs/
+ffmpeg-build/
+
+# Distribution artifacts kept in repo
+dist/openarc_ffmpeg.dll
