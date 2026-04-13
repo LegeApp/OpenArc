@@ -1,0 +1,163 @@
+[workspace]
+members = [
+    "crates/arcmax",
+    "crates/codecs",
+    "crates/zune-image",
+]
+default-members = ["."]
+exclude = [
+    "openjp2",
+    "openjp2/tools",
+    "openjp2/libtiff-sys",
+    "dng-rs",
+]
+resolver = "2"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(windows_raw_dylib, windows_slim_errors)'] }
+missing_unsafe_on_extern = "warn"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["OpenArc Contributors"]
+
+[workspace.dependencies]
+# Shared dependencies across workspace
+anyhow = "1.0"
+thiserror = "2.0"
+clap = { version = "4.5", features = ["derive"] }
+rayon = "1.11"
+walkdir = "2.5"
+indicatif = "0.18"
+crc32fast = "1.5"
+infer = "0.19"
+tempfile = "3.24"
+libloading = "0.9"
+flume = "0.12"
+
+# Image processing
+image = { version = "0.25.9", default-features = false, features = ["png", "jpeg", "tiff", "webp", "bmp"] }
+zune-image = { path = "crates/zune-image" }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database
+rusqlite = { version = "0.38", features = ["bundled"] }
+
+# Hashing
+sha2 = "0.10"
+hex = "0.4"
+
+# Compression
+zstd = "0.13"
+tar = "0.4"
+
+# System
+parking_lot = "0.12"
+sysinfo = "0.30"
+tokio = { version = "1.49", features = ["rt", "rt-multi-thread", "macros", "fs", "time", "sync"] }
+rfd = "0.15"
+# Single LittleCMS link for the remaining codec path.
+lcms2 = "6.0"
+bytemuck = { version = "1.23", features = ["extern_crate_alloc"] }
+log = "0.4"
+dirs = "6.0"
+
+# Proc-macro dependencies (required by windows-rs)
+proc-macro2 = { version = "1.0", default-features = false }
+quote = { version = "1.0", default-features = false }
+syn = { version = "2.0", default-features = false }
+
+# Windows-rs dependencies (release 73 line)
+cppwinrt = { version = "0.3.4", default-features = false }
+windows = { version = "0.62.2", default-features = false }
+windows-bindgen = { version = "0.65.0", default-features = false }
+windows-collections = { version = "0.3.2", default-features = false }
+windows-core = { version = "0.62.2", default-features = false }
+windows-future = { version = "0.3.2", default-features = false }
+windows-implement = { version = "0.60.2", default-features = false }
+windows-interface = { version = "0.59.3", default-features = false }
+windows-link = { version = "0.2.1", default-features = false }
+windows-metadata = { version = "0.59.0", default-features = false }
+windows-numerics = { version = "0.3.1", default-features = false }
+windows-registry = { version = "0.6.1", default-features = false }
+windows-result = { version = "0.4.1", default-features = false }
+windows-services = { version = "0.26.1", default-features = false }
+windows-strings = { version = "0.5.1", default-features = false }
+windows-sys = { version = "0.61.2", default-features = false }
+windows-targets = { version = "0.53.5", default-features = false }
+windows-threading = { version = "0.2.1", default-features = false }
+windows-version = { version = "0.1.7", default-features = false }
+
+[package]
+name = "openarc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "OpenArc media archiver - library and CLI"
+
+[features]
+default = []
+# heif feature removed - we use pure Rust heic-decoder-rs instead of libheif
+
+[dependencies]
+# CLI dependencies
+anyhow.workspace = true
+clap.workspace = true
+flume.workspace = true
+indicatif.workspace = true
+
+# Core functionality
+thiserror.workspace = true
+rayon.workspace = true
+walkdir.workspace = true
+tempfile.workspace = true
+crc32fast.workspace = true
+
+# Hashing + integrity
+sha2.workspace = true
+hex.workspace = true
+
+# Catalog
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# Workspace crates
+arcmax = { path = "crates/arcmax", features = ["tar"] }
+codecs = { path = "crates/codecs" }
+
+# System
+parking_lot.workspace = true
+sysinfo.workspace = true
+bytemuck.workspace = true
+log.workspace = true
+dirs.workspace = true
+
+# Compression
+zstd.workspace = true
+tar.workspace = true
+
+# Image processing
+image.workspace = true
+zune-image.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+winmtp = { path = "crates/winmtp" }
+widestring = "1.2"
+
+[lib]
+name = "openarc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "openarc"
+path = "src/main.rs"
+
+[build-dependencies]
+# No external dependencies needed - build.rs uses only std

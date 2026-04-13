@@ -1,0 +1,13 @@
+[package]
+name = "zune-image"
+version = "0.1.0"
+edition = "2021"
+authors = ["OpenArc Team"]
+license = "MIT OR Apache-2.0"
+description = "Wrapper around zune-jpeg exposing YCbCr output"
+
+[dependencies]
+zune-jpeg = "0.5.12"
+zune-core = "0.5"
+
+
