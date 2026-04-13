@@ -1,0 +1,413 @@
+//! MTP object (can be a folder, a file, etc.)
+
+use std::io::BufReader;
+use std::path::{Path, Components, Component};
+use std::iter::Peekable;
+use std::ffi::OsStr;
+
+use windows::core::{GUID, PCWSTR, PROPVARIANT, PWSTR};
+use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL};
+use windows::Win32::System::Com::{IStream, STGM, STGM_READ};
+use windows::Win32::Devices::PortableDevices::{
+    PortableDevicePropVariantCollection, IPortableDeviceValues, IPortableDevicePropVariantCollection, IPortableDeviceContent,
+    PORTABLE_DEVICE_DELETE_WITH_RECURSION, PORTABLE_DEVICE_DELETE_NO_RECURSION, WPD_OBJECT_PARENT_ID, WPD_RESOURCE_DEFAULT,
+};
+use widestring::{U16CString, U16CStr};
+
+use crate::device::Content;
+use crate::device::device_values::{make_values_for_create_folder, make_values_for_create_file};
+use crate::error::{ItemByPathError, OpenStreamError, CreateFolderError, AddFileError};
+use crate::io::{ReadStream, WriteStream};
+use crate::utils::are_path_eq;
+
+mod object_id;
+pub use object_id::ObjectId;
+
+mod object_type;
+pub use object_type::ObjectType;
+
+mod object_iterator;
+pub use object_iterator::ObjectIterator;
+
+
+#[derive(Debug, Clone)]
+pub struct Object {
+    device_content: Content,
+    /// The MTP ID of the object (e.g. "o2C")
+    id: U16CString,
+    /// The object display name (e.g. "PIC_001.jpg")
+    name: U16CString,
+    ty: ObjectType,
+}
+
+impl Object {
+    pub fn new(device_content: Content, id: U16CString, name: U16CString, ty: ObjectType) -> Self {
+        Self { device_content, id, name, ty }
+    }
+
+    pub(crate) fn device_content(&self) -> &Content {
+        &self.device_content
+    }
+
+    pub fn id(&self) -> &U16CStr {
+        &self.id
+    }
+
+    pub fn name(&self) -> &U16CStr {
+        // TODO: lazy evaluation (of all properties at once to save calls to properties.GetValues) (depends on how much iterating/filtering by folder is baked-in)?
+        &self.name
+    }
+
+    pub fn object_type(&self) -> ObjectType {
+        // TODO: lazy evaluation?
+        self.ty
+    }
+
+    /// Get a list of requested metadata about an object.
+    ///
+    /// See [`crate::device::Content::properties`].
+    pub fn properties(&self, properties_to_fetch: &[crate::PROPERTYKEY]) -> crate::WindowsResult<crate::device::device_values::DeviceValues> {
+        self.device_content.properties(&self.id, properties_to_fetch)
+    }
+
+    pub fn parent_id(&self) -> crate::WindowsResult<U16CString> {
+        let parent_id_props = self.device_content.properties(&self.id, &[WPD_OBJECT_PARENT_ID])?;
+        parent_id_props.get_string(&WPD_OBJECT_PARENT_ID)
+    }
+
+    /// Returns an iterator to list every children of the current object (including sub-folders)
+    pub fn children(&self) -> crate::WindowsResult<ObjectIterator> {
+        let com_iter = unsafe{
+            self.device_content.com_object().EnumObjects(
+                0,
+                PCWSTR::from_raw(self.id.as_ptr()),
+                None,
+            )
+        }?;
+
+        Ok(ObjectIterator::new(&self.device_content, com_iter))
+    }
+
+    /// Returns an iterator that only lists folders within this object
+    pub fn sub_folders(&self) -> crate::WindowsResult<impl Iterator<Item = Object> + '_> {
+        self.children().map(|children| children.filter(|obj| obj.object_type() == ObjectType::Folder))
+    }
+
+    /// Retrieve an item by its path
+    ///
+    /// This function looks for a sub-item with the right name, then iteratively does so for the matching child.<br/>
+    /// This is quite expensive. Depending on your use-cases, you may want to cache some "parent folders" that you will want to access often.<br/>
+    /// Note that caching however defeats the purpose of MTP, which is supposed to _not_ use any cache, so that it guarantees there is no race between concurrent accesses to the same medium.
+    pub fn object_by_path(&self, relative_path: &Path) -> Result<Object, ItemByPathError> {
+        let mut comps = relative_path.components().peekable();
+        self.object_by_components(&mut comps)
+    }
+
+    fn object_by_components(&self, comps: &mut Peekable<Components>) -> Result<Object, ItemByPathError> {
+        match comps.next() {
+            Some(Component::Normal(haystack)) => {
+                let candidate = self
+                    .children()?
+                    .find(|obj| are_path_eq(obj.name(), haystack, self.device_content.case_sensitive_fs()))
+                    .ok_or(ItemByPathError::NotFound)?;
+
+                object_by_components_last_stage(candidate, comps)
+            },
+
+            Some(Component::CurDir) => {
+                object_by_components_last_stage(self.clone(), comps)
+            },
+
+            Some(Component::ParentDir) => {
+                let candidate = self
+                    .device_content
+                    .object_by_id(self.parent_id()?)?;
+
+                object_by_components_last_stage(candidate, comps)
+            }
+
+            Some(Component::Prefix(_)) |
+            Some(Component::RootDir) =>
+                Err(ItemByPathError::AbsolutePath),
+
+            None => Err(ItemByPathError::NotFound)
+        }
+    }
+
+    /// Opens a COM [`IStream`](windows::Win32::System::Com::IStream) to this object.
+    ///
+    /// An error will be returned if the required operation does not make sense (e.g. get a stream to a folder).
+    ///
+    /// Also returns the optimal transfer buffer size (in bytes) for this transfer, as stated by the Microsoft API.
+    ///
+    /// See also [`Self::open_read_stream`] and [`Self::open_resource_stream`].
+    pub fn open_raw_stream(&self, stream_mode: STGM) -> Result<(IStream, u32), OpenStreamError> {
+        self.open_raw_resource_stream(&WPD_RESOURCE_DEFAULT, stream_mode)
+    }
+
+    /// Open a raw stream for a specific resource type (e.g., WPD_RESOURCE_THUMBNAIL, WPD_RESOURCE_DEFAULT).
+    ///
+    /// This allows accessing device-provided thumbnails and other resource types beyond the default full file.
+    ///
+    /// Also returns the optimal transfer buffer size (in bytes) for this transfer, as stated by the Microsoft API.
+    ///
+    /// See also [`Self::open_resource_stream`].
+    pub fn open_raw_resource_stream(&self, resource_key: &crate::PROPERTYKEY, stream_mode: STGM) -> Result<(IStream, u32), OpenStreamError> {
+        let resources = unsafe{ self.device_content.com_object().Transfer()? };
+
+        let mut stream = None;
+        let mut optimal_transfer_size_bytes: u32 = 0;
+        unsafe{ resources.GetStream(
+            PCWSTR::from_raw(self.id.as_ptr()),
+            resource_key as *const _,
+            stream_mode.0,
+            &mut optimal_transfer_size_bytes as *mut u32,
+            &mut stream as *mut Option<IStream>,
+        )}?;
+
+        match stream {
+            None => Err(OpenStreamError::UnableToCreate),
+            Some(s) => Ok((s, optimal_transfer_size_bytes)),
+        }
+    }
+
+    /// The same as [`Self::open_raw_stream`], but wrapped into a [`crate::io::ReadStream`] for more added Rust magic.
+    ///
+    /// # Example
+    /// ```
+    /// # let provider = winmtp::Provider::new().unwrap();
+    /// # let basic_device = provider.enumerate_devices().unwrap()[0];
+    /// # let app_identifiers = winmtp::make_current_app_identifiers!();
+    /// # let device = basic_device.open(&app_identifiers).unwrap();
+    /// let object = device.content().unwrap().object_by_id(some_id).unwrap();
+    /// let mut input_stream = object.open_read_stream().unwrap();
+    /// let mut output_file = std::fs::File::create("pulled-from-device.dat").unwrap();
+    /// std::io::copy(&mut input_stream, &mut output_file).unwrap();
+    /// ```
+    pub fn open_read_stream(&self) -> Result<BufReader<ReadStream>, OpenStreamError> {
+        let (stream, optimal_transfer_size) = self.open_raw_stream(STGM_READ)?;
+        let read_stream = ReadStream::new(stream, optimal_transfer_size as usize);
+        // Reader this reader is a slow process. Let's wrap it in a buffered reader for optimal perfs.
+        // (There is no obvious reason for the capacity to be the same as the transfer size, but let's use it anyway)
+        Ok(BufReader::with_capacity(optimal_transfer_size as usize, read_stream))
+    }
+
+    /// Open a read stream for a specific resource type (e.g., WPD_RESOURCE_THUMBNAIL for device thumbnails).
+    ///
+    /// This is useful for accessing lightweight device-provided thumbnails (~1-2KB) instead of downloading
+    /// the full file (which can be several MB). Not all devices/files provide thumbnails.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use windows::Win32::Devices::PortableDevices::WPD_RESOURCE_THUMBNAIL;
+    /// let mut thumb_stream = object.open_resource_stream(&WPD_RESOURCE_THUMBNAIL)?;
+    /// let mut output_file = std::fs::File::create("thumbnail.jpg")?;
+    /// std::io::copy(&mut thumb_stream, &mut output_file)?;
+    /// ```
+    pub fn open_resource_stream(&self, resource_key: &crate::PROPERTYKEY) -> Result<BufReader<ReadStream>, OpenStreamError> {
+        let (stream, optimal_transfer_size) = self.open_raw_resource_stream(resource_key, STGM_READ)?;
+        let read_stream = ReadStream::new(stream, optimal_transfer_size as usize);
+        Ok(BufReader::with_capacity(optimal_transfer_size as usize, read_stream))
+    }
+
+    /// Create a subfolder, and return its object ID
+    ///
+    /// If a folder with the same name already exists ("same name" depends on the chosen case-folding mode), an `CreateFolderError::AlreadyExists` error will be returned.
+    ///
+    /// See also [`Self::create_subfolder_recursive`]
+    pub fn create_subfolder(&self, folder_name: &OsStr) -> Result<U16CString, CreateFolderError> {
+        // Check if such an item already exist (otherwise, `CreateObjectWithPropertiesOnly` would return an unhelpful "Unspecified error ")
+        if let Ok(_existing_item) = self.object_by_path(Path::new(folder_name)) {
+            return Err(CreateFolderError::AlreadyExists)
+        }
+
+        let folder_properties = make_values_for_create_folder(&self.id, folder_name)?;
+        let mut created_object_id = PWSTR::null();
+        unsafe{ self.device_content.com_object().CreateObjectWithPropertiesOnly(
+            &folder_properties,
+            &mut created_object_id as *mut _,
+        )}?;
+
+        let owned_id = unsafe{ U16CString::from_ptr_str(created_object_id.as_ptr()) };
+        unsafe{
+            CoTaskMemFree(Some(created_object_id.as_ptr() as *const _))
+        };
+
+        Ok(owned_id)
+    }
+
+    /// Create a path of folders, creating intermediate folders if needed
+    pub fn create_subfolder_recursive(&self, folder_path: &Path) -> Result<(), CreateFolderError> {
+        let comps = folder_path.components();
+        self.create_subfolder_recursive_inner(comps)
+    }
+
+    fn create_subfolder_recursive_inner(&self, mut remaining_components: Components) -> Result<(), CreateFolderError> {
+        match remaining_components.next() {
+            None => {},
+            Some(Component::Normal(dir)) => {
+                match self.sub_folders()?.find(|f| are_path_eq(f.name(), dir, self.device_content().case_sensitive_fs())) {
+                    Some(already_exists) => {
+                        already_exists.create_subfolder_recursive_inner(remaining_components)?;
+                    },
+                    None => {
+                        let created_folder_id = self.create_subfolder(dir)?;
+                        let created_folder = self.device_content.object_by_id(created_folder_id)?;
+                        created_folder.create_subfolder_recursive_inner(remaining_components)?;
+                    }
+                }
+            },
+            _ => return Err(CreateFolderError::NonRelativePath),
+        }
+
+        Ok(())
+    }
+
+    /// Add a file into the current directory
+    pub fn push_file(&self, local_file: &Path, allow_overwrite: bool) -> Result<(), AddFileError> {
+        let file_name = local_file.file_name().ok_or(AddFileError::InvalidLocalFile)?;
+        let file_size = local_file.metadata()?.len();
+        self.remove_existing_file_if_needed(file_name, allow_overwrite)?;
+
+        let file_properties = make_values_for_create_file(&self.id, file_name, file_size)?;
+        let mut dest_writer = make_dest_writer(self.device_content.com_object(), &file_properties)?;
+
+        let mut source_reader = std::fs::File::open(local_file)?;
+        std::io::copy(&mut source_reader, &mut dest_writer)?;
+
+        dest_writer.commit()?;
+
+        Ok(())
+    }
+
+    /// Add a file into the current directory
+    pub fn push_data(&self, file_name: &OsStr, data: &[u8], allow_overwrite: bool) -> Result<(), AddFileError> {
+        let file_size = data.len() as u64;
+        self.remove_existing_file_if_needed(file_name, allow_overwrite)?;
+
+        let file_properties = make_values_for_create_file(&self.id, file_name, file_size)?;
+        let mut dest_writer = make_dest_writer(self.device_content.com_object(), &file_properties)?;
+
+        let mut source_reader = std::io::BufReader::new(data);
+        std::io::copy(&mut source_reader, &mut dest_writer)?;
+
+        dest_writer.commit()?;
+
+        Ok(())
+    }
+
+    fn remove_existing_file_if_needed(&self, file_name: &OsStr, allow_overwrite: bool) -> Result<(), AddFileError> {
+        if let Ok(mut existing_file) = self.object_by_path(Path::new(file_name)) {
+            if allow_overwrite {
+                existing_file.delete(false)?;
+            } else {
+                return Err(AddFileError::AlreadyExists);
+            }
+        }
+        Ok(())
+    }
+
+    /// Delete an object
+    ///
+    /// If this is a folder, you must set `recursive` to `true`, otherwise this would return an error.
+    pub fn delete(&mut self, recursive: bool) -> crate::WindowsResult<()> {
+        let id_as_propvariant = unsafe{ init_propvariant_from_string(&mut self.id) };
+
+        let objects_to_delete: IPortableDevicePropVariantCollection = unsafe {
+            CoCreateInstance(
+                &PortableDevicePropVariantCollection as *const GUID,
+                None,
+                CLSCTX_ALL
+            )
+        }.unwrap();
+        unsafe{ objects_to_delete.Add(&id_as_propvariant as *const _) }.unwrap();
+
+        let options = if recursive { PORTABLE_DEVICE_DELETE_WITH_RECURSION } else { PORTABLE_DEVICE_DELETE_NO_RECURSION };
+        let mut result_status = None;
+        unsafe{
+            self.device_content.com_object().Delete(
+                options.0 as u32,
+                &objects_to_delete,
+                &mut result_status as *mut _,
+            )
+        }.unwrap();
+
+        Ok(())
+    }
+
+    /// Move an object that is already on the device to a new folder
+    pub fn move_to(&mut self, new_folder_id: &U16CStr) -> crate::WindowsResult<()>  {
+        let id_as_propvariant = unsafe{ init_propvariant_from_string(&mut self.id) };
+
+        let objects_to_move: IPortableDevicePropVariantCollection = unsafe {
+            CoCreateInstance(
+                &PortableDevicePropVariantCollection as *const GUID,
+                None,
+                CLSCTX_ALL
+            )
+        }.unwrap();
+        unsafe{ objects_to_move.Add(&id_as_propvariant as *const _) }.unwrap();
+
+        let dest = PCWSTR::from_raw(new_folder_id.as_ptr());
+        let mut result_status = None;
+        unsafe{
+            self.device_content.com_object().Move(
+                &objects_to_move,
+                dest,
+                &mut result_status as *mut _,
+            )
+        }.unwrap();
+
+        Ok(())
+    }
+}
+
+
+/// Re-implementation of `InitPropVariantFromString`, which is missing in windows-rs.
+/// See https://github.com/microsoft/windows-rs/issues/976#issuecomment-878697273
+///
+/// # Safety
+///
+/// I'm too lazy to wrap to result with a 'a PhantomData, so for now, the result is only valid as long `data` is valid.
+unsafe fn init_propvariant_from_string(data: &mut U16CStr) -> PROPVARIANT {
+    PROPVARIANT::from_raw(windows::core::imp::PROPVARIANT {
+        Anonymous: windows::core::imp::PROPVARIANT_0 {
+            Anonymous: windows::core::imp::PROPVARIANT_0_0 {
+                vt: windows::Win32::System::Variant::VT_LPWSTR.0,
+                wReserved1: 0,
+                wReserved2: 0,
+                wReserved3: 0,
+                Anonymous: windows::core::imp::PROPVARIANT_0_0_0 {
+                    pwszVal: data.as_mut_ptr(),
+                },
+            },
+        },
+    })
+}
+
+fn object_by_components_last_stage(candidate: Object, next_components: &mut Peekable<Components>) -> Result<Object, ItemByPathError> {
+    match next_components.peek() {
+        None => {
+            // We've reached the end of the required path
+            // This means the candidate is the object we wanted
+            Ok(candidate)
+        },
+        Some(_) => {
+            candidate.object_by_components(next_components)
+        }
+    }
+}
+
+fn make_dest_writer(com_object: &IPortableDeviceContent, file_properties: &IPortableDeviceValues) -> Result<WriteStream, AddFileError> {
+    let mut write_stream = None;
+    let mut optimal_write_buffer_size = 0;
+    unsafe{ com_object.CreateObjectWithPropertiesAndData(
+        file_properties,
+        &mut write_stream as *mut _,
+        &mut optimal_write_buffer_size,
+        &mut PWSTR::null() as *mut PWSTR,
+    )}?;
+
+    let write_stream = write_stream.ok_or(AddFileError::UnableToCreate)?;
+    Ok(WriteStream::new(write_stream, optimal_write_buffer_size as usize))
+}

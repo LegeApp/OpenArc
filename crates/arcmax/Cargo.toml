@@ -1,0 +1,43 @@
+[package]
+name = "arcmax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "FreeARC compression library - Rust port of FreeARC codecs"
+autobins = false
+
+[features]
+default = []
+tar = ["dep:tar"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+clap.workspace = true
+rayon.workspace = true
+crc32fast.workspace = true
+bytes = "1.11"
+aes = "0.8"
+ctr = "0.9"
+generic-array = "1.3"
+crypto-common = "0.1"
+pbkdf2 = "0.12"
+sha2.workspace = true
+blowfish = "0.9"
+rand = "0.9"
+flate2 = { version = "1", features = ["zlib-rs"] }
+ppmd-rust = { git = "https://github.com/hasenbanck/ppmd-rust.git" }
+zstd.workspace = true
+tar = { workspace = true, optional = true }
+
+[lib]
+name = "arcmax"
+path = "src/lib.rs"
+
+# Binary merged into openarc CLI - see openarc/src/cli.rs for arcmax commands
+# [[bin]]
+# name = "arcmax"
+# path = "src/main.rs"
+
+[build-dependencies]
+cc = "1.2"

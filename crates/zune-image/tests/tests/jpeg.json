@@ -1,0 +1,128 @@
+[
+  {
+    "name": "incomplete_image.jpg",
+    "hash": 314210745439162713480815683453340498658,
+    "comment": "The image isn't full"
+  },
+  {
+    "name": "weird_components.jpg",
+    "hash": 55126960114634715306742136909897443026
+  },
+  {
+    "name": "Kiara_limited_progressive_four_components.jpg",
+    "hash": 119436015459886331911253274671309338438
+  },
+  {
+    "name": "rebuilt_relax_fill_bytes_before_marker.jpg",
+    "hash": 11743555007527377653666271084047641717
+  },
+  {
+    "name": "large_no_samp_7680_4320.jpg",
+    "hash": 78298921866871824011106248114591715171,
+    "comment": "Simple large image"
+  },
+  {
+    "name": "large_no_samp_7680_4320.jpg",
+    "hash": 318693790604007287114582453436534128489 ,
+    "colorspace": "ycbcr"
+  },
+  {
+    "name": "large_horiz_samp_7680_4320.jpg",
+    "hash": 258300549736770413578783049919306336675,
+    "colorspace": "luma",
+    "comment": "Convert YCbCr to grayscale"
+  },
+  {
+    "name": "large_horiz_samp_7680_4320.jpg",
+    "colorspace": "ycbcr",
+    "hash": 187089797650285117366052796829496644013
+  },
+  {
+    "name": "large_vertical_samp_7680_4320.jpg",
+    "hash": 141563893351526192573577009628189544333
+  },
+  {
+    "name": "medium_no_samp_2500x1786.jpg",
+    "hash": 89362797331434800953047243504429478251
+  },
+  {
+    "name": "medium_no_samp_2500x1786.jpg",
+    "hash": 291874786663895286460461230469345392126,
+    "colorspace": "luma"
+  },
+  {
+    "name": "medium_horiz_samp_2500x1786.jpg",
+    "hash": 53028507435190255452665888884299223575
+  },
+  {
+    "name": "medium_horiz_samp_2500x1786.jpg",
+    "hash": 291874786663895286460461230469345392126,
+    "colorspace": "luma"
+  },
+  {
+    "name": "medium_horiz_samp_2500x1786.jpg",
+    "hash": 204844316806424632749911849041441976131,
+    "colorspace": "ycbcr"
+  },
+  {
+    "name": "huffman_third_index.jpg",
+    "hash": 133175253843308546331686378179836169848,
+    "colorspace": "luma"
+  },
+  {
+    "name": "four_components.jpg",
+    "hash": 287906653374850903431781302953270340417
+  },
+  {
+    "name": "huge_sof_number.jpg",
+    "hash": 333739973749682239551179394830479925883
+  },
+  {
+    "name": "weid_sampling_factors.jpg",
+    "hash": 3503674285196750445517055941814306276,
+    "comment": "Non normal sampling factors, h2v1 for all components"
+  },
+  {
+    "name": "2029.jpg",
+    "hash": 28817868748997507268707381353489368029
+  },
+  {
+    "name": "down_sampled_grayscale_prog.jpg",
+    "hash": 144870374991788934132025830743647721527,
+    "comment": "Down sampled progressive image with only grayscale component"
+  },
+  {
+    "name": "weird_sampling_2.jpeg",
+    "hash": 153334696196554300891417361546372006533,
+    "comment": "Y and Cb not sub-sampled, Cr sub-sampled, jxl effect"
+  },
+  {
+    "name": "2029.jpg",
+    "hash": 141772925169929705521688831799118378165,
+    "comment": "testing-bgr support",
+    "colorspace": "bgr"
+  },
+  {
+    "name": "mjpeg_huffman.jpg",
+    "hash": 18012888231835939384638618897799869133,
+    "comment": "Image needs to be filled with default huffman tables"
+  },
+  {
+    "name": "sampling_factors.jpg",
+    "hash": 284621623123194664498179714486900153633,
+    "comment": "Another weird sampling factor,(when will it end)"
+  },
+  {
+    "name": "fox410.jpg",
+    "hash": 31442107016347398716020146443366879014,
+    "comment": "4:1:0 chroma subsampling"
+  },
+  {
+    "name": "sos_news.jpeg",
+    "hash": 109677255988131284084676849366241145140,
+    "comment": "SOS interleaved with markers"
+  },
+  {"name": "synthetic_image.jpg",
+  "hash": 227404429493772307321352105035704751995,
+  "comment": "Tripped up MCU decoding, see https://github.com/etemesi254/zune-image/pull/346"}
+]

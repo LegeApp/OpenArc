@@ -1,0 +1,66 @@
+[package]
+name = "zune-benches"
+version = "0.1.0"
+rust-version = "1.87.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dev-dependencies]
+# QOI benchmarks
+zune-qoi = { path = "../crates/zune-qoi" }
+rapid-qoi = "0.6.1"
+
+# deflate benchmarks
+flate2 = { version = "1.0.25", default-features = false }
+libdeflater = "1.19.0"
+zune-inflate = { path = "../crates/zune-inflate" }
+
+# png benchmarks
+png = { version = "0.18.0-rc.3" }
+spng = { version = "0.1.0" }
+zune-png = { path = "../crates/zune-png" }
+
+# JPEG benchmarks
+mozjpeg = "0.10.5"
+jpeg-decoder = "0.3.0"
+zune-jpeg = { path = "../crates/zune-jpeg" ,features = []}
+
+#other format
+zune-image = { path = "../crates/zune-image", features = ["all"] }
+zune-hdr = { path = "../crates/zune-hdr" }
+image = { version = "0.25.1", default-features = false, features = ["bmp", "hdr", "jpeg"] }
+zune-imageprocs = { path = "../crates/zune-imageprocs" }
+
+# VIPS
+libvips = "1.7.0"
+
+[dev-dependencies.criterion]
+version = "0.8.1"
+default-features = false
+features = ["html_reports"]
+
+[[bench]]
+name = "decode_qoi"
+harness = false
+
+[[bench]]
+name = "decode_inflate"
+harness = false
+
+
+[[bench]]
+name = "decode_png"
+harness = false
+
+[[bench]]
+name = "decode_jpeg"
+harness = false
+
+[[bench]]
+name = "decode_hdr"
+harness = false
+
+[[bench]]
+name = "imageprocs"
+harness = false
