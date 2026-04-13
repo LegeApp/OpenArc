@@ -2,7 +2,10 @@
 pub mod color;
 pub mod convert;
 pub mod getopt;
+pub mod jpeg2000_decode;
 pub mod params;
+
+pub use jpeg2000_decode::decode_jpeg2000_file_to_dynamic;
 
 // Compression formats
 pub const J2K_CFMT: u32 = 0;

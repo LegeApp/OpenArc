@@ -10,7 +10,7 @@ Both produce the CLI path only. The GUI projects are not part of the supported b
 ## Components
 
 - `openarc`: main CLI binary
-- `crates/codecs`: BPG, ffmpeg, HEIC, RAW support used by the CLI
+- `crates/codecs`: BPG, ffmpeg, HEIC, JPEG 2000 (via vendored `openjp2` / `openjp2-tools`), RAW support used by the CLI
 - `crates/arcmax`: FreeArc implementation used for `raw.arc` and `misc.arc`
 - `native/BPG/libbpg-0.9.8`: native BPG encoder/decoder build tree
 - `dist/cli-runtime` on Windows: staged runtime bundle for `openarc.exe`
@@ -37,7 +37,6 @@ Outputs:
 
 - `target/<host-triple>/release/openarc`
 - `dist/linux/openarc_ffmpeg.so`
-- `dist/linux/opj_decompress`
 
 ## Windows
 

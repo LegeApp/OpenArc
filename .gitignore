@@ -31,6 +31,9 @@ temp/
 **/Debug/**
 **/Release/**
 **/bin/**
+# Do not ignore Rust binary *sources* under openjp2-tools (pattern above matches any `bin/` segment).
+!openjp2/tools/src/bin/
+!openjp2/tools/src/bin/**
 **/obj/**
 Release_CLI/
 Release_GUI_Standalone/

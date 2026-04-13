@@ -6,6 +6,7 @@ license.workspace = true
 description = "BPG, HEIC, and FFmpeg codec implementations for OpenArc"
 
 [dependencies]
+openjp2-tools = { path = "../../openjp2/tools", default-features = false, features = ["lcms2"] }
 anyhow.workspace = true
 thiserror.workspace = true
 lcms2.workspace = true

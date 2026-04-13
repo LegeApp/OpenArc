@@ -7,8 +7,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BPG_DIR="$ROOT_DIR/native/BPG/libbpg-0.9.8"
 ARCMAX_DIR="$ROOT_DIR/crates/arcmax"
-OPENJP2_TOOLS_DIR="$ROOT_DIR/openjp2/tools"
-
 BUILD_MODE="release"
 SKIP_CODECS=0
 
@@ -112,28 +110,24 @@ echo "Target: $HOST_TRIPLE"
 echo "Skip codecs: $SKIP_CODECS"
 
 if [[ "$SKIP_CODECS" -eq 0 ]]; then
-  echo "\n[1/4] Building BPG native library..."
+  echo "\n[1/3] Building BPG native library..."
   make -C "$BPG_DIR" USE_JCTVC= clean >/dev/null 2>&1 || true
   make -C "$BPG_DIR" -j"$(nproc 2>/dev/null || echo 4)" USE_JCTVC= libbpg_native.a
   mkdir -p "$ROOT_DIR/native/libs/linux"
   cp "$BPG_DIR/libbpg_native.a" "$ROOT_DIR/native/libs/linux/libbpg_native.a"
 
-  echo "\n[2/4] Building ArcMax codec staging libraries..."
+  echo "\n[2/3] Building ArcMax codec staging libraries..."
   bash "$ARCMAX_DIR/build_codecs.sh"
 
-  echo "\n[3/4] Building Linux FFmpeg bridge (openarc_ffmpeg.so)..."
+  echo "\n[3/3] Building Linux FFmpeg bridge (openarc_ffmpeg.so)..."
   mkdir -p "$ROOT_DIR/dist/linux"
   gcc -shared -fPIC -O2 \
     -o "$ROOT_DIR/dist/linux/openarc_ffmpeg.so" \
     "$ROOT_DIR/crates/codecs/ffmpeg_wrapper.c" \
     $(pkg-config --cflags --libs libavcodec libavformat libavutil libswscale)
 
-  echo "\n[4/4] Building OpenJPEG tool (opj_decompress)..."
-  cargo build --manifest-path "$OPENJP2_TOOLS_DIR/Cargo.toml" --release --bin opj_decompress
-  cp "$OPENJP2_TOOLS_DIR/target/release/opj_decompress" "$ROOT_DIR/dist/linux/opj_decompress"
-
 else
-  echo "\n[1/4] Skipping native codec builds (--skip-codecs)."
+  echo "\n[skip] Skipping native codec builds (--skip-codecs)."
 fi
 
 echo "\n[final] Building CLI/backend crates only (no GUI/WPF, no MTP/FFI)..."
