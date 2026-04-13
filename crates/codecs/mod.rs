@@ -7,6 +7,7 @@ use lcms2 as _;
 pub mod bpg;
 pub mod bpg_js;
 pub mod heic;
+pub mod jpeg2000;
 
 // Future codecs
 pub mod ffmpeg;

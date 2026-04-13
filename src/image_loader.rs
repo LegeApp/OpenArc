@@ -3,7 +3,6 @@
 
 use anyhow::{Context, Result, anyhow};
 use std::path::Path;
-use std::process::Command;
 use image::DynamicImage;
 
 /// Decoded image data (wraps image::DynamicImage)
@@ -35,56 +34,8 @@ fn is_jpeg2000(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn find_opj_decompress() -> Option<std::path::PathBuf> {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let local = dir.join("opj_decompress");
-            if local.exists() {
-                return Some(local);
-            }
-        }
-    }
-
-    if let Ok(path) = std::env::var("PATH") {
-        for p in std::env::split_paths(&path) {
-            let cand = p.join("opj_decompress");
-            if cand.exists() {
-                return Some(cand);
-            }
-        }
-    }
-
-    None
-}
-
-fn decode_jpeg2000_via_openjp2(path: &Path) -> Result<DecodedImage> {
-    let opj_decompress = find_opj_decompress()
-        .ok_or_else(|| anyhow!("opj_decompress not found (build openjp2 tool or add it to PATH)"))?;
-
-    let tmp = tempfile::Builder::new()
-        .prefix("openarc-jp2-")
-        .suffix(".png")
-        .tempfile()?;
-    let out_path = tmp.path().to_path_buf();
-
-    let out = Command::new(opj_decompress)
-        .arg("-i")
-        .arg(path)
-        .arg("-o")
-        .arg(&out_path)
-        .output()
-        .with_context(|| format!("Failed to execute openjp2 decompressor for {}", path.display()))?;
-
-    if !out.status.success() {
-        return Err(anyhow!(
-            "openjp2 decode failed for {}: {}",
-            path.display(),
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-
-    let img = image::open(&out_path)
-        .with_context(|| format!("Failed to read openjp2 output: {}", out_path.display()))?;
+fn decode_jpeg2000_in_process(path: &Path) -> Result<DecodedImage> {
+    let img = codecs::jpeg2000::decode_jpeg2000_file(path)?;
     Ok(DecodedImage { img })
 }
 
@@ -95,7 +46,7 @@ pub fn load_image(path: &Path) -> Result<DecodedImage> {
         // Use zune-jpeg for faster JPEG decoding
         decode_jpeg_from_file(path)
     } else if is_jpeg2000(path) {
-        decode_jpeg2000_via_openjp2(path)
+        decode_jpeg2000_in_process(path)
     } else {
         // Use image crate for all other formats (PNG, WebP, TIFF, BMP, etc.)
         let img = image::open(path)
