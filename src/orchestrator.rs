@@ -334,7 +334,7 @@ fn parse_manifest_sizes(manifest_text: &str) -> HashMap<String, (u64, u64)> {
 pub fn list_archive_contents(archive_path: &Path) -> Result<Vec<ListedArchiveFile>> {
     let file = std::fs::File::open(archive_path)
         .with_context(|| format!("Failed to open archive: {}", archive_path.display()))?;
-    let decoder = zstd::stream::read::Decoder::new(file)
+    let decoder = zenzstd::decoding::StreamingDecoder::new(file)
         .with_context(|| format!("Failed to create zstd decoder for {}", archive_path.display()))?;
     let mut archive = tar::Archive::new(decoder);
 
@@ -416,7 +416,7 @@ pub fn extract_archive_entry(archive_path: &Path, entry_name: &str, output_path:
 
     let file = std::fs::File::open(archive_path)
         .with_context(|| format!("Failed to open archive: {}", archive_path.display()))?;
-    let decoder = zstd::stream::read::Decoder::new(file)
+    let decoder = zenzstd::decoding::StreamingDecoder::new(file)
         .with_context(|| format!("Failed to create zstd decoder for {}", archive_path.display()))?;
     let mut archive = tar::Archive::new(decoder);
 

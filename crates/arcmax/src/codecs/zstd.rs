@@ -2,6 +2,8 @@ use anyhow::{anyhow, Context, Result};
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use zenzstd::encoding::{CompressionLevel, EncoderDictionary, StreamingEncoder};
+use zenzstd::decoding::{StreamingDecoder, FrameDecoder};
 
 /// Settings for zstd compression/decompression.
 ///
@@ -74,17 +76,23 @@ impl ZstdCodec {
     /// Decompress an in-memory buffer.
     pub fn decompress_bytes(&self, input: &[u8]) -> Result<Vec<u8>> {
         let mut out = Vec::new();
-        self.decompress_reader_to_writer(io::Cursor::new(input), &mut out)
+        // Use dictionary-aware decoder
+        let mut decoder = self.make_decoder_with_dict(io::Cursor::new(input))
             .context("zstd decompress_bytes failed")?;
+        
+        io::copy(&mut decoder, &mut out)
+            .context("Failed to copy decoded data")?;
+        
         Ok(out)
     }
 
     /// Decompress an in-memory buffer but enforce an upper bound on output size.
     /// Useful to protect the GUI from allocating huge memory if input is malicious/corrupt.
     pub fn decompress_bytes_limited(&self, input: &[u8], max_output_bytes: usize) -> Result<Vec<u8>> {
-        let mut decoder = self.make_decoder(BufReader::new(io::Cursor::new(input)))
-            .context("Failed to create zstd decoder")?;
-
+        // Use dictionary-aware decoder
+        let mut decoder = self.make_decoder_with_dict(io::Cursor::new(input))
+            .context("Failed to decode zstd data")?;
+        
         let mut out = Vec::with_capacity(std::cmp::min(64 * 1024, max_output_bytes));
         let mut buf = vec![0u8; 64 * 1024];
 
@@ -108,14 +116,33 @@ impl ZstdCodec {
         let mut reader = BufReader::with_capacity(self.opts.buffer_size, reader);
         let writer = BufWriter::with_capacity(self.opts.buffer_size, writer);
 
-        let mut encoder = self
-            .make_encoder(writer)
-            .context("Failed to create zstd encoder")?;
-
-        let bytes_in = io::copy(&mut reader, &mut encoder).context("Failed while streaming into zstd encoder")?;
-
-        // Required to finalize the compressed stream. [web:38]
-        let mut writer = encoder.finish().context("Failed to finish zstd stream")?;
+        // Read all input data
+        let mut input_data = Vec::new();
+        reader.read_to_end(&mut input_data)
+            .context("Failed to read input data")?;
+        
+        let bytes_in = input_data.len() as u64;
+        
+        // Compress using streaming encoder
+        let level = if self.opts.level == 0 {
+            CompressionLevel::Default
+        } else {
+            CompressionLevel::Level(self.opts.level)
+        };
+        
+        let mut encoder = if let Some(ref dict) = self.opts.dict {
+            let enc_dict = EncoderDictionary::parse(dict)
+                .unwrap_or_else(|| EncoderDictionary::new_raw(1, dict.clone()));
+            StreamingEncoder::with_dictionary(writer, level, enc_dict)
+        } else {
+            StreamingEncoder::new(writer, level)
+        };
+        
+        std::io::Write::write_all(&mut encoder, &input_data)
+            .context("Failed to write data to zstd encoder")?;
+        
+        let mut writer = encoder.finish()
+            .context("Failed to finish zstd stream")?;
         writer.flush().ok();
 
         Ok(bytes_in)
@@ -124,13 +151,18 @@ impl ZstdCodec {
     /// Stream decompression: reads zstd from `reader`, writes uncompressed bytes into `writer`.
     /// Returns number of uncompressed bytes written to `writer`.
     pub fn decompress_reader_to_writer<R: Read, W: Write>(&self, reader: R, writer: W) -> Result<u64> {
-        let reader = BufReader::with_capacity(self.opts.buffer_size, reader);
-        let mut decoder = self.make_decoder(reader).context("Failed to create zstd decoder")?;
-
+        let mut reader = BufReader::with_capacity(self.opts.buffer_size, reader);
         let mut writer = BufWriter::with_capacity(self.opts.buffer_size, writer);
-        let bytes_out = io::copy(&mut decoder, &mut writer).context("Failed while streaming from zstd decoder")?;
+        
+        // Use decoder with dictionary support
+        let mut decoder = self.make_decoder_with_dict(&mut reader)
+            .context("Failed while streaming from zstd decoder")?;
+        
+        let bytes_out = io::copy(&mut decoder, &mut writer)
+            .context("Failed while copying decoded data")?;
+        
         writer.flush().context("Failed to flush output")?;
-
+        
         Ok(bytes_out)
     }
 
@@ -205,7 +237,21 @@ impl ZstdCodec {
 
         let write_archive = |out_file: File| -> Result<()> {
             let out_file = BufWriter::with_capacity(self.opts.buffer_size, out_file);
-            let encoder = self.make_encoder(out_file).context("Failed to create zstd encoder")?;
+            
+            let level = if self.opts.level == 0 {
+                CompressionLevel::Default
+            } else {
+                CompressionLevel::Level(self.opts.level)
+            };
+            
+            let encoder = if let Some(ref dict) = self.opts.dict {
+                let enc_dict = EncoderDictionary::parse(dict)
+                    .unwrap_or_else(|| EncoderDictionary::new_raw(1, dict.clone()));
+                StreamingEncoder::with_dictionary(out_file, level, enc_dict)
+            } else {
+                StreamingEncoder::new(out_file, level)
+            };
+            
             let mut builder = tar::Builder::new(encoder);
 
             builder
@@ -238,8 +284,11 @@ impl ZstdCodec {
 
         let in_file = File::open(input).with_context(|| format!("Failed to open {}", input.display()))?;
         let reader = BufReader::with_capacity(self.opts.buffer_size, in_file);
-        let decoder = self.make_decoder(reader).context("Failed to create zstd decoder")?;
-
+        
+        // Use streaming decoder with dictionary support if configured
+        let decoder = self.make_decoder_with_dict(reader)
+            .context("Failed to create zstd decoder")?;
+        
         let mut archive = tar::Archive::new(decoder);
         archive
             .unpack(dst_dir)
@@ -248,49 +297,39 @@ impl ZstdCodec {
         Ok(())
     }
 
-    fn make_encoder<W: Write>(&self, writer: W) -> Result<zstd::stream::write::Encoder<'static, W>> {
-        // Level 0 means "zstd default" in the zstd crate API. [web:38]
-        let level = self.opts.level;
-
-        let mut enc = if let Some(ref dict) = self.opts.dict {
-            zstd::stream::write::Encoder::with_dictionary(writer, level, dict)
-                .context("Failed to create zstd encoder (dictionary)")?
+    /// Create a streaming decoder, with dictionary support if configured.
+    fn make_decoder_with_dict<R: Read>(&self, reader: R) -> Result<StreamingDecoder<R, FrameDecoder>> {
+        if let Some(ref dict_bytes) = self.opts.dict {
+            // Try to parse as formatted dictionary first, fallback to raw content
+            let dict = match zenzstd::decoding::dictionary::Dictionary::decode_dict(dict_bytes) {
+                Ok(d) => d,
+                Err(_) => {
+                    // If parsing fails, create a raw dictionary with ID 1 (matching encoder behavior)
+                    zenzstd::decoding::dictionary::Dictionary {
+                        id: 1,
+                        fse: zenzstd::decoding::scratch::FSEScratch::new(),
+                        huf: zenzstd::decoding::scratch::HuffmanScratch::new(),
+                        dict_content: dict_bytes.clone(),
+                        offset_hist: [1, 4, 8],
+                    }
+                }
+            };
+            
+            // Create FrameDecoder and add dictionary
+            let mut frame_dec = FrameDecoder::new();
+            frame_dec.add_dict(dict)
+                .context("Failed to add dictionary to decoder")?;
+            
+            // Wrap in StreamingDecoder
+            StreamingDecoder::new_with_decoder(reader, frame_dec)
+                .context("Failed to create streaming decoder with dictionary")
         } else {
-            zstd::stream::write::Encoder::new(writer, level).context("Failed to create zstd encoder")?
-        };
-
-        enc.include_checksum(self.opts.include_checksum)
-            .context("Failed to set zstd include_checksum")?; // [web:38]
-
-        enc.long_distance_matching(self.opts.long_distance_matching)
-            .context("Failed to set zstd long_distance_matching")?; // [web:38]
-
-        if self.opts.threads > 0 {
-            #[cfg(feature = "zstdmt")]
-            {
-                enc.multithread(self.opts.threads)
-                    .context("Failed to enable zstd multithread")?; // [web:38]
-            }
-            #[cfg(not(feature = "zstdmt"))]
-            {
-                return Err(anyhow!(
-                    "threads={} requested but zstdmt feature is not enabled",
-                    self.opts.threads
-                ));
-            }
-        }
-
-        Ok(enc)
-    }
-
-    fn make_decoder<R: io::BufRead>(&self, reader: R) -> Result<zstd::stream::read::Decoder<'static, R>> {
-        if let Some(ref dict) = self.opts.dict {
-            zstd::stream::read::Decoder::with_dictionary(reader, dict)
-                .context("Failed to create zstd decoder (dictionary)") // [page:53]
-        } else {
-            zstd::stream::read::Decoder::with_buffer(reader).context("Failed to create zstd decoder")
+            // No dictionary, use simple streaming decoder
+            StreamingDecoder::new(reader)
+                .context("Failed to create zstd decoder")
         }
     }
+
 }
 
 /// Atomic file write helper (best-effort cross-platform).
@@ -359,5 +398,50 @@ mod tests {
         assert_eq!(data, decompressed);
 
         assert!(codec.decompress_bytes_limited(&compressed, 1024).is_err());
+    }
+
+    #[test]
+    fn dictionary_roundtrip() {
+        // Create a dictionary with repetitive patterns
+        let dict_content = b"the quick brown fox jumps over the lazy dog ".repeat(10);
+        
+        // Create options with dictionary
+        let mut opts = ZstdOptions::default();
+        opts.dict = Some(dict_content.to_vec());
+        
+        let codec = ZstdCodec::new(opts);
+        let data = b"the quick brown fox jumps over the lazy dog and some unique data at the end!";
+
+        let compressed = codec.compress_bytes(data).unwrap();
+        let decompressed = codec.decompress_bytes(&compressed).unwrap();
+        assert_eq!(data.as_slice(), decompressed.as_slice());
+    }
+
+    #[test]
+    fn dictionary_improves_compression() {
+        // Create a dictionary with repetitive patterns
+        let dict_content = b"the quick brown fox jumps over the lazy dog ".repeat(20);
+        
+        // Compress with dictionary
+        let mut opts_with_dict = ZstdOptions::default();
+        opts_with_dict.dict = Some(dict_content.to_vec());
+        let codec_with_dict = ZstdCodec::new(opts_with_dict);
+        
+        // Compress without dictionary
+        let codec_no_dict = ZstdCodec::new(ZstdOptions::default());
+        
+        let data = b"the quick brown fox jumps over the lazy dog ".repeat(5);
+
+        let compressed_with_dict = codec_with_dict.compress_bytes(&data).unwrap();
+        let compressed_no_dict = codec_no_dict.compress_bytes(&data).unwrap();
+        
+        // Dictionary should produce smaller or equal output
+        assert!(compressed_with_dict.len() <= compressed_no_dict.len(),
+            "Dictionary compression should be better: with={}, without={}",
+            compressed_with_dict.len(), compressed_no_dict.len());
+        
+        // Verify roundtrip
+        let decompressed = codec_with_dict.decompress_bytes(&compressed_with_dict).unwrap();
+        assert_eq!(data.as_slice(), decompressed.as_slice());
     }
 }

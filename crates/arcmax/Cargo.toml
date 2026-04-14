@@ -27,7 +27,7 @@ blowfish = "0.9"
 rand = "0.9"
 flate2 = { version = "1", features = ["zlib-rs"] }
 ppmd-rust = { git = "https://github.com/hasenbanck/ppmd-rust.git" }
-zstd.workspace = true
+zenzstd = { workspace = true }
 tar = { workspace = true, optional = true }
 
 [lib]
