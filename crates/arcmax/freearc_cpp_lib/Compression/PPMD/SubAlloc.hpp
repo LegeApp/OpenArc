@@ -58,38 +58,20 @@ DWORD _STDCALL GetUsedMemory()
     return RetVal;
 }
 void _STDCALL StopSubAllocator() {
-    fprintf(stderr, "PPMD DEBUG: StopSubAllocator enter SubAllocatorSize=%lu HeapStart=%p\n", (unsigned long)SubAllocatorSize, (void*)HeapStart);
-    fflush(stderr);
     if ( SubAllocatorSize ) {
         SubAllocatorSize=0;
-        fprintf(stderr, "PPMD DEBUG: StopSubAllocator calling BigFree(%p)\n", (void*)HeapStart);
-        fflush(stderr);
         BigFree(HeapStart);
-        fprintf(stderr, "PPMD DEBUG: StopSubAllocator returned from BigFree\n");
-        fflush(stderr);
     }
 }
 BOOL _STDCALL StartSubAllocator(UINT t)
 {
-    fprintf(stderr, "PPMD DEBUG: StartSubAllocator enter t=%u SubAllocatorSize=%lu HeapStart=%p\n", t, (unsigned long)SubAllocatorSize, (void*)HeapStart);
-    fflush(stderr);
     if (SubAllocatorSize == t) {
-        fprintf(stderr, "PPMD DEBUG: StartSubAllocator reuse existing allocator\n");
-        fflush(stderr);
         return TRUE;
     }
-    fprintf(stderr, "PPMD DEBUG: StartSubAllocator calling StopSubAllocator\n");
-    fflush(stderr);
     StopSubAllocator();
-    fprintf(stderr, "PPMD DEBUG: StartSubAllocator calling BigAlloc(%u)\n", t);
-    fflush(stderr);
     HeapStart = (BYTE*) BigAlloc(t);
-    fprintf(stderr, "PPMD DEBUG: StartSubAllocator BigAlloc returned HeapStart=%p\n", (void*)HeapStart);
-    fflush(stderr);
     if (HeapStart == NULL)                  return FALSE;
     SubAllocatorSize=t;
-    fprintf(stderr, "PPMD DEBUG: StartSubAllocator success SubAllocatorSize=%lu\n", (unsigned long)SubAllocatorSize);
-    fflush(stderr);
     return TRUE;
 }
 static inline void InitSubAllocator()
@@ -98,8 +80,6 @@ static inline void InitSubAllocator()
     HiUnit=(pText=HeapStart)+SubAllocatorSize;
     UINT Diff=UNIT_SIZE*(SubAllocatorSize/8/UNIT_SIZE*7);
     LoUnit=UnitsStart=HiUnit-Diff;          GlueCount=0;
-    fprintf(stderr, "PPMD DEBUG: InitSubAllocator HeapStart=%p UnitsStart=%p HiUnit=%p\n", (void*)HeapStart, (void*)UnitsStart, (void*)HiUnit);
-    fflush(stderr);
 }
 static void GlueFreeBlocks()
 {
