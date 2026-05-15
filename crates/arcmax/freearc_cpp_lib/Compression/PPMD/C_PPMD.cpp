@@ -23,30 +23,16 @@ extern "C" {
   int routine(int ENCODE, int order, MemSize mem, int MRMethod, MemSize,       \
               CALLBACK_FUNC *callback, void *auxdata) {                        \
     locking;                                                                   \
-    fprintf(stderr, "PPMD DEBUG: %s ENTER ENCODE=%d order=%d mem=%llu\n", #routine, ENCODE, order, (unsigned long long)mem); \
-    fflush(stderr);                                                            \
     _PPMD_FILE fpIn(callback, auxdata, BUFFER_SIZE);                           \
     _PPMD_FILE fpOut(callback, auxdata, BUFFER_SIZE);                          \
-    fprintf(stderr, "PPMD DEBUG: %s STREAMS_READY fpIn.err=%d fpOut.err=%d\n", #routine, _PPMD_ERROR_CODE(&fpIn), _PPMD_ERROR_CODE(&fpOut)); \
-    fflush(stderr);                                                            \
-    fprintf(stderr, "PPMD DEBUG: %s ABOUT_TO_CALL StartSubAllocator(%llu)\n", #routine, (unsigned long long)mem); \
-    fflush(stderr);                                                            \
     int _ssa_ok = StartSubAllocator((UINT)mem);                                \
-    fprintf(stderr, "PPMD DEBUG: %s StartSubAllocator returned %d\n", #routine, _ssa_ok); \
-    fflush(stderr);                                                            \
     if (!_ssa_ok) {                                                            \
-      fprintf(stderr, "PPMD DEBUG: %s StartSubAllocator FAILED\n", #routine);  \
       return FREEARC_ERRCODE_NOT_ENOUGH_MEMORY;                                \
     }                                                                          \
-    fprintf(stderr, "PPMD DEBUG: %s ABOUT_TO_CALL %sFile\n", #routine, ENCODE ? "Encode" : "Decode"); \
-    fflush(stderr);                                                            \
     ENCODE ? EncodeFile(&fpOut, &fpIn, order, MR_METHOD(MRMethod))             \
            : DecodeFile(&fpOut, &fpIn, order, MR_METHOD(MRMethod));            \
-    fprintf(stderr, "PPMD DEBUG: %s RETURNED_FROM %sFile\n", #routine, ENCODE ? "Encode" : "Decode"); \
-    fflush(stderr);                                                            \
     StopSubAllocator();                                                        \
     fpOut.flush();                                                             \
-    fprintf(stderr, "PPMD DEBUG: %s DONE fpIn.err=%d fpOut.err=%d\n", #routine, _PPMD_ERROR_CODE(&fpIn), _PPMD_ERROR_CODE(&fpOut)); \
     return mymin(_PPMD_ERROR_CODE(&fpIn), _PPMD_ERROR_CODE(&fpOut));           \
   }                                                                            \
   }                                                                            \
