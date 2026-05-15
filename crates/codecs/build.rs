@@ -19,11 +19,8 @@ fn main() {
 
     if target_os == "windows" && target_env == "msvc" {
         // MSVC builds still use the prebuilt openarc_bpg.dll runtime-loaded path in
-        // crates/codecs/bpg.rs. We only need to wire up FFmpeg here; BPG is not
-        // statically linked under MSVC.
-        if let Some(libdir) = find_msys2_lib_dir() {
-            println!("cargo:rustc-link-search=native={}", libdir.display());
-        }
+        // crates/codecs/bpg.rs. FFmpeg also uses the ffmpeg executable under MSVC,
+        // because MSYS2 headers/static archives are not compatible with cl/link.exe.
         return;
     }
 
@@ -161,15 +158,17 @@ fn compile_ffmpeg_wrapper(wrapper_c: &Path) {
 fn link_codecs_and_ffmpeg(target_os: &str) {
     let libdir = find_msys2_lib_dir().unwrap_or_else(|| {
         panic!(
-            "MSYS2 mingw64 libraries not found.\n\
-             Install MSYS2 (https://www.msys2.org/) and run:\n\
-             \n  pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-x265 \\\n\
-             \    mingw-w64-x86_64-libpng mingw-w64-x86_64-libjpeg-turbo \\\n\
-             \    mingw-w64-x86_64-libraw mingw-w64-x86_64-lcms2 \\\n\
-             \    mingw-w64-x86_64-zlib mingw-w64-x86_64-ffmpeg \\\n\
-             \    mingw-w64-x86_64-x264\n\
-             \n\
-             Or set MSYS2_ROOT to a custom install path (e.g. D:\\msys64)."
+            "{}",
+            r"MSYS2 mingw64 libraries not found.
+Install MSYS2 (https://www.msys2.org/) and run:
+
+  pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-x265 \
+    mingw-w64-x86_64-libpng mingw-w64-x86_64-libjpeg-turbo \
+    mingw-w64-x86_64-libraw mingw-w64-x86_64-lcms2 \
+    mingw-w64-x86_64-zlib mingw-w64-x86_64-ffmpeg \
+    mingw-w64-x86_64-x264
+
+Or set MSYS2_ROOT to a custom install path (e.g. D:\msys64)."
         )
     });
 
@@ -265,12 +264,13 @@ fn require_static_libs(libdir: &Path, libs: &[&str], context: &str) {
     }
     if !missing.is_empty() {
         panic!(
-            "Required static libraries are missing from {}: {:?}.\n\
-             {} static linking is required. Install the static-enabled MSYS2 packages, e.g.:\n\
-             \n  pacman -S --needed mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-x264 \\\n\
-             \    mingw-w64-x86_64-x265\n\
-             \n\
-             If your MSYS2 only ships dynamic libs, the package needs to be rebuilt with static support.",
+            "Required static libraries are missing from {}: {:?}.
+{} static linking is required. Install the static-enabled MSYS2 packages, e.g.:
+
+  pacman -S --needed mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-x264 \\
+    mingw-w64-x86_64-x265
+
+If your MSYS2 only ships dynamic libs, the package needs to be rebuilt with static support.",
             libdir.display(),
             missing,
             context

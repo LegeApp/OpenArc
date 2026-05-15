@@ -97,8 +97,6 @@ struct PPMD_STARTUP {
 } PPMd_StartUp;
 inline PPMD_STARTUP::PPMD_STARTUP() // constants initialization
 {
-  fprintf(stderr, "PPMD DEBUG: PPMd_StartUp ctor begin\n");
-  fflush(stderr);
   UINT i, k, m, Step;
   for (i = 0, k = 1; i < N1; i++, k += 1)
     Indx2Units[i] = k;
@@ -127,8 +125,6 @@ inline PPMD_STARTUP::PPMD_STARTUP() // constants initialization
   }
   (DWORD &)DummySEE2Cont = PPMdSignature;
 
-  fprintf(stderr, "PPMD DEBUG: PPMd_StartUp ctor end\n");
-  fflush(stderr);
 }
 static void _STDCALL StartModelRare(int _MaxOrder, MR_METHOD _MRMethod) {
   UINT i, k, m;
@@ -476,15 +472,11 @@ NO_LOOP:
   return pc;
 }
 static inline void UpdateModel(PPM_CONTEXT *MinContext) {
-  fprintf(stderr, "PPMD DEBUG: UpdateModel enter MinContext=%p MaxContext=%p\n", (void*)MinContext, (void*)MaxContext);
-  fflush(stderr);
   PPM_CONTEXT::STATE *p = NULL;
   PPM_CONTEXT *Successor, *FSuccessor, *pc, *pc1 = MaxContext;
   UINT ns1, ns, cf, sf, s0, FFreq = FoundState->Freq;
   BYTE Flag, sym, FSymbol = FoundState->Symbol;
   FSuccessor = FoundState->Successor;
-  fprintf(stderr, "PPMD DEBUG: UpdateModel FoundState=%p FSuccessor=%p\n", (void*)FoundState, (void*)FSuccessor);
-  fflush(stderr);
   pc = MinContext->Suffix;
   if (FFreq < MAX_FREQ / 4 && pc) {
     if (pc->NumStats) {
@@ -510,43 +502,27 @@ static inline void UpdateModel(PPM_CONTEXT *MinContext) {
     FoundState->Successor = CreateSuccessors(TRUE, p, MinContext);
     if (!FoundState->Successor)
       goto RESTART_MODEL;
-    fprintf(stderr, "PPMD DEBUG: UpdateModel assigning MaxContext = FoundState->Successor=%p\n", (void*)FoundState->Successor);
-    fflush(stderr);
     // Only validate if it's a real pointer (>= UnitsStart), not an encoded value
     if (FoundState->Successor && (BYTE *)FoundState->Successor >= UnitsStart) {
       if ((BYTE *)FoundState->Successor >= HeapStart && (BYTE *)FoundState->Successor < HeapStart + SubAllocatorSize) {
         MaxContext = FoundState->Successor;
-        fprintf(stderr, "PPMD DEBUG: UpdateModel MaxContext now=%p (real pointer)\n", (void*)MaxContext);
       } else {
-        fprintf(stderr, "PPMD DEBUG: UpdateModel FoundState->Successor %p is out of bounds, keeping MaxContext=%p\n", (void*)FoundState->Successor, (void*)MaxContext);
       }
     } else {
       MaxContext = FoundState->Successor;
-      fprintf(stderr, "PPMD DEBUG: UpdateModel MaxContext now=%p (encoded value or NULL)\n", (void*)MaxContext);
     }
-    fflush(stderr);
     return;
   }
   *pText++ = FSymbol;
   Successor = (PPM_CONTEXT *)pText;
   if (pText >= UnitsStart)
     goto RESTART_MODEL;
-  fprintf(stderr, "PPMD DEBUG: UpdateModel before CreateSuccessors/ReduceOrder FSuccessor=%p\n", (void*)FSuccessor);
-  fflush(stderr);
   if (FSuccessor) {
     if ((BYTE *)FSuccessor < UnitsStart) {
-      fprintf(stderr, "PPMD DEBUG: UpdateModel calling CreateSuccessors(FALSE)\n");
-      fflush(stderr);
       FSuccessor = CreateSuccessors(FALSE, p, MinContext);
-      fprintf(stderr, "PPMD DEBUG: UpdateModel CreateSuccessors returned FSuccessor=%p\n", (void*)FSuccessor);
-      fflush(stderr);
     }
   } else {
-    fprintf(stderr, "PPMD DEBUG: UpdateModel calling ReduceOrder\n");
-    fflush(stderr);
     FSuccessor = ReduceOrder(p, MinContext);
-    fprintf(stderr, "PPMD DEBUG: UpdateModel ReduceOrder returned FSuccessor=%p\n", (void*)FSuccessor);
-    fflush(stderr);
   }
   if (!FSuccessor)
     goto RESTART_MODEL;
@@ -595,24 +571,18 @@ static inline void UpdateModel(PPM_CONTEXT *MinContext) {
     p->Freq = cf;
     pc1->Flags |= Flag;
   }
-  fprintf(stderr, "PPMD DEBUG: UpdateModel assigning MaxContext = FSuccessor=%p\n", (void*)FSuccessor);
-  fflush(stderr);
   // Only validate if FSuccessor is a real pointer (>= UnitsStart), not an encoded value
   if (FSuccessor && (BYTE *)FSuccessor >= UnitsStart) {
     // This is a real pointer to a context, validate it
     if ((BYTE *)FSuccessor >= HeapStart && (BYTE *)FSuccessor < HeapStart + SubAllocatorSize) {
       // Just accept it - the PPMD algorithm manages its own memory
       MaxContext = FSuccessor;
-      fprintf(stderr, "PPMD DEBUG: UpdateModel MaxContext now=%p (real pointer)\n", (void*)MaxContext);
     } else {
-      fprintf(stderr, "PPMD DEBUG: UpdateModel FSuccessor %p is out of bounds, keeping MaxContext=%p\n", (void*)FSuccessor, (void*)MaxContext);
     }
   } else {
     // FSuccessor is either NULL or an encoded value (< UnitsStart), which is valid
     MaxContext = FSuccessor;
-    fprintf(stderr, "PPMD DEBUG: UpdateModel MaxContext now=%p (encoded value or NULL)\n", (void*)MaxContext);
   }
-  fflush(stderr);
   return;
 RESTART_MODEL:
   RestoreModelRare(pc1, MinContext, FSuccessor);
@@ -847,47 +817,21 @@ inline void ClearMask(_PPMD_FILE *EncodedFile, _PPMD_FILE *DecodedFile) {
 }
 void _STDCALL EncodeFile(_PPMD_FILE *EncodedFile, _PPMD_FILE *DecodedFile,
                          int MaxOrder, MR_METHOD MRMethod) {
-  fprintf(stderr, "PPMD DEBUG: Enter EncodeFile MaxOrder=%d MRMethod=%d\n", MaxOrder, (int)MRMethod);
-  fflush(stderr);
   ariInitEncoder();
-  fprintf(stderr, "PPMD DEBUG: EncodeFile after ariInitEncoder\n");
-  fflush(stderr);
   StartModelRare(MaxOrder, MRMethod);
-  fprintf(stderr, "PPMD DEBUG: EncodeFile after StartModelRare\n");
-  fflush(stderr);
-  fprintf(stderr, "PPMD DEBUG: EncodeFile about to enter loop, MaxContext=%p\n", (void*)MaxContext);
-  fflush(stderr);
   for (PPM_CONTEXT *MinContext;;) {
-    fprintf(stderr, "PPMD DEBUG: EncodeFile loop top, MinContext=%p\n", (void*)MinContext);
-    fflush(stderr);
     MinContext = MaxContext;
-    fprintf(stderr, "PPMD DEBUG: EncodeFile assigned MinContext=MaxContext=%p\n", (void*)MinContext);
-    fflush(stderr);
     BYTE ns = MinContext->NumStats;
-    fprintf(stderr, "PPMD DEBUG: EncodeFile got ns=%u\n", (unsigned)ns);
-    fflush(stderr);
     int c = _PPMD_E_GETC(DecodedFile);
-    fprintf(stderr, "PPMD DEBUG: EncodeFile first GETC=%d ns=%u\n", c, (unsigned)ns);
-    fflush(stderr);
     if (ns) {
-      fprintf(stderr, "PPMD DEBUG: EncodeFile calling encodeSymbol1(c=%d) MinContext=%p\n", c, (void*)MinContext);
-      fflush(stderr);
       // MinContext should always be a real pointer in the encode loop
       if (!MinContext || (BYTE *)MinContext < UnitsStart || (BYTE *)MinContext < HeapStart || (BYTE *)MinContext >= HeapStart + SubAllocatorSize) {
-        fprintf(stderr, "PPMD DEBUG: EncodeFile MinContext %p is invalid, stopping\n", (void*)MinContext);
-        fflush(stderr);
         goto STOP_ENCODING;
       }
       MinContext->encodeSymbol1(c);
-      fprintf(stderr, "PPMD DEBUG: EncodeFile after encodeSymbol1\n");
-      fflush(stderr);
       ariEncodeSymbol();
     } else {
-      fprintf(stderr, "PPMD DEBUG: EncodeFile calling encodeBinSymbol(c=%d) MinContext=%p\n", c, (void*)MinContext);
-      fflush(stderr);
       MinContext->encodeBinSymbol(c);
-      fprintf(stderr, "PPMD DEBUG: EncodeFile after encodeBinSymbol\n");
-      fflush(stderr);
       ariShiftEncodeSymbol(TOT_BITS);
     }
     while (!FoundState) {
@@ -902,17 +846,9 @@ void _STDCALL EncodeFile(_PPMD_FILE *EncodedFile, _PPMD_FILE *DecodedFile,
       ariEncodeSymbol();
     }
     if (!OrderFall && (BYTE *)FoundState->Successor >= UnitsStart) {
-      fprintf(stderr, "PPMD DEBUG: EncodeFile updating MaxContext from %p to FoundState->Successor=%p\n", (void*)MaxContext, (void*)FoundState->Successor);
-      fflush(stderr);
       PrefetchData(MaxContext = FoundState->Successor);
-      fprintf(stderr, "PPMD DEBUG: EncodeFile MaxContext now=%p\n", (void*)MaxContext);
-      fflush(stderr);
     } else {
-      fprintf(stderr, "PPMD DEBUG: EncodeFile calling UpdateModel, OrderFall=%d\n", OrderFall);
-      fflush(stderr);
       UpdateModel(MinContext);
-      fprintf(stderr, "PPMD DEBUG: EncodeFile after UpdateModel, MaxContext=%p\n", (void*)MaxContext);
-      fflush(stderr);
       PrefetchData(MaxContext);
       if (EscCount == 0)
         ClearMask(EncodedFile, DecodedFile);
@@ -927,20 +863,12 @@ STOP_ENCODING:
 }
 void _STDCALL DecodeFile(_PPMD_FILE *DecodedFile, _PPMD_FILE *EncodedFile,
                          int MaxOrder, MR_METHOD MRMethod) {
-  fprintf(stderr, "PPMD DEBUG: Enter DecodeFile MaxOrder=%d MRMethod=%d\n", MaxOrder, (int)MRMethod);
-  fflush(stderr);
   ARI_INIT_DECODER(EncodedFile);
-  fprintf(stderr, "PPMD DEBUG: DecodeFile after ARI_INIT_DECODER\n");
-  fflush(stderr);
   StartModelRare(MaxOrder, MRMethod);
-  fprintf(stderr, "PPMD DEBUG: DecodeFile after StartModelRare\n");
-  fflush(stderr);
   PPM_CONTEXT *MinContext = MaxContext;
   for (BYTE ns = MinContext->NumStats;;) {
     // MinContext should always be a real pointer in the decode loop
     if (!MinContext || (BYTE *)MinContext < UnitsStart || (BYTE *)MinContext < HeapStart || (BYTE *)MinContext >= HeapStart + SubAllocatorSize) {
-      fprintf(stderr, "PPMD DEBUG: DecodeFile MinContext %p is invalid, stopping\n", (void*)MinContext);
-      fflush(stderr);
       goto STOP_DECODING;
     }
     // Context is valid, proceed
