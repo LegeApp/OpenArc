@@ -1,31 +1,28 @@
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 fn main() {
-    println!("cargo:rerun-if-changed=freearc_cpp_lib/");
-    println!("cargo:rerun-if-changed=codec_staging/");
-    println!("cargo:rerun-if-changed=codec_staging/linux/");
-    println!("cargo:rerun-if-changed=codec_staging/windows-gnu/");
-    println!("cargo:rerun-if-changed=codec_staging/windows-msvc/");
+    println!("cargo:rerun-if-changed=freearc_cpp_lib");
+    println!("cargo:rerun-if-changed=build.rs");
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".to_string());
     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
     let project_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
     let freearc_path = project_root.join("freearc_cpp_lib");
-    let codec_staging_path = codec_staging_dir(&project_root, &target_os, &target_env);
 
-    if target_os == "windows" && target_env == "msvc" {
-        build_windows_msvc(&freearc_path);
-    } else {
-        link_staged_codecs(&target_os, &freearc_path, &codec_staging_path);
+    if !freearc_path.exists() {
+        panic!(
+            "FreeArc C++ source not found at {}",
+            freearc_path.display()
+        );
     }
 
+    build_freearc(&freearc_path, &target_os, &target_env);
     link_system_libs(&target_os, &target_env);
 }
 
-fn build_windows_msvc(freearc_path: &Path) {
-    let compression_path = freearc_path.join("Compression");
+fn build_freearc(freearc_path: &Path, target_os: &str, target_env: &str) {
+    let compression = freearc_path.join("Compression");
     let mut build = cc::Build::new();
     build.cpp(true).warnings(false);
 
@@ -33,116 +30,79 @@ fn build_windows_msvc(freearc_path: &Path) {
         build.include(include);
     }
 
-    for file in [
-        compression_path.join("Common.cpp"),
-        compression_path.join("CompressionLibrary.cpp"),
-        compression_path.join("CELS.cpp"),
-        compression_path.join("MultiThreading.cpp"),
-        compression_path.join("LZMA2").join("C_LZMA.cpp"),
-        compression_path.join("PPMD").join("C_PPMD.cpp"),
-        compression_path.join("Tornado").join("C_Tornado.cpp"),
-        compression_path.join("GRZip").join("C_GRZip.cpp"),
-        compression_path.join("LZP").join("C_LZP.cpp"),
-        compression_path.join("Delta").join("C_Delta.cpp"),
-        compression_path.join("Dict").join("C_Dict.cpp"),
-        compression_path.join("MM").join("C_MM.cpp"),
-        compression_path.join("REP").join("C_REP.cpp"),
-        compression_path.join("4x4").join("C_4x4.cpp"),
+    let sources = [
+        compression.join("Common.cpp"),
+        compression.join("CompressionLibrary.cpp"),
+        compression.join("CELS.cpp"),
+        compression.join("MultiThreading.cpp"),
+        compression.join("LZMA2").join("C_LZMA.cpp"),
+        compression.join("PPMD").join("C_PPMD.cpp"),
+        compression.join("Tornado").join("C_Tornado.cpp"),
+        compression.join("GRZip").join("C_GRZip.cpp"),
+        compression.join("LZP").join("C_LZP.cpp"),
+        compression.join("Delta").join("C_Delta.cpp"),
+        compression.join("Dict").join("C_Dict.cpp"),
+        compression.join("MM").join("C_MM.cpp"),
+        compression.join("REP").join("C_REP.cpp"),
+        compression.join("4x4").join("C_4x4.cpp"),
         freearc_path.join("freearc_wrapper.cpp"),
-    ] {
+    ];
+
+    for file in &sources {
         println!("cargo:rerun-if-changed={}", file.display());
         build.file(file);
     }
 
-    for define in [
-        "_WIN32",
-        "WIN32",
-        "WIN32_LEAN_AND_MEAN",
-        "NOMINMAX",
-        "NDEBUG",
-        "NOVERSETCONDITIONMASK",
-    ] {
-        build.define(define, None);
-    }
-    build.define("WINVER", Some("0x0601"));
-    build.define("_WIN32_WINNT", Some("0x0601"));
-    build.define("strcasecmp", Some("_stricmp"));
-    build.define("strncasecmp", Some("_strnicmp"));
-    build.flag_if_supported("/std:c++14");
-    build.flag_if_supported("/EHsc");
-    build.flag_if_supported("/Zc:__cplusplus");
-    build.cpp_link_stdlib(None);
-    build.compile("freearc_native");
-}
-
-fn link_staged_codecs(target_os: &str, freearc_path: &Path, codec_staging_path: &Path) {
-    let use_staged_codecs =
-        codec_staging_path.exists() && fs::metadata(codec_staging_path.join("libfreearc.a")).is_ok();
-
-    if !use_staged_codecs {
-        let hint = if target_os == "windows" {
-            "Run arcmax/build_codecs.ps1 first."
-        } else {
-            "Run arcmax/build_codecs.sh first."
-        };
-        panic!("GCC-built codecs not found in codec_staging (missing libfreearc.a). {hint}");
-    }
-
-    let mut build = cc::Build::new();
-    build.cpp(true).warnings(false);
-    for include in include_dirs(freearc_path) {
-        build.include(include);
-    }
-
-    if target_os == "windows" {
-        for define in [
-            "_WIN32",
-            "WIN32",
-            "WIN32_LEAN_AND_MEAN",
-            "NOMINMAX",
-            "NDEBUG",
-            "NOVERSETCONDITIONMASK",
-        ] {
-            build.define(define, None);
+    match (target_os, target_env) {
+        ("windows", "msvc") => {
+            for define in [
+                "_WIN32",
+                "WIN32",
+                "WIN32_LEAN_AND_MEAN",
+                "NOMINMAX",
+                "NDEBUG",
+                "NOVERSETCONDITIONMASK",
+            ] {
+                build.define(define, None);
+            }
+            build.define("WINVER", Some("0x0601"));
+            build.define("_WIN32_WINNT", Some("0x0601"));
+            build.define("strcasecmp", Some("_stricmp"));
+            build.define("strncasecmp", Some("_strnicmp"));
+            build.flag_if_supported("/std:c++14");
+            build.flag_if_supported("/EHsc");
+            build.flag_if_supported("/Zc:__cplusplus");
+            build.cpp_link_stdlib(None);
         }
-        build.define("WINVER", Some("0x0601"));
-        build.define("_WIN32_WINNT", Some("0x0601"));
-        build.define("__USE_MINGW_ANSI_STDIO", Some("0"));
+        ("windows", _) => {
+            for define in [
+                "_WIN32",
+                "WIN32",
+                "WIN32_LEAN_AND_MEAN",
+                "NOMINMAX",
+                "NDEBUG",
+                "NOVERSETCONDITIONMASK",
+            ] {
+                build.define(define, None);
+            }
+            build.define("WINVER", Some("0x0601"));
+            build.define("_WIN32_WINNT", Some("0x0601"));
+            build.define("__USE_MINGW_ANSI_STDIO", Some("0"));
+            build.flag_if_supported("-std=c++11");
+            build.opt_level(2);
+        }
+        _ => {
+            build.define("NDEBUG", None);
+            build.define("_FILE_OFFSET_BITS", Some("64"));
+            build.define("_LARGEFILE_SOURCE", None);
+            build.define("_REENTRANT", None);
+            build.flag_if_supported("-std=c++11");
+            build.flag_if_supported("-fPIC");
+            build.opt_level(2);
+        }
     }
 
-    println!("cargo:rustc-link-search=native={}", codec_staging_path.display());
-    for lib in [
-        "freearc",
-        "lzma2",
-        "ppmd",
-        "tornado",
-        "grzip",
-        "lzp",
-        "delta",
-        "dict",
-        "mm",
-        "rep",
-        "4x4",
-    ] {
-        println!("cargo:rustc-link-lib=static={lib}");
-    }
-}
-
-fn codec_staging_dir(project_root: &Path, target_os: &str, target_env: &str) -> PathBuf {
-    let base = project_root.join("codec_staging");
-    let target_specific = match (target_os, target_env) {
-        ("linux", _) => base.join("linux"),
-        ("windows", "gnu") => base.join("windows-gnu"),
-        ("windows", "msvc") => base.join("windows-msvc"),
-        ("macos", _) => base.join("macos"),
-        _ => base.join(target_os),
-    };
-
-    if target_specific.join("libfreearc.a").exists() {
-        target_specific
-    } else {
-        base
-    }
+    build.compile("freearc_native");
 }
 
 fn include_dirs(freearc_path: &Path) -> Vec<PathBuf> {
@@ -172,7 +132,7 @@ fn link_system_libs(target_os: &str, target_env: &str) {
             println!("cargo:rustc-link-lib=bcrypt");
             if target_env == "gnu" {
                 println!("cargo:rustc-link-lib=dylib=msvcrt");
-                println!("cargo:rustc-link-lib=dylib=stdc++");
+                println!("cargo:rustc-link-lib=static=stdc++");
             }
         }
         "linux" => {
