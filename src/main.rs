@@ -4,12 +4,15 @@ use anyhow::{Result, Context};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use openarc::orchestrator::{
-    create_archive, extract_archive, list_archive_contents, OrchestratorSettings,
+    create_archive, extract_archive_with_decoding, list_archive_contents, ExtractionSettings,
+    OrchestratorSettings,
 };
 use openarc::cli::{Cli, Commands};
 use openarc::interactive;
+use openarc::phone_backup;
 use std::path::PathBuf;
 use std::sync::Arc;
+use openarc::orchestrator::FileClass;
 
 fn main() -> Result<()> {
     // If no arguments provided, launch interactive mode
@@ -35,6 +38,7 @@ fn main() -> Result<()> {
             no_dedup,
             no_skip_compressed,
             no_tracking,
+            no_reencode,
         } => {
             println!("OpenArc - Creating archive: {}", output.display());
             println!("Input sources: {} items", inputs.len());
@@ -51,12 +55,14 @@ fn main() -> Result<()> {
                 video_crf,
                 compression_level,
                 enable_catalog: !no_catalog,
+                catalog_db_path: None,
                 enable_dedup: !no_dedup,
                 skip_already_compressed_videos: !no_skip_compressed,
                 staging_dir: None,
                 heic_quality: 90,
                 jpeg_quality: 92,
                 enable_tracking: !no_tracking,
+                reencode_media: !no_reencode,
             };
 
             println!("Settings:");
@@ -67,6 +73,7 @@ fn main() -> Result<()> {
             println!("  Deduplication: {}", !no_dedup);
             println!("  Skip compressed videos: {}", !no_skip_compressed);
             println!("  File tracking: {}", !no_tracking);
+            println!("  Re-encode media: {}", !no_reencode);
             println!();
 
             let pb = ProgressBar::new(100);
@@ -99,6 +106,12 @@ fn main() -> Result<()> {
 
             let total_original: u64 = result.processed.iter().map(|p| p.original_size).sum();
             let total_compressed: u64 = result.processed.iter().map(|p| p.output_size).sum();
+            let raw_count = result.processed.iter().filter(|p| p.class == FileClass::Raw).count();
+            let raw_total: u64 = result.processed
+                .iter()
+                .filter(|p| p.class == FileClass::Raw)
+                .map(|p| p.original_size)
+                .sum();
             let ratio = if total_original > 0 {
                 (total_compressed as f64 / total_original as f64) * 100.0
             } else {
@@ -110,13 +123,20 @@ fn main() -> Result<()> {
             println!("  Original size: {} MB", total_original / 1_000_000);
             println!("  Compressed size: {} MB", total_compressed / 1_000_000);
             println!("  Ratio: {:.2}%", ratio);
+            if raw_count > 0 {
+                println!(
+                    "  RAW preserved separately: {} files, {} MB total (stored losslessly in raw.arc with FreeArc max level)",
+                    raw_count,
+                    raw_total / 1_000_000
+                );
+            }
             println!();
             println!("Output: {}", output.display());
 
             Ok(())
         }
 
-        Commands::Extract { input, output } => {
+        Commands::Extract { input, output, no_reencode } => {
             println!("Extracting archive: {} to {}", input.display(), output.display());
 
             let pb = ProgressBar::new(1);
@@ -134,10 +154,14 @@ fn main() -> Result<()> {
                 pb_clone.set_message(msg.to_string());
             });
 
-            let extraction = extract_archive(
+            let extraction = extract_archive_with_decoding(
                 &input,
                 &output,
                 OrchestratorSettings::default().compression_level,
+                ExtractionSettings {
+                    decode_images: !no_reencode,
+                    ..ExtractionSettings::default()
+                },
                 Some(progress_fn),
             )?;
             pb.finish_with_message("Complete");
@@ -318,6 +342,24 @@ fn main() -> Result<()> {
                 anyhow::bail!("Round-trip verification failed - data mismatch!");
             }
 
+            Ok(())
+        }
+
+        Commands::PhoneDetect => {
+            let phones = phone_backup::detect_phones()?;
+            if phones.is_empty() {
+                println!("No phone devices detected.");
+                return Ok(());
+            }
+
+            println!("Detected {} phone device(s):", phones.len());
+            for phone in phones {
+                let source = match phone.source_kind {
+                    phone_backup::PhoneSourceKind::Mtp => "MTP",
+                    phone_backup::PhoneSourceKind::MountedFilesystem => "mounted filesystem",
+                };
+                println!("  - {} [{}] ({})", phone.display_name, source, phone.id);
+            }
             Ok(())
         }
     }

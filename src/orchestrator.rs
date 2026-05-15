@@ -1,9 +1,10 @@
 use anyhow::{anyhow, Context, Result};
+use arcmax::core::archive::ArchiveReader;
+use arcmax::formats::freearc::reader::FreeArcReader;
 use arcmax::formats::freearc::writer::{ArchiveOptions, FreeArcWriter};
 use codecs::bpg::{BPGEncoderConfig, NativeBPGEncoder};
 use codecs::ffmpeg::{FfmpegEncodeOptions, FFmpegEncoder, VideoCodec, VideoSpeedPreset};
 use codecs::video_analyzer::analyze_video_compression;
-use codecs::heic::{HeicCodec, HeicEncoderConfig, HeifCompressionFormat};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -15,7 +16,6 @@ use std::thread;
 use std::time::Duration;
 use bytemuck::cast_vec;
 use log::warn;
-use tempfile::TempDir;
 use arcmax::codecs::zstd::{ZstdCodec, ZstdOptions};
 use std::io::Read;
 use image;
@@ -210,7 +210,7 @@ pub enum OriginalImageFormat {
     Jpeg,
     /// PNG - decode BPG to PNG
     Png,
-    /// HEIC/HEIF (Samsung, Android, Apple) - decode BPG → PNG → HEIC
+    /// HEIC/HEIF (Samsung, Android, Apple) - decode BPG → PNG
     Heic,
     /// Camera RAW formats - decode BPG to PNG (RAW cannot be recreated)
     Raw,
@@ -228,7 +228,8 @@ impl OriginalImageFormat {
         match self {
             Self::Jpeg => "jpg",
             Self::Png => "png",
-            Self::Heic => "heic",
+            // HEIC encoder is not currently available in this pipeline.
+            Self::Heic => "png",
             Self::Raw => "png",  // RAW cannot be recreated
             Self::Tiff => "png", // Convert to PNG for compatibility
             Self::Bmp => "png",  // Convert to PNG for compatibility
@@ -333,7 +334,7 @@ fn parse_manifest_sizes(manifest_text: &str) -> HashMap<String, (u64, u64)> {
 pub fn list_archive_contents(archive_path: &Path) -> Result<Vec<ListedArchiveFile>> {
     let file = std::fs::File::open(archive_path)
         .with_context(|| format!("Failed to open archive: {}", archive_path.display()))?;
-    let decoder = zstd::stream::read::Decoder::new(file)
+    let decoder = zenzstd::decoding::StreamingDecoder::new(file)
         .with_context(|| format!("Failed to create zstd decoder for {}", archive_path.display()))?;
     let mut archive = tar::Archive::new(decoder);
 
@@ -391,6 +392,8 @@ pub fn list_archive_contents(archive_path: &Path) -> Result<Vec<ListedArchiveFil
             if name.eq_ignore_ascii_case("OPENARC_METADATA.json")
                 || name.eq_ignore_ascii_case("HASHES.sha256")
                 || name.eq_ignore_ascii_case("MANIFEST.txt")
+                || name.eq_ignore_ascii_case("misc.arc")
+                || name.eq_ignore_ascii_case("raw.arc")
             {
                 continue;
             }
@@ -413,7 +416,7 @@ pub fn extract_archive_entry(archive_path: &Path, entry_name: &str, output_path:
 
     let file = std::fs::File::open(archive_path)
         .with_context(|| format!("Failed to open archive: {}", archive_path.display()))?;
-    let decoder = zstd::stream::read::Decoder::new(file)
+    let decoder = zenzstd::decoding::StreamingDecoder::new(file)
         .with_context(|| format!("Failed to create zstd decoder for {}", archive_path.display()))?;
     let mut archive = tar::Archive::new(decoder);
 
@@ -474,6 +477,8 @@ pub struct OrchestratorSettings {
     pub video_crf: i32,
     pub compression_level: i32,
     pub enable_catalog: bool,
+    /// Optional custom catalog database path. If unset, defaults to <archive>.catalog.sqlite
+    pub catalog_db_path: Option<PathBuf>,
     pub enable_dedup: bool,
     pub skip_already_compressed_videos: bool,
     /// Optional staging directory for temp work (defaults to system temp)
@@ -484,6 +489,8 @@ pub struct OrchestratorSettings {
     pub jpeg_quality: u8,
     /// Enable file-level tracking in central DB
     pub enable_tracking: bool,
+    /// If false, archive files as-is without image/video transcoding
+    pub reencode_media: bool,
 }
 
 impl Default for OrchestratorSettings {
@@ -499,12 +506,14 @@ impl Default for OrchestratorSettings {
             video_crf: 23,
             compression_level: 22,
             enable_catalog: true,
+            catalog_db_path: None,
             enable_dedup: true,
             skip_already_compressed_videos: true,
             staging_dir: None,
             heic_quality: 90,
             jpeg_quality: 92,
             enable_tracking: true,
+            reencode_media: true,
         }
     }
 }
@@ -513,6 +522,7 @@ impl Default for OrchestratorSettings {
 pub enum FileClass {
     Image,
     Video,
+    Raw,
     Misc,
 }
 
@@ -592,7 +602,7 @@ fn classify_file(path: &Path) -> (FileClass, Option<OriginalImageFormat>) {
 
         // Camera RAW formats - encode via PNG intermediate
         "cr2" | "cr3" | "nef" | "arw" | "dng" | "orf" | "rw2" | "raf" | "pef" | "srw" =>
-            (FileClass::Image, Some(OriginalImageFormat::Raw)),
+            (FileClass::Raw, Some(OriginalImageFormat::Raw)),
 
         // TIFF - encode via PNG intermediate
         "tiff" | "tif" => (FileClass::Image, Some(OriginalImageFormat::Tiff)),
@@ -616,36 +626,6 @@ fn safe_file_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "file".to_string())
-}
-
-/// Convert non-JPEG image to PNG for quality preservation before BPG encoding
-fn convert_to_png_intermediate(input: &Path, output: &Path, format: OriginalImageFormat) -> Result<()> {
-    match format {
-        OriginalImageFormat::Heic => {
-            // HEIC → PNG via pure Rust decoder (always available)
-            let mut codec = HeicCodec::new()?;
-            codec.decode_to_png(input, output)?;
-        }
-        OriginalImageFormat::Raw => {
-            // RAW → PNG via libraw (through codecs::raw)
-            // Fall back to image crate if libraw not available
-            let img = image::open(input)
-                .with_context(|| format!("Failed to open RAW image: {}", input.display()))?;
-            img.save(output)?;
-        }
-        OriginalImageFormat::Png | OriginalImageFormat::Tiff |
-        OriginalImageFormat::Bmp | OriginalImageFormat::WebP => {
-            // These formats can be opened by image crate and saved as PNG
-            let img = image::open(input)
-                .with_context(|| format!("Failed to open image: {}", input.display()))?;
-            img.save(output)?;
-        }
-        OriginalImageFormat::Jpeg => {
-            // JPEG should not go through this function
-            unreachable!("JPEG should not use PNG intermediate");
-        }
-    }
-    Ok(())
 }
 
 pub fn create_archive(
@@ -685,8 +665,16 @@ pub fn create_archive(
         HashMap::new()
     };
 
-    let catalog_path = output_archive.with_extension("catalog.sqlite");
+    let catalog_path = settings
+        .catalog_db_path
+        .clone()
+        .unwrap_or_else(|| output_archive.with_extension("catalog.sqlite"));
     let mut catalog = if settings.enable_catalog {
+        if let Some(parent) = catalog_path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create catalog directory {}", parent.display())
+            })?;
+        }
         Some(BackupCatalog::new(&catalog_path)?)
     } else {
         None
@@ -748,12 +736,17 @@ pub fn create_archive(
         .with_context(|| format!("Failed to create temp dir in {}", staging_root.display()))?;
     let media_dir = temp_dir.path().join("media");
     let misc_dir = temp_dir.path().join("misc");
+    let raw_dir = temp_dir.path().join("raw");
     fs::create_dir_all(&media_dir)?;
     // Only create misc/ if there are actually misc files to archive.
     // An empty misc/ directory can cause issues with tar on Windows.
     let has_misc_files = work.iter().any(|w| w.class == FileClass::Misc);
     if has_misc_files {
         fs::create_dir_all(&misc_dir)?;
+    }
+    let has_raw_files = work.iter().any(|w| w.class == FileClass::Raw);
+    if has_raw_files {
+        fs::create_dir_all(&raw_dir)?;
     }
 
     let processed_mutex = Arc::new(parking_lot::Mutex::new(Vec::<ProcessedFile>::new()));
@@ -806,6 +799,14 @@ pub fn create_archive(
                     .unwrap_or("unknown")
                     .to_lowercase();
 
+                if !settings_clone.reencode_media {
+                    // Archive image bytes as-is (no transcoding).
+                    let out_name = format!("{}_{}.{}", stem, item.idx, original_ext);
+                    let out = media_dir.join(&out_name);
+                    fs::copy(input, &out)?;
+                    let rel_path = format!("media/{}", out_name);
+                    (out, rel_path, true, Some(original_format))
+                } else {
                 let out = media_dir.join(format!("{}_{}.bpg", stem, item.idx));
 
                 // Throttle massive images to avoid OOM alongside videos
@@ -829,28 +830,36 @@ pub fn create_archive(
                     };
 
                 if original_format == OriginalImageFormat::Heic {
-                    use codecs::heic::HeicCodec;
+                    use codecs::heic::{matrix_coeffs_to_bpg_color_space, HeicChromaFormat, HeicCodec};
                     use codecs::bpg::NativeBPGEncoder;
                     
                     let mut codec = HeicCodec::new()?;
-                    let decoded = codec.decode_file_ycbcr420(input)
+                    let decoded = codec.decode_file_yuv(input)
                         .with_context(|| format!("Failed to decode HEIC file: {}", input.display()))?;
                     
-                    // Encode directly from YCbCr 4:2:0 (native HEIC format, no color conversion)
+                    let bpg_format = match decoded.chroma_format {
+                        HeicChromaFormat::Monochrome => codecs::bpg::BPGImageFormat::Gray,
+                        HeicChromaFormat::YCbCr420 => codecs::bpg::BPGImageFormat::YCbCr420P,
+                        HeicChromaFormat::YCbCr422 => codecs::bpg::BPGImageFormat::YCbCr422P,
+                        HeicChromaFormat::YCbCr444 => codecs::bpg::BPGImageFormat::YCbCr444P,
+                    };
+
+                    // Encode directly from the decoded HEIC planes, preserving source fidelity.
                     let mut encoder = NativeBPGEncoder::new()
                         .context("Failed to create BPG encoder")?;
                     let mut cfg = NativeBPGEncoder::default_config();
                     cfg.quality = settings_clone.bpg_quality;
                     cfg.lossless = if settings_clone.bpg_lossless { 1 } else { 0 };
-                    cfg.bit_depth = settings_clone.bpg_bit_depth;
-                    cfg.chroma_format = 0; // YCbCr 4:2:0 (native HEIC format)
-                    cfg.color_space = 3; // YCbCr BT.709 (matches HEIC color space)
+                    cfg.bit_depth = decoded.bit_depth as i32;
+                    cfg.chroma_format = decoded.chroma_format.to_bpg_chroma_format();
+                    cfg.color_space = matrix_coeffs_to_bpg_color_space(decoded.matrix_coeffs);
+                    cfg.limited_range = if decoded.full_range { 0 } else { 1 };
                     cfg.encoder_type = settings_clone.bpg_encoder_type;
                     cfg.compress_level = settings_clone.bpg_compression_level;
                     encoder.set_config(&cfg)
                         .context("Failed to apply BPG config")?;
                     
-                    let bpg_data = encoder.encode_from_ycbcr420_planar(
+                    let bpg_data = encoder.encode_from_planar_u16(
                         &decoded.y_plane,
                         &decoded.cb_plane,
                         &decoded.cr_plane,
@@ -859,7 +868,8 @@ pub fn create_archive(
                         decoded.y_stride,
                         decoded.cb_stride,
                         decoded.cr_stride,
-                    ).with_context(|| format!("Failed to encode HEIC to BPG via YCbCr: {}", input.display()))?;
+                        bpg_format,
+                    ).with_context(|| format!("Failed to encode HEIC to BPG via planar YUV: {}", input.display()))?;
                     
                     fs::write(&out, &bpg_data)
                         .with_context(|| format!("Failed to write BPG file: {}", out.display()))?;
@@ -877,9 +887,6 @@ pub fn create_archive(
                     
                     let rel_path = format!("media/{}_{}.bpg", stem, item.idx);
                     
-                    let seq = completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let _ = tx.send(WorkDone { idx: seq, file_name: file_name.clone() });
-                    
                     // HEIC processing complete - return from match arm
                     (out, rel_path, false, Some(original_format))
                 } else if let Some(ycbcr) = jpeg_ycbcr {
@@ -894,6 +901,7 @@ pub fn create_archive(
                     cfg.bit_depth = 8; // JPEG is always 8-bit
                     cfg.chroma_format = 0; // YCbCr 4:2:0
                     cfg.color_space = 0;   // YCbCr BT.601 (standard JPEG color space)
+                    cfg.limited_range = 0; // JPEG uses full range
                     cfg.encoder_type = settings_clone.bpg_encoder_type;
                     cfg.compress_level = settings_clone.bpg_compression_level;
                     encoder.set_config(&cfg)
@@ -927,9 +935,6 @@ pub fn create_archive(
                     }
 
                     let rel_path = format!("media/{}_{}.bpg", stem, item.idx);
-
-                    let seq = completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let _ = tx.send(WorkDone { idx: seq, file_name: file_name.clone() });
 
                     (out, rel_path, false, Some(original_format))
                 } else {
@@ -1068,8 +1073,19 @@ pub fn create_archive(
                 let rel_path = format!("media/{}", out.file_name().unwrap().to_string_lossy());
                 (out, rel_path, false, Some(original_format))
                 }  // End of else block for non-HEIC image processing
+                }
             }
             FileClass::Video => {
+                if !settings_clone.reencode_media {
+                    // Archive video bytes as-is (no transcoding).
+                    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
+                    let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+                    let out_name = format!("{}_{}.{}", stem, item.idx, ext);
+                    let out = media_dir.join(&out_name);
+                    fs::copy(input, &out)?;
+                    let rel_path = format!("media/{}", out_name);
+                    (out, rel_path, true, None)
+                } else {
                 let should_skip = if settings_clone.skip_already_compressed_videos {
                     safe_analyze_video(input)
                         .map(|a| a.is_efficiently_compressed)
@@ -1112,6 +1128,16 @@ pub fn create_archive(
                     let rel_path = format!("media/{}", out.file_name().unwrap().to_string_lossy());
                     (out, rel_path, false, None)
                 }
+                }
+            }
+            FileClass::Raw => {
+                let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("raw");
+                let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+                let out_name = format!("{}_{}.{}", stem, item.idx, ext);
+                let out = raw_dir.join(&out_name);
+                fs::copy(input, &out)?;
+                let rel_path = format!("raw/{}", out_name);
+                (out, rel_path, true, Some(OriginalImageFormat::Raw))
             }
             FileClass::Misc => {
                 let out = misc_dir.join(input.file_name().unwrap());
@@ -1164,11 +1190,14 @@ pub fn create_archive(
     let misc_arc_path = temp_dir.path().join("misc.arc");
     create_misc_arc(&processed, &misc_arc_path, settings.compression_level)?;
 
+    let raw_arc_path = temp_dir.path().join("raw.arc");
+    create_raw_arc(&processed, &raw_arc_path)?;
+
     let manifest_path = temp_dir.path().join("MANIFEST.txt");
     write_manifest(&processed, &skipped_by_catalog, &manifest_path)?;
 
     let hashes_path = temp_dir.path().join("HASHES.sha256");
-    write_hashes(&processed, &hashes_path, &misc_arc_path, &manifest_path)?;
+    write_hashes(&processed, &hashes_path, &misc_arc_path, &raw_arc_path, &manifest_path)?;
 
     let zstd = make_zstd(3);
     zstd.archive_dir_tar_zst(temp_dir.path(), output_archive)
@@ -1289,6 +1318,25 @@ fn create_misc_arc(processed: &[ProcessedFile], output_arc: &Path, compression_l
         return Ok(());
     }
 
+    create_freearc_bundle(&misc, output_arc, compression_level)
+}
+
+fn create_raw_arc(processed: &[ProcessedFile], output_arc: &Path) -> Result<()> {
+    let raw: Vec<&ProcessedFile> = processed.iter().filter(|p| p.class == FileClass::Raw).collect();
+    if raw.is_empty() {
+        return Ok(());
+    }
+
+    // RAW files are large and already lossless; always use the highest available
+    // FreeArc level in this path instead of the user-tuned mixed-content setting.
+    create_freearc_bundle(&raw, output_arc, 9)
+}
+
+fn create_freearc_bundle(files: &[&ProcessedFile], output_arc: &Path, compression_level: i32) -> Result<()> {
+    if files.is_empty() {
+        return Ok(());
+    }
+
     let f = std::fs::File::create(output_arc)
         .with_context(|| format!("Failed to create {}", output_arc.display()))?;
     let mut writer = std::io::BufWriter::new(f);
@@ -1305,7 +1353,7 @@ fn create_misc_arc(processed: &[ProcessedFile], output_arc: &Path, compression_l
 
     let mut name_counts: HashMap<String, usize> = HashMap::new();
 
-    for item in misc {
+    for item in files {
         let data = std::fs::read(&item.output_path)?;
         let mut name = item
             .output_path
@@ -1359,7 +1407,13 @@ fn write_manifest(processed: &[ProcessedFile], skipped: &[PathBuf], manifest_pat
     Ok(())
 }
 
-fn write_hashes(processed: &[ProcessedFile], hashes_path: &Path, misc_arc_path: &Path, manifest_path: &Path) -> Result<()> {
+fn write_hashes(
+    processed: &[ProcessedFile],
+    hashes_path: &Path,
+    misc_arc_path: &Path,
+    raw_arc_path: &Path,
+    manifest_path: &Path,
+) -> Result<()> {
     let mut hashes: Vec<(String, String)> = Vec::new();
 
     for p in processed {
@@ -1371,6 +1425,11 @@ fn write_hashes(processed: &[ProcessedFile], hashes_path: &Path, misc_arc_path: 
     if misc_arc_path.exists() {
         let h = hash::sha256_file_hex(misc_arc_path)?;
         hashes.push((h, "misc.arc".to_string()));
+    }
+
+    if raw_arc_path.exists() {
+        let h = hash::sha256_file_hex(raw_arc_path)?;
+        hashes.push((h, "raw.arc".to_string()));
     }
 
     if manifest_path.exists() {
@@ -1495,6 +1554,9 @@ pub fn extract_archive_with_decoding(
 
     let mut decoded_count = 0usize;
 
+    extract_inner_freearc_bundle(&output_dir.join("misc.arc"), &output_dir.join("misc"))?;
+    extract_inner_freearc_bundle(&output_dir.join("raw.arc"), &output_dir.join("raw"))?;
+
     // Load metadata if available
     let metadata_path = output_dir.join("OPENARC_METADATA.json");
     let metadata: Option<ArchiveMetadata> = if metadata_path.exists() {
@@ -1533,13 +1595,17 @@ pub fn extract_archive_with_decoding(
                         decoded_count += 1;
 
                         // Rename to original filename if different
+                        let ext = output_path
+                            .extension()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or_else(|| img_meta.original_format.extraction_extension());
                         let target_name = format!(
                             "{}.{}",
                             Path::new(&img_meta.original_filename)
                                 .file_stem()
                                 .and_then(|s| s.to_str())
                                 .unwrap_or("image"),
-                            img_meta.original_format.extraction_extension()
+                            ext
                         );
                         let target_path = output_path.parent().unwrap().join(&target_name);
                         if output_path != target_path {
@@ -1585,6 +1651,25 @@ pub fn extract_archive_with_decoding(
         total_size,
         decoded_files: decoded_count,
     })
+}
+
+fn extract_inner_freearc_bundle(archive_path: &Path, output_dir: &Path) -> Result<()> {
+    if !archive_path.exists() {
+        return Ok(());
+    }
+
+    fs::create_dir_all(output_dir)
+        .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
+
+    let file = fs::File::open(archive_path)
+        .with_context(|| format!("Failed to open {}", archive_path.display()))?;
+    let mut reader = FreeArcReader::new(std::io::BufReader::new(file), None)
+        .with_context(|| format!("Failed to read {}", archive_path.display()))?;
+    reader.extract_all(output_dir)
+        .with_context(|| format!("Failed to extract {}", archive_path.display()))?;
+
+    let _ = fs::remove_file(archive_path);
+    Ok(())
 }
 
 /// Decode a BPG file back to its original format

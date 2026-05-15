@@ -1,2 +1,7 @@
-[build]
-target = "x86_64-pc-windows-gnu"
+# Freya aliases are routed through the local xtask helper so they can choose a
+# native Linux/macOS build or Windows MSVC build based on the host OS.
+
+[alias]
+freya = "run -p openarc-xtask -- freya"
+freya-check = "run -p openarc-xtask -- freya-check"
+freya-mocked = "run -p openarc-xtask -- freya-mocked"

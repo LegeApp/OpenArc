@@ -12,7 +12,10 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::bpg_wrapper::{self, BpgConfig};
 use crate::file_tracker::{FileTracker, ProcessedFileRecord};
 use crate::hash;
-use crate::orchestrator::{create_archive, extract_archive, OrchestratorSettings};
+use crate::phone_backup;
+use crate::orchestrator::{
+    create_archive, extract_archive_with_decoding, ExtractionSettings, OrchestratorSettings,
+};
 use codecs::ffmpeg::{FfmpegEncodeOptions, FFmpegEncoder, VideoCodec, VideoSpeedPreset};
 use codecs::video_analyzer::analyze_video_compression;
 
@@ -53,8 +56,10 @@ pub enum ProcessingMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StartAction {
-    EncodeWorkflow,
-    ExtractArchive,
+    ArchiveNoReencode,
+    ArchiveWithReencode,
+    ExtractNoReencode,
+    ExtractWithReencode,
 }
 
 pub struct InteractiveConfig {
@@ -72,6 +77,8 @@ pub struct InteractiveConfig {
     pub mode: ProcessingMode,
     pub output_path: PathBuf,
     pub input_paths: Vec<PathBuf>,
+    pub reencode_media: bool,
+    pub catalog_db_path: Option<PathBuf>,
 }
 
 impl Default for InteractiveConfig {
@@ -91,6 +98,8 @@ impl Default for InteractiveConfig {
             mode: ProcessingMode::EncodeAndArchive,
             output_path: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             input_paths: Vec::new(),
+            reencode_media: true,
+            catalog_db_path: None,
         }
     }
 }
@@ -108,25 +117,58 @@ pub fn run_interactive() -> Result<()> {
     println!("images (to BPG) and videos (to H.264/H.265).\n");
 
     let action = prompt_start_action()?;
-    if action == StartAction::ExtractArchive {
-        return run_extract_interactive();
+    if matches!(action, StartAction::ExtractNoReencode | StartAction::ExtractWithReencode) {
+        let decode_images = matches!(action, StartAction::ExtractWithReencode);
+        return run_extract_interactive(decode_images);
     }
 
     let mut config = InteractiveConfig::default();
+    config.reencode_media = matches!(action, StartAction::ArchiveWithReencode);
 
-    // Step 1: Collect input paths (most important - emphasized)
+    // Step 1: Collect input paths (or auto-stage phone if detected)
     println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
     println!("{}Step 1/4: Input Files & Folders{}", COLORS.highlight, COLORS.reset);
     println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
-    config.input_paths = collect_input_paths()?;
+    if let Some(staged_phone) = maybe_prepare_phone_input()? {
+        config.input_paths = vec![staged_phone.staged_root.clone()];
+        config.catalog_db_path = Some(staged_phone.catalog_db_path.clone());
+        println!(
+            "{}✓ Phone detected: {}{}",
+            COLORS.success, staged_phone.display_name, COLORS.reset
+        );
+        println!(
+            "{}  Staged files: {} (copied: {}, reused: {}){}",
+            COLORS.info,
+            staged_phone.total_files,
+            staged_phone.copied_files,
+            staged_phone.reused_files,
+            COLORS.reset
+        );
+        println!(
+            "{}  Staging folder: {}{}",
+            COLORS.info,
+            staged_phone.staged_root.display(),
+            COLORS.reset
+        );
+    } else {
+        config.input_paths = collect_input_paths()?;
+    }
 
     if config.input_paths.is_empty() {
         println!("{}No files selected. Exiting.{}", COLORS.warning, COLORS.reset);
         return Ok(());
     }
 
-    let media_files = validate_and_expand_paths(&config.input_paths)?;
-    println!("\n{}✓ Found {} media files{}", COLORS.success, media_files.len(), COLORS.reset);
+    let media_files = if config.catalog_db_path.is_some() {
+        crate::orchestrator::collect_files(&config.input_paths)?
+    } else {
+        validate_and_expand_paths(&config.input_paths)?
+    };
+    if media_files.is_empty() {
+        println!("{}No files found. Exiting.{}", COLORS.warning, COLORS.reset);
+        return Ok(());
+    }
+    println!("\n{}✓ Found {} files{}", COLORS.success, media_files.len(), COLORS.reset);
 
     // Step 2: Image & Video Settings
     println!("\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
@@ -134,16 +176,11 @@ pub fn run_interactive() -> Result<()> {
     println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
     prompt_compression_settings(&mut config)?;
 
-    // Step 3: Processing Mode
+    // Step 3: Output Location
     println!("\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
-    println!("{}Step 3/4: Processing Mode{}", COLORS.highlight, COLORS.reset);
+    println!("{}Step 3/3: Output Location{}", COLORS.highlight, COLORS.reset);
     println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
-    config.mode = prompt_processing_mode()?;
-
-    // Step 4: Output Directory
-    println!("\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
-    println!("{}Step 4/4: Output Location{}", COLORS.highlight, COLORS.reset);
-    println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
+    config.mode = ProcessingMode::EncodeAndArchive;
     config.output_path = prompt_output_location(&config.mode)?;
 
     // Summary and confirmation
@@ -163,25 +200,34 @@ pub fn run_interactive() -> Result<()> {
 fn prompt_start_action() -> Result<StartAction> {
     println!("{}Choose action:{}", COLORS.info, COLORS.reset);
     println!(
-        "[1] {}Encode/Archive{} - Create compressed .oarc archive",
+        "[1] {}Compress (No Re-encode){} - Archive originals as-is",
         COLORS.highlight, COLORS.reset
     );
     println!(
-        "[2] {}Extract Archive{} - Extract existing .oarc archive",
+        "[2] {}Compress (Re-encode){} - Images→BPG, videos→H.264/H.265",
         COLORS.highlight, COLORS.reset
     );
-    print!("{}Choice [1]:{} ", COLORS.prompt, COLORS.reset);
+    println!(
+        "[3] {}Extract (No Re-encode){} - Keep archived encoded files",
+        COLORS.highlight, COLORS.reset
+    );
+    println!(
+        "[4] {}Extract (Re-encode){} - Decode media back from archive",
+        COLORS.highlight, COLORS.reset
+    );
+    print!("{}Choice [2]:{} ", COLORS.prompt, COLORS.reset);
     io::stdout().flush()?;
 
-    let choice = read_number_or_default(1, 1, 2)?;
-    Ok(if choice == 2 {
-        StartAction::ExtractArchive
-    } else {
-        StartAction::EncodeWorkflow
+    let choice = read_number_or_default(2, 1, 4)?;
+    Ok(match choice {
+        1 => StartAction::ArchiveNoReencode,
+        2 => StartAction::ArchiveWithReencode,
+        3 => StartAction::ExtractNoReencode,
+        _ => StartAction::ExtractWithReencode,
     })
 }
 
-fn run_extract_interactive() -> Result<()> {
+fn run_extract_interactive(decode_images: bool) -> Result<()> {
     println!("\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
     println!("{}Archive Extraction{}", COLORS.highlight, COLORS.reset);
     println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
@@ -190,7 +236,8 @@ fn run_extract_interactive() -> Result<()> {
     io::stdout().flush()?;
     let mut archive_input = String::new();
     io::stdin().read_line(&mut archive_input)?;
-    let archive_path = PathBuf::from(archive_input.trim());
+    let archive_raw = archive_input.trim().trim_matches('"');
+    let archive_path = PathBuf::from(archive_raw);
     if archive_path.as_os_str().is_empty() {
         return Err(anyhow!("No archive path provided"));
     }
@@ -211,11 +258,15 @@ fn run_extract_interactive() -> Result<()> {
     let output_dir = if output_input.trim().is_empty() {
         default_output
     } else {
-        PathBuf::from(output_input.trim())
+        PathBuf::from(output_input.trim().trim_matches('"'))
     };
 
     println!("\nArchive: {}", archive_path.display());
     println!("Output:  {}", output_dir.display());
+    println!(
+        "Decode mode: {}",
+        if decode_images { "re-encode on extract" } else { "no re-encode (keep archived media formats)" }
+    );
     println!("\n{}Press Enter to start extraction, or Ctrl+C to cancel...{}", COLORS.prompt, COLORS.reset);
     let mut confirm = String::new();
     io::stdin().read_line(&mut confirm)?;
@@ -235,10 +286,14 @@ fn run_extract_interactive() -> Result<()> {
         pb_clone.set_message(msg.to_string());
     });
 
-    let result = extract_archive(
+    let result = extract_archive_with_decoding(
         &archive_path,
         &output_dir,
         OrchestratorSettings::default().compression_level,
+        ExtractionSettings {
+            decode_images,
+            ..ExtractionSettings::default()
+        },
         Some(progress_fn),
     )?;
     pb.finish_with_message("Complete!");
@@ -253,6 +308,65 @@ fn run_extract_interactive() -> Result<()> {
     println!("  • Output: {}", output_dir.display());
 
     Ok(())
+}
+
+fn maybe_prepare_phone_input() -> Result<Option<phone_backup::StagedPhoneInput>> {
+    let phones = match phone_backup::detect_phones() {
+        Ok(phones) => phones,
+        Err(e) => {
+            eprintln!(
+                "{}Phone detection failed (continuing with manual paths): {}{}",
+                COLORS.warning, e, COLORS.reset
+            );
+            return Ok(None);
+        }
+    };
+
+    if phones.is_empty() {
+        return Ok(None);
+    }
+
+    println!("{}Detected connected phone source(s):{}", COLORS.info, COLORS.reset);
+    for (idx, phone) in phones.iter().enumerate() {
+        let source = match phone.source_kind {
+            phone_backup::PhoneSourceKind::Mtp => "MTP",
+            phone_backup::PhoneSourceKind::MountedFilesystem => "mounted storage",
+        };
+        println!(
+            "  [{}] {} ({})",
+            idx + 1,
+            phone.display_name,
+            source
+        );
+    }
+
+    let selected = if phones.len() == 1 {
+        phones[0].clone()
+    } else {
+        print!("{}Choose phone source [1]:{} ", COLORS.prompt, COLORS.reset);
+        io::stdout().flush()?;
+        let selected_idx = read_number_or_default(1, 1, phones.len() as i32)? as usize - 1;
+        phones
+            .get(selected_idx)
+            .cloned()
+            .ok_or_else(|| anyhow!("Invalid phone selection"))?
+    };
+
+    print!(
+        "{}Use this phone as input and stage files now? (Y/n):{} ",
+        COLORS.prompt, COLORS.reset
+    );
+    io::stdout().flush()?;
+    if !read_yes_no(true)? {
+        return Ok(None);
+    }
+
+    println!(
+        "{}Staging phone media folders (Documents/Downloads/Pictures/DCIM/Videos)...{}",
+        COLORS.processing, COLORS.reset
+    );
+    let staged = phone_backup::stage_phone_media(&selected)?;
+    Ok(Some(staged))
 }
 
 // ============================================================================
@@ -545,31 +659,48 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
 
     println!("\n{}Files to process:{} {}", COLORS.info, COLORS.reset, media_files.len());
 
-    // Count images vs videos
+    // Count file classes for summary output
     let image_count = media_files.iter().filter(|p| is_image_file(p)).count();
-    let video_count = media_files.len() - image_count;
+    let video_count = media_files.iter().filter(|p| is_video_file(p)).count();
+    let misc_count = media_files.len().saturating_sub(image_count + video_count);
 
-    if image_count > 0 {
-        println!("  • {} images → BPG (quality: {}, {}-bit)",
-            image_count, config.bpg_quality, config.bpg_bit_depth);
-    }
-    if video_count > 0 {
-        println!("  • {} videos → {} (CRF: {}, {})",
-            video_count, config.video_codec.to_uppercase(), config.video_crf, config.video_preset);
+    if config.reencode_media {
+        if image_count > 0 {
+            println!("  • {} images → BPG (quality: {}, {}-bit)",
+                image_count, config.bpg_quality, config.bpg_bit_depth);
+        }
+        if video_count > 0 {
+            println!("  • {} videos → {} (CRF: {}, {})",
+                video_count, config.video_codec.to_uppercase(), config.video_crf, config.video_preset);
+        }
+        if misc_count > 0 {
+            println!("  • {} other files archived as-is", misc_count);
+        }
+    } else {
+        println!("  • Media files archived as-is (no image/video transcoding)");
+        if misc_count > 0 {
+            println!("  • Other files archived as-is: {}", misc_count);
+        }
     }
 
-    println!("\n{}Mode:{} {}",
-        COLORS.info, COLORS.reset,
-        if config.mode == ProcessingMode::EncodeOnly {
-            "Encode Only"
+    println!(
+        "\n{}Mode:{} {}",
+        COLORS.info,
+        COLORS.reset,
+        if config.reencode_media {
+            "Compress + Archive (re-encode)"
         } else {
-            "Encode + Archive"
-        });
+            "Compress + Archive (no re-encode)"
+        }
+    );
 
     if config.mode == ProcessingMode::EncodeAndArchive {
         println!("{}Archive:{} {}", COLORS.info, COLORS.reset, config.output_path.display());
         println!("  • Compression: level {}", config.compression_level);
         println!("  • Catalog: {}", if config.enable_catalog { "enabled" } else { "disabled" });
+        if let Some(ref catalog_path) = config.catalog_db_path {
+            println!("  • Catalog DB: {}", catalog_path.display());
+        }
         println!("  • Deduplication: {}", if config.enable_dedup { "enabled" } else { "disabled" });
         println!("  • File tracking: {}", if config.enable_tracking { "enabled" } else { "disabled" });
     } else {
@@ -596,12 +727,14 @@ fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Resul
                 video_crf: config.video_crf,
                 compression_level: config.compression_level,
                 enable_catalog: config.enable_catalog,
+                catalog_db_path: config.catalog_db_path.clone(),
                 enable_dedup: config.enable_dedup,
                 skip_already_compressed_videos: config.skip_compressed_videos,
                 staging_dir: None,
                 heic_quality: 90,
                 jpeg_quality: 92,
                 enable_tracking: config.enable_tracking,
+                reencode_media: config.reencode_media,
             };
 
             let pb = ProgressBar::new(100);

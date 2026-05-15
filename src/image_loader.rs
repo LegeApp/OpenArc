@@ -27,12 +27,26 @@ fn is_jpeg(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn is_jpeg2000(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| matches!(e.to_lowercase().as_str(), "jp2" | "j2k" | "j2c" | "jpc" | "jpt" | "jph" | "jhc"))
+        .unwrap_or(false)
+}
+
+fn decode_jpeg2000_in_process(path: &Path) -> Result<DecodedImage> {
+    let img = codecs::jpeg2000::decode_jpeg2000_file(path)?;
+    Ok(DecodedImage { img })
+}
+
 /// Load an image from a file
 /// Uses zune-jpeg for JPEG files (faster), image crate for everything else
 pub fn load_image(path: &Path) -> Result<DecodedImage> {
     if is_jpeg(path) {
         // Use zune-jpeg for faster JPEG decoding
         decode_jpeg_from_file(path)
+    } else if is_jpeg2000(path) {
+        decode_jpeg2000_in_process(path)
     } else {
         // Use image crate for all other formats (PNG, WebP, TIFF, BMP, etc.)
         let img = image::open(path)
