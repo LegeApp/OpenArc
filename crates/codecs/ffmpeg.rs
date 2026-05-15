@@ -1,10 +1,8 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
 
 use anyhow::{anyhow, Result};
-use libloading::Library;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoCodec {
@@ -37,31 +35,17 @@ impl VideoSpeedPreset {
     }
 }
 
-fn openarc_ffmpeg_library_path() -> Result<PathBuf> {
-    let exe = std::env::current_exe()?;
-    let dir = exe
-        .parent()
-        .ok_or_else(|| anyhow!("Failed to resolve executable directory"))?;
+extern "C" {
+    fn openarc_ffmpeg_transcode(
+        input_path: *const c_char,
+        output_path: *const c_char,
+        codec: c_int,
+        preset: *const c_char,
+        crf: c_int,
+        copy_audio: c_int,
+    ) -> c_int;
 
-    let candidates: &[&str] = if cfg!(target_os = "windows") {
-        &["openarc_ffmpeg.dll"]
-    } else if cfg!(target_os = "macos") {
-        &["libopenarc_ffmpeg.dylib", "openarc_ffmpeg.dylib"]
-    } else {
-        &["libopenarc_ffmpeg.so", "openarc_ffmpeg.so"]
-    };
-
-    for name in candidates {
-        let p = dir.join(name);
-        if p.exists() {
-            return Ok(p);
-        }
-    }
-
-    Err(anyhow!(
-        "FFmpeg bridge library not found next to executable (tried: {})",
-        candidates.join(", ")
-    ))
+    fn openarc_ffmpeg_strerror(err: c_int, buf: *mut c_char, buf_size: c_int) -> c_int;
 }
 
 #[derive(Debug, Clone)]
@@ -123,37 +107,11 @@ impl FFmpegEncoder {
         let output_c = CString::new(output.to_string_lossy().as_bytes())?;
         let preset_c = CString::new(preset)?;
 
-        let crf = self.options.effective_crf() as i32;
-        let copy_audio = if self.options.copy_audio { 1 } else { 0 };
-
-        let lib_path = match openarc_ffmpeg_library_path() {
-            Ok(p) => p,
-            Err(_) => {
-                return self.encode_file_via_cli(input, output);
-            }
-        };
-        let lib = match unsafe { Library::new(&lib_path) } {
-            Ok(lib) => lib,
-            Err(_) => return self.encode_file_via_cli(input, output),
-        };
-
-        type TranscodeFn = unsafe extern "C" fn(
-            *const c_char,
-            *const c_char,
-            c_int,
-            *const c_char,
-            c_int,
-            c_int,
-        ) -> c_int;
-        type StrerrorFn = unsafe extern "C" fn(c_int, *mut c_char, c_int) -> c_int;
-
-        let transcode: libloading::Symbol<TranscodeFn> = unsafe { lib.get(b"openarc_ffmpeg_transcode\0") }
-            .map_err(|e| anyhow!("Missing symbol openarc_ffmpeg_transcode: {}", e))?;
-        let strerror: libloading::Symbol<StrerrorFn> = unsafe { lib.get(b"openarc_ffmpeg_strerror\0") }
-            .map_err(|e| anyhow!("Missing symbol openarc_ffmpeg_strerror: {}", e))?;
+        let crf = self.options.effective_crf() as c_int;
+        let copy_audio: c_int = if self.options.copy_audio { 1 } else { 0 };
 
         let ret = unsafe {
-            transcode(
+            openarc_ffmpeg_transcode(
                 input_c.as_ptr(),
                 output_c.as_ptr(),
                 codec,
@@ -166,7 +124,7 @@ impl FFmpegEncoder {
         if ret < 0 {
             return Err(anyhow!(
                 "FFmpeg transcode failed: {} ({})",
-                ffmpeg_err_to_string(ret, &strerror),
+                ffmpeg_err_to_string(ret),
                 ret
             ));
         }
@@ -175,51 +133,9 @@ impl FFmpegEncoder {
     }
 }
 
-impl FFmpegEncoder {
-    fn encode_file_via_cli(&self, input: &Path, output: &Path) -> Result<()> {
-        let (codec_name, preset) = match self.options.codec {
-            VideoCodec::H264 => ("libx264", self.options.speed.as_x264_preset()),
-            VideoCodec::H265 => ("libx265", self.options.speed.as_x265_preset()),
-        };
-        let crf = self.options.effective_crf().to_string();
-
-        let mut cmd = Command::new("ffmpeg");
-        cmd.arg("-y")
-            .arg("-hide_banner")
-            .arg("-loglevel")
-            .arg("error")
-            .arg("-i")
-            .arg(input)
-            .arg("-c:v")
-            .arg(codec_name)
-            .arg("-preset")
-            .arg(preset)
-            .arg("-crf")
-            .arg(crf);
-
-        if self.options.copy_audio {
-            cmd.arg("-c:a").arg("copy");
-        } else {
-            cmd.arg("-an");
-        }
-
-        cmd.arg(output);
-        let out = cmd
-            .output()
-            .map_err(|e| anyhow!("Failed to execute ffmpeg CLI: {}", e))?;
-        if !out.status.success() {
-            return Err(anyhow!(
-                "ffmpeg CLI transcode failed: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
-        }
-        Ok(())
-    }
-}
-
-fn ffmpeg_err_to_string(err: i32, strerror: &libloading::Symbol<unsafe extern "C" fn(c_int, *mut c_char, c_int) -> c_int>) -> String {
+fn ffmpeg_err_to_string(err: c_int) -> String {
     let mut buf = vec![0 as c_char; 256];
-    let ret = unsafe { strerror(err, buf.as_mut_ptr(), buf.len() as c_int) };
+    let ret = unsafe { openarc_ffmpeg_strerror(err, buf.as_mut_ptr(), buf.len() as c_int) };
     if ret < 0 {
         return "unknown error".to_string();
     }

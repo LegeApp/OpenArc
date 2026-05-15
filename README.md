@@ -13,22 +13,16 @@ OpenArc is a CLI-first media archiver for photo and video folders. Point it at o
 
 ## Quick start
 
-### Linux
-
 ```bash
 git clone https://github.com/LegeApp/OpenArc.git
 cd OpenArc
-./build-linux-backend.sh --release
-./target/$(rustc -vV | sed -n 's/^host: //p')/release/openarc create -o archive.oarc ~/Pictures ~/Videos
+cargo dist
 ```
 
-### Windows
+That builds the codec C/C++ sources in-tree and produces a self-contained binary at `dist/openarc.exe` (Windows) or `dist/openarc` (Linux). See [`BUILDING.md`](BUILDING.md) for prerequisites (MSYS2 packages on Windows, `-dev` packages on Linux).
 
-```powershell
-git clone https://github.com/LegeApp/OpenArc.git
-cd OpenArc
-.\build-all.ps1 -Release
-.\dist\cli-runtime\openarc.exe create -o archive.oarc C:\Photos C:\Videos
+```bash
+./dist/openarc create -o archive.oarc ~/Pictures ~/Videos
 ```
 
 ## CLI usage
@@ -42,12 +36,9 @@ openarc list my-archive.oarc
 
 At the end of archive creation, the CLI prints how many RAW files were preserved separately and their total size.
 
-## Build entrypoints
+## Build
 
-- Windows: [`build-all.ps1`](/mnt/Samsung980_1TB/Rust-projects/openarc/build-all.ps1)
-- Linux: [`build-linux-backend.sh`](/mnt/Samsung980_1TB/Rust-projects/openarc/build-linux-backend.sh)
-
-See [`BUILDING.md`](/mnt/Samsung980_1TB/Rust-projects/openarc/BUILDING.md) for prerequisites and outputs.
+Single command: `cargo dist`. See [`BUILDING.md`](BUILDING.md) for prerequisites.
 
 ## Repository shape
 
@@ -55,11 +46,12 @@ See [`BUILDING.md`](/mnt/Samsung980_1TB/Rust-projects/openarc/BUILDING.md) for p
 OpenArc/
 ├── src/                    # CLI and archive orchestration
 ├── crates/
-│   ├── arcmax/            # FreeArc implementation
-│   ├── codecs/            # BPG, ffmpeg, HEIC, camera-source support
-│   ├── zune-image/        # vendored image workspace
-│   └── winmtp/            # Windows MTP helper
-├── native/               # vendored native dependencies and build trees
-├── openjp2/              # JPEG2000 tooling
-└── xtask/                # small cargo helper tasks
+│   ├── arcmax/             # FreeArc implementation (C++ compiled by build.rs)
+│   ├── codecs/             # BPG + FFmpeg wrappers (compiled by build.rs)
+│   ├── zune-image/         # vendored image workspace
+│   └── winmtp/             # Windows MTP helper
+├── native/                 # vendored C/C++ sources (BPG, heic-decoder, etc.)
+├── openjp2/                # JPEG2000 tooling
+├── xtask/                  # `cargo dist` helper
+└── dist/                   # build output: openarc.exe
 ```

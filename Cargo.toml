@@ -3,6 +3,7 @@ members = [
     "crates/arcmax",
     "crates/codecs",
     "crates/zune-image",
+    "xtask",
 ]
 default-members = ["."]
 exclude = [
@@ -158,6 +159,3 @@ path = "src/lib.rs"
 [[bin]]
 name = "openarc"
 path = "src/main.rs"
-
-[build-dependencies]
-# No external dependencies needed - build.rs uses only std
