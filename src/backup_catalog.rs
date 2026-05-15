@@ -3,6 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use crate::hash;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BackupEntry {
@@ -110,17 +111,35 @@ impl BackupCatalog {
         let current_size = metadata.len();
         let current_mtime = get_mtime_secs(&metadata)?;
 
-        let entry: Option<(u64, u64)> = self
+        let entry: Option<(u64, u64, Option<String>)> = self
             .conn
             .query_row(
-                "SELECT size, mtime_secs FROM backed_up_files WHERE path = ?1",
+                "SELECT size, mtime_secs, sha256 FROM backed_up_files WHERE path = ?1",
                 params![&path_str],
-                |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64)),
+                |row| Ok((
+                    row.get::<_, i64>(0)? as u64,
+                    row.get::<_, i64>(1)? as u64,
+                    row.get::<_, Option<String>>(2)?,
+                )),
             )
             .optional()
             .context("Failed to query catalog")?;
 
-        Ok(entry.map(|(cat_size, cat_mtime)| cat_size == current_size && cat_mtime == current_mtime))
+        Ok(entry.map(|(cat_size, cat_mtime, cat_sha256)| {
+            if cat_size == current_size && cat_mtime == current_mtime {
+                return true;
+            }
+
+            if cat_size == current_size {
+                if let Some(expected_hash) = cat_sha256 {
+                    if let Ok(current_hash) = hash::sha256_file_hex(file_path.as_ref()) {
+                        return current_hash == expected_hash;
+                    }
+                }
+            }
+
+            false
+        }))
     }
 
     pub fn filter_files_to_backup(&self, file_paths: Vec<PathBuf>) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {

@@ -9,10 +9,10 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+.vscode/
 
 # User-specific files
 *.userprefs
-.vscode/
 
 # Temporary files
 *.tmp
@@ -30,26 +30,53 @@ temp/
 # Local build artifacts that can be regenerated
 **/Debug/**
 **/Release/**
+**/bin/**
+# Do not ignore Rust binary *sources* under openjp2-tools (pattern above matches any `bin/` segment).
+!openjp2/tools/src/bin/
+!openjp2/tools/src/bin/**
+**/obj/**
+Release_CLI/
+Release_GUI_Standalone/
+dist/
 
 # Temporary build files
 *.obj
 *.o
 *.a
-*.lib
 *.pdb
 *.ilk
+*.dll
+*.exe
+*.so
+*.rlib
+*.rmeta
+*.d
+*.bak
+CACHEDIR.TAG
+**/release/**
+**/debug/**
 
 # Log files
 *.log
+*.out
+*.err
 
 # Windows-specific files
 nul
 
-# Unwanted folders for this PR
-bpg-viewer/
+# Local / optional folders
 llm-doc/
-quick-image-viewer/
+misc/
+.codex
+crates/bpg-viewer/
+dng-rs/
+native/LibRaw-0.22.1/
+bpg-viewer/
+gui/
 
-# Exclude markdown files except README
-*.md
-!README.md
+# Local images / screenshots
+screen.jpg
+Screenshot*.png
+
+# marc2332/rust-skia @ 0.96.1 (required by [patch.crates-io] in gui/Freya/Cargo.toml)
+rust-skia/

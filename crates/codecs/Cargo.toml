@@ -1,0 +1,26 @@
+[package]
+name = "codecs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "BPG, HEIC, and FFmpeg codec implementations for OpenArc"
+
+[dependencies]
+openjp2-tools = { path = "../../openjp2/tools", default-features = false, features = ["lcms2"] }
+anyhow.workspace = true
+thiserror.workspace = true
+lcms2.workspace = true
+libloading.workspace = true
+infer.workspace = true
+tempfile.workspace = true
+image.workspace = true
+which = "8.0"
+# Pure Rust HEIC decoder - vendored newer implementation with frame-level YUV access
+heic-decoder = { package = "heic_decoder_original", path = "../../native/heic-decoder-rs", features = ["parallel"] }
+
+[build-dependencies]
+cc = "1.2"
+
+[lib]
+name = "codecs"
+path = "mod.rs"

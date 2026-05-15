@@ -1,135 +1,97 @@
-# OpenArc Complete Build Script
-# Builds all components: codecs, Rust workspace, and DocBrakeGUI
-
 param(
-    [switch]$Release
+    [switch]$Debug,
+    [switch]$Release,
+    [switch]$SkipCodecs,
+    [switch]$SkipRuntimeStage,
+    [string]$Target = "x86_64-pc-windows-gnu"
 )
 
-$ErrorActionPreference = "Stop"
-
-Write-Host "=== OpenArc Complete Build ===" -ForegroundColor Cyan
-Write-Host ""
-
-$buildConfig = if ($Release) { "Release" } else { "Debug" }
-
-Write-Host "Build Configuration: $buildConfig" -ForegroundColor Yellow
-Write-Host ""
-
-# Step 1: Build codecs
-Write-Host "Step 1: Building codec dependencies..." -ForegroundColor Green
-Push-Location "$PSScriptRoot\BPG\libbpg-0.9.8"
-try {
-    & "$PSScriptRoot\BPG\libbpg-0.9.8\build_complete.bat"
-    if ($LASTEXITCODE -ne 0) {
-        throw "BPG codec build failed"
-    }
-} finally {
-    Pop-Location
+if ($Debug -and $Release) {
+    throw "Use either -Debug or -Release, not both."
 }
 
-# Build FreeArc codecs if needed
-$freeArcCodecDir = "$PSScriptRoot\arcmax"
-$codecMakefile = Join-Path $freeArcCodecDir "codec_staging\Makefile"
-if (Test-Path $codecMakefile) {
-    Push-Location (Split-Path $codecMakefile -Parent)
+$RustRelease = $Release -or (-not $Debug)
+$ErrorActionPreference = "Stop"
+
+Write-Host "=== OpenArc Windows CLI Build ===" -ForegroundColor Cyan
+Write-Host "Target: $Target" -ForegroundColor Gray
+Write-Host "Mode: $(if ($RustRelease) { 'Release' } else { 'Debug' })" -ForegroundColor Gray
+Write-Host "GUI build: disabled" -ForegroundColor Gray
+Write-Host ""
+
+if (-not $SkipCodecs) {
+    Write-Host "[1/3] Building native codec dependencies..." -ForegroundColor Green
+
+    Push-Location "$PSScriptRoot\native\BPG\libbpg-0.9.8"
     try {
-        Write-Host "Building FreeArc codecs via Makefile..." -ForegroundColor Green
-        make -j4
+        & "$PSScriptRoot\native\BPG\libbpg-0.9.8\build_complete.bat"
         if ($LASTEXITCODE -ne 0) {
-            throw "FreeArc codec Makefile build failed"
+            throw "BPG codec build failed"
         }
     } finally {
         Pop-Location
     }
-} else {
-    $buildCodecsScript = Join-Path $freeArcCodecDir "build_codecs.ps1"
-    if (Test-Path $buildCodecsScript) {
-        Write-Host "Running build_codecs.ps1 to build FreeArc codecs..." -ForegroundColor Green
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildCodecsScript
-        if ($LASTEXITCODE -ne 0) {
-            throw "FreeArc codec build script failed"
-        }
-    } else {
-        throw "FreeArc codec build tooling not found (Makefile or build_codecs.ps1)."
+
+    $buildCodecsScript = Join-Path $PSScriptRoot "crates\arcmax\build_codecs.ps1"
+    if (-not (Test-Path $buildCodecsScript)) {
+        throw "ArcMax codec build script not found at $buildCodecsScript"
     }
+
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $buildCodecsScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "ArcMax codec build failed"
+    }
+} else {
+    Write-Host "[1/3] Skipping native codec dependencies (--SkipCodecs)." -ForegroundColor Yellow
 }
 
-# Step 2: Build Rust workspace (CLI, Core, ArcMax, ZSTD, FFI, BPG-Viewer)
 Write-Host ""
-Write-Host "Step 2: Building Rust workspace components..." -ForegroundColor Green
-Write-Host "  - openarc (Unified CLI with arcmax commands)"
-Write-Host "  - openarc-ffi (FFI library for GUI)"
-Write-Host "  - bpg-viewer (BPG processing library)"
-Write-Host "  - arcmax (Compression library - merged into CLI)"
-Write-Host "  - codecs (Image/video codec support)"
-
-Push-Location "$PSScriptRoot"
+Write-Host "[2/3] Building openarc CLI..." -ForegroundColor Green
+Push-Location $PSScriptRoot
 try {
-    if ($Release) {
-        cargo build --release --workspace --exclude codecs
-    } else {
-        cargo build --workspace --exclude codecs
+    $cargoArgs = @("build", "-p", "openarc", "--bin", "openarc", "--target", $Target)
+    if ($RustRelease) {
+        $cargoArgs += "--release"
     }
+    & cargo @cargoArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Rust workspace build failed"
+        throw "cargo build failed"
     }
 } finally {
     Pop-Location
 }
 
-# Step 3: Build DocBrakeGUI (Self-Contained Single File)
 Write-Host ""
-Write-Host "Step 3: Building DocBrakeGUI (Self-Contained)..." -ForegroundColor Green
-Write-Host "  This will create a single ~150MB executable with all dependencies embedded" -ForegroundColor Yellow
-
-Push-Location "$PSScriptRoot\DocBrakeGUI"
-try {
-    # Use dotnet publish for self-contained single-file output
-    dotnet publish DocBrakeGUI.csproj -c Release -o "$PSScriptRoot\Release"
-    if ($LASTEXITCODE -ne 0) {
-        throw "DocBrakeGUI publish failed"
+if (-not $SkipRuntimeStage) {
+    Write-Host "[3/3] Staging Windows CLI runtime..." -ForegroundColor Green
+    $runtimeArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", (Join-Path $PSScriptRoot "build-cli-runtime.ps1"),
+        "-Target", $Target,
+        "-SkipBuild"
+    )
+    if ($RustRelease) {
+        # build-cli-runtime.ps1 always stages the release binary; enforce that here.
+    } elseif ($Debug) {
+        throw "Debug cargo builds are not supported with runtime staging. Re-run with -SkipRuntimeStage or release mode."
     }
-} finally {
-    Pop-Location
-}
 
-# Copy the CLI executable to Release folder
-Write-Host ""
-Write-Host "Step 4: Copying CLI executable..." -ForegroundColor Green
-$cliSource = if ($Release) { "$PSScriptRoot\target\release\openarc.exe" } else { "$PSScriptRoot\target\debug\openarc.exe" }
-if (Test-Path $cliSource) {
-    Copy-Item -Path $cliSource -Destination "$PSScriptRoot\Release\openarc.exe" -Force
-    Write-Host "  Copied: openarc.exe (~30MB)" -ForegroundColor Cyan
+    & powershell @runtimeArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "Runtime staging failed"
+    }
 } else {
-    Write-Host "  Warning: openarc.exe not found at $cliSource" -ForegroundColor Yellow
+    Write-Host "[3/3] Skipping runtime staging (--SkipRuntimeStage)." -ForegroundColor Yellow
 }
 
 Write-Host ""
-Write-Host ""
-Write-Host "=== Build Complete ===" -ForegroundColor Green
-Write-Host ""
-Write-Host "Built components:" -ForegroundColor Cyan
-Write-Host "  - openarc (Unified CLI - includes arcmax compression commands)"
-Write-Host "  - openarc-ffi (FFI library for GUI interop)"
-Write-Host "  - bpg-viewer (BPG processing library)"
-Write-Host "  - arcmax (Compression library - integrated into CLI)"
-Write-Host "  - codecs (Image/video codec support)"
-Write-Host "  - DocBrakeGUI (Self-Contained WPF GUI)"
-Write-Host ""
-
-Write-Host "Final executables in Release folder:" -ForegroundColor Yellow
-$releaseDir = "$PSScriptRoot\Release"
-if (Test-Path "$releaseDir\DocBrakeGUI.exe") {
-    $guiSize = (Get-Item "$releaseDir\DocBrakeGUI.exe").Length / 1MB
-    Write-Host "  - DocBrakeGUI.exe: $([math]::Round($guiSize, 1)) MB (self-contained, includes all .NET runtime + native DLLs)"
+Write-Host "Build complete." -ForegroundColor Green
+if ($RustRelease) {
+    Write-Host "Binary: $PSScriptRoot\target\$Target\release\openarc.exe" -ForegroundColor Cyan
+} else {
+    Write-Host "Binary: $PSScriptRoot\target\$Target\debug\openarc.exe" -ForegroundColor Cyan
 }
-if (Test-Path "$releaseDir\openarc.exe") {
-    $cliSize = (Get-Item "$releaseDir\openarc.exe").Length / 1MB
-    Write-Host "  - openarc.exe: $([math]::Round($cliSize, 1)) MB (CLI tool)"
+if (-not $SkipRuntimeStage) {
+    Write-Host "Runtime bundle: $PSScriptRoot\dist\cli-runtime" -ForegroundColor Cyan
 }
-Write-Host ""
-Write-Host "Total deployment: Just these 2 executables!" -ForegroundColor Green
-Write-Host "  Location: $releaseDir" -ForegroundColor Cyan
-Write-Host ""
-
-# Remove staging section since we now have self-contained executables

@@ -61,6 +61,10 @@ pub enum Commands {
         /// Disable file-level tracking
         #[arg(long)]
         no_tracking: bool,
+
+        /// Archive media as-is (disable image/video re-encoding)
+        #[arg(long)]
+        no_reencode: bool,
     },
     
     /// Extract an archive
@@ -72,6 +76,10 @@ pub enum Commands {
         /// Output directory
         #[arg(short, long)]
         output: PathBuf,
+
+        /// Do not decode images back from archived formats on extraction
+        #[arg(long)]
+        no_reencode: bool,
     },
     
     /// List archive contents
@@ -193,4 +201,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "lzma2")]
         method: String,
     },
+
+    /// Detect connected phone devices (MTP on Windows, mounted media on Linux)
+    PhoneDetect,
 }

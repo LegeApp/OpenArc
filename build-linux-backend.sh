@@ -5,9 +5,8 @@ set -euo pipefail
 # Intentionally skips DocBrakeGUI/WPF and openarc-ffi/MTP.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BPG_DIR="$ROOT_DIR/BPG/libbpg-0.9.8"
-ARCMAX_DIR="$ROOT_DIR/arcmax"
-
+BPG_DIR="$ROOT_DIR/native/BPG/libbpg-0.9.8"
+ARCMAX_DIR="$ROOT_DIR/crates/arcmax"
 BUILD_MODE="release"
 SKIP_CODECS=0
 
@@ -71,6 +70,11 @@ if ! pkg-config --exists lcms2; then
   echo "Missing lcms2 development package (pkg-config lcms2 not found)." >&2
   exit 1
 fi
+if ! pkg-config --exists libavcodec libavformat libavutil libswscale; then
+  echo "Missing FFmpeg development packages (libavcodec/libavformat/libavutil/libswscale)." >&2
+  echo "Install ffmpeg dev packages (e.g. libavcodec-dev libavformat-dev libavutil-dev libswscale-dev)." >&2
+  exit 1
+fi
 
 rust_ver="$(rustc --version | awk '{print $2}')"
 rust_major="${rust_ver%%.*}"
@@ -109,16 +113,24 @@ if [[ "$SKIP_CODECS" -eq 0 ]]; then
   echo "\n[1/3] Building BPG native library..."
   make -C "$BPG_DIR" USE_JCTVC= clean >/dev/null 2>&1 || true
   make -C "$BPG_DIR" -j"$(nproc 2>/dev/null || echo 4)" USE_JCTVC= libbpg_native.a
-  mkdir -p "$ROOT_DIR/libs"
-  cp "$BPG_DIR/libbpg_native.a" "$ROOT_DIR/libs/libbpg_native.a"
+  mkdir -p "$ROOT_DIR/native/libs/linux"
+  cp "$BPG_DIR/libbpg_native.a" "$ROOT_DIR/native/libs/linux/libbpg_native.a"
 
   echo "\n[2/3] Building ArcMax codec staging libraries..."
   bash "$ARCMAX_DIR/build_codecs.sh"
+
+  echo "\n[3/3] Building Linux FFmpeg bridge (openarc_ffmpeg.so)..."
+  mkdir -p "$ROOT_DIR/dist/linux"
+  gcc -shared -fPIC -O2 \
+    -o "$ROOT_DIR/dist/linux/openarc_ffmpeg.so" \
+    "$ROOT_DIR/crates/codecs/ffmpeg_wrapper.c" \
+    $(pkg-config --cflags --libs libavcodec libavformat libavutil libswscale)
+
 else
-  echo "\n[1/3] Skipping native codec builds (--skip-codecs)."
+  echo "\n[skip] Skipping native codec builds (--skip-codecs)."
 fi
 
-echo "\n[3/3] Building CLI/backend crates only (no GUI/WPF, no MTP/FFI)..."
+echo "\n[final] Building CLI/backend crates only (no GUI/WPF, no MTP/FFI)..."
 if [[ "$BUILD_MODE" == "release" ]]; then
   cargo build --release --target "$HOST_TRIPLE" -p openarc
 else

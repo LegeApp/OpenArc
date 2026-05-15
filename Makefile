@@ -1,6 +1,6 @@
 # OpenArc Makefile
-# Cross-platform build entry points.
-# Linux path intentionally builds backend/CLI only (no WPF GUI, no MTP/FFI requirement).
+# Cross-platform CLI build entry points.
+# GUI projects are intentionally out of the supported build path.
 
 .PHONY: all codecs clean release debug test install help
 
@@ -14,36 +14,36 @@ all: release
 # Build native codec dependencies used by CLI/backend.
 codecs:
 	@echo "Building codec dependencies..."
-	@mkdir -p libs
-	@cd BPG/libbpg-0.9.8 && $(MAKE) -j$(JOBS) libbpg_native.a
-	@cp BPG/libbpg-0.9.8/libbpg_native.a libs/libbpg_native.a
-	@bash arcmax/build_codecs.sh
+	@mkdir -p native/libs/linux
+	@cd native/BPG/libbpg-0.9.8 && $(MAKE) -j$(JOBS) libbpg_native.a
+	@cp native/BPG/libbpg-0.9.8/libbpg_native.a native/libs/linux/libbpg_native.a
+	@bash crates/arcmax/build_codecs.sh
 
 # Release build
 release: codecs
 	@if [ "$(OS)" = "Linux" ] || [ "$(OS)" = "Darwin" ]; then \
-		echo "Building Linux/macOS backend only (openarc CLI + backend libs)..."; \
+		echo "Building Linux/macOS openarc CLI..."; \
 		cargo build --release --target "$(HOST_TRIPLE)" -p openarc; \
 	else \
-		echo "Building full Windows workspace..."; \
-		cargo build --release --workspace --exclude codecs; \
+		echo "Building Windows openarc CLI..."; \
+		cargo build --release --target "$(HOST_TRIPLE)" -p openarc --bin openarc; \
 	fi
 
 # Debug build
 debug: codecs
 	@if [ "$(OS)" = "Linux" ] || [ "$(OS)" = "Darwin" ]; then \
-		echo "Building Linux/macOS backend only (openarc CLI + backend libs)..."; \
+		echo "Building Linux/macOS openarc CLI..."; \
 		cargo build --target "$(HOST_TRIPLE)" -p openarc; \
 	else \
-		echo "Building full Windows workspace..."; \
-		cargo build --workspace --exclude codecs; \
+		echo "Building Windows openarc CLI..."; \
+		cargo build --target "$(HOST_TRIPLE)" -p openarc --bin openarc; \
 	fi
 
 # Clean build artifacts
 clean:
 	cargo clean
-	cd BPG/libbpg-0.9.8 && $(MAKE) clean 2>/dev/null || true
-	rm -rf arcmax/codec_staging arcmax/codec_build
+	cd native/BPG/libbpg-0.9.8 && $(MAKE) clean 2>/dev/null || true
+	rm -rf crates/arcmax/codec_staging crates/arcmax/codec_build native/libs/linux
 
 # Test backend components
 test: codecs
@@ -58,11 +58,13 @@ install: release
 help:
 	@echo "OpenArc Build Commands:"
 	@echo "  make codecs   - Build backend codec dependencies (BPG + ArcMax)"
-	@echo "  make release  - Linux/macOS: backend CLI only; Windows: full workspace"
-	@echo "  make debug    - Linux/macOS: backend CLI only; Windows: full workspace"
+	@echo "  make release  - Build the CLI in release mode"
+	@echo "  make debug    - Build the CLI in debug mode"
 	@echo "  make clean    - Clean build artifacts"
 	@echo "  make test     - Run backend tests"
 	@echo "  make install  - Install openarc CLI binary"
 	@echo ""
 	@echo "Linux quick start:"
 	@echo "  ./build-linux-backend.sh --release"
+	@echo "Windows quick start:"
+	@echo "  ./build-all.ps1 -Release"
