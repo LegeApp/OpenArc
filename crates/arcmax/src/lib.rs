@@ -8,6 +8,7 @@ use anyhow::{Result, anyhow};
 pub mod codecs;
 pub mod core;
 pub mod formats;
+pub mod srep;
 
 // External C++ functions from FreeARC libraries
 // Note: Actual FFI definitions are in the respective codec modules (e.g., codecs/lzma2.rs)

@@ -158,9 +158,6 @@ int32_t freearc_ppmd_decompress(
     int32_t order,
     size_t memory_size
 ) {
-    fprintf(stderr, "WRAP DEBUG: freearc_ppmd_decompress enter input_size=%d output_size=%d order=%d memory_size=%zu\n",
-            input_size, output_size, order, memory_size);
-    fflush(stderr);
     CallbackData cb_data;
     cb_data.input_data = input;
     cb_data.input_size = input_size;
@@ -172,11 +169,7 @@ int32_t freearc_ppmd_decompress(
 
     // Use ppmd_decompress2 with order and memory parameters
     // ENCODE=FALSE for decompression (DecodeFile)
-    fprintf(stderr, "WRAP DEBUG: calling ppmd_decompress2\n");
-    fflush(stderr);
     int result = ppmd_decompress2(FALSE, order, memory_size, 0, 0, callback_func_wrapper, &cb_data);
-    fprintf(stderr, "WRAP DEBUG: ppmd_decompress2 returned %d (out_pos=%d)\n", result, cb_data.output_pos);
-    fflush(stderr);
     return (result == FREEARC_OK) ? cb_data.output_pos : result;
 }
 
@@ -188,9 +181,6 @@ int32_t freearc_ppmd_compress(
     int32_t order,
     size_t memory_size
 ) {
-    fprintf(stderr, "WRAP DEBUG: freearc_ppmd_compress enter input_size=%d output_size=%d order=%d memory_size=%zu\n",
-            input_size, output_size, order, memory_size);
-    fflush(stderr);
     CallbackData cb_data;
     cb_data.input_data = input;
     cb_data.input_size = input_size;
@@ -202,11 +192,7 @@ int32_t freearc_ppmd_compress(
 
     // Use ppmd_compress2 with order and memory parameters
     // ENCODE=TRUE for compression (EncodeFile), FALSE for decompression (DecodeFile)
-    fprintf(stderr, "WRAP DEBUG: calling ppmd_compress2\n");
-    fflush(stderr);
     int result = ppmd_compress2(TRUE, order, memory_size, 0, 0, callback_func_wrapper, &cb_data);
-    fprintf(stderr, "WRAP DEBUG: ppmd_compress2 returned %d (out_pos=%d)\n", result, cb_data.output_pos);
-    fflush(stderr);
     return (result == FREEARC_OK) ? cb_data.output_pos : result;
 }
 
