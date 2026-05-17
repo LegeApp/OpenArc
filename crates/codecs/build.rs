@@ -69,7 +69,7 @@ fn compile_bpg(bpg_dir: &Path) {
     let mut dec = cc::Build::new();
     dec.warnings(false)
         .extra_warnings(false)
-        .opt_level_str("s")
+        .opt_level(3)
         .flag_if_supported("-std=c99")
         .flag_if_supported("-fno-asynchronous-unwind-tables")
         .flag_if_supported("-fdata-sections")
@@ -102,7 +102,7 @@ fn compile_bpg(bpg_dir: &Path) {
     let mut enc = cc::Build::new();
     enc.warnings(false)
         .extra_warnings(false)
-        .opt_level_str("s")
+        .opt_level(3)
         .flag_if_supported("-std=c99")
         .define("_FILE_OFFSET_BITS", "64")
         .define("_LARGEFILE_SOURCE", None)
@@ -138,7 +138,7 @@ fn compile_ffmpeg_wrapper(wrapper_c: &Path) {
     let mut build = cc::Build::new();
     build
         .warnings(false)
-        .opt_level(2)
+        .opt_level(3)
         .flag_if_supported("-std=c11")
         .file(wrapper_c);
 
@@ -188,71 +188,262 @@ Or set MSYS2_ROOT to a custom install path (e.g. D:\msys64)."
 
     println!("cargo:rustc-link-search=native={}", libdir.display());
 
-    // Image / codec deps used by BPG and ffmpeg_wrapper.c.
-    // Order matters for MinGW static linker resolution; FFmpeg first, then its
-    // codec backends, then transitive system deps.
-    let static_libs = [
-        // BPG and image format deps
-        "raw",
-        "png",
-        "jpeg",
-        "lcms2",
-        // FFmpeg muxers/demuxers/codecs (high level first)
-        "avformat",
-        "avcodec",
-        "avfilter",
-        "swresample",
-        "swscale",
-        "avutil",
-        // Codec backends
-        "x265",
-        "x264",
-        // FFmpeg transitive deps commonly required on Windows MSYS2
-        "z",
-        "bz2",
-        "iconv",
-    ];
-    for lib in static_libs {
-        println!("cargo:rustc-link-lib=static={lib}");
-    }
+    // Ask pkg-config for the *full* static link list that FFmpeg needs.
+    // The MSYS2 FFmpeg is compiled with many optional features whose transitive
+    // deps change with each package update.  A hand-maintained list can't keep up.
+    let pkg_config_bin = libdir
+        .parent()
+        .expect("mingw64/lib parent")
+        .join("bin")
+        .join("pkg-config.exe");
+    let pkgconfig_path = libdir.join("pkgconfig");
 
-    match target_os {
-        "windows" => {
-            // C++ runtime + MinGW runtime, statically linked so the exe is portable.
-            println!("cargo:rustc-link-arg=-static-libgcc");
-            println!("cargo:rustc-link-arg=-static-libstdc++");
-            println!("cargo:rustc-link-arg=-Wl,-Bstatic");
-            println!("cargo:rustc-link-arg=-lstdc++");
-            println!("cargo:rustc-link-arg=-lwinpthread");
-            println!("cargo:rustc-link-arg=-lgomp");
-            println!("cargo:rustc-link-arg=-Wl,-Bdynamic");
-            // System DLLs that must remain dynamic.
-            for sys in [
-                "ole32",
-                "user32",
-                "ws2_32",
-                "secur32",
-                "ncrypt",
-                "crypt32",
-                "bcrypt",
-                "advapi32",
-                "kernel32",
-                "mfplat",
-                "mfuuid",
-                "strmiids",
-            ] {
-                println!("cargo:rustc-link-lib={sys}");
+    let pkg_libs = if pkg_config_bin.exists() {
+        // Some MSYS2 .pc files don't fully expand transitive private deps for
+        // static linking (e.g. libavcodec lists -ljxl but jxl's own .pc isn't
+        // recursively expanded, so -lhwy -lbrotli* are missing).  We work
+        // around this by collecting the initial lib list and then recursively
+        // querying each returned lib's .pc file as well.
+        let libs = pkg_config_recursive(
+            &pkg_config_bin,
+            &pkgconfig_path,
+            &[
+                "libavformat", "libavcodec", "libavutil",
+                "libswscale", "libswresample",
+            ],
+        );
+        if libs.is_empty() { None } else { Some(libs) }
+    } else {
+        None
+    };
+
+    // Windows system DLLs — always dynamic, never try to link statically.
+    let windows_sys = [
+        "ws2_32", "ole32", "user32", "kernel32", "advapi32", "bcrypt",
+        "secur32", "ncrypt", "crypt32", "mfplat", "mfuuid", "strmiids",
+        "gdi32", "uuid", "winmm", "vfw32",
+        // GCC internal libs that come via -static-libgcc/-static-libstdc++
+        "gcc", "gcc_s", "gcc_eh",
+    ];
+    // Libs that are only available as DLLs in MSYS2 (no static .a).
+    let dynamic_only: &[&str] = &[];
+
+    // Libs that MUST be linked as DLLs even though static .a files exist.
+    // MSYS2's FFmpeg static archives were compiled with these as shared libs,
+    // so their objects contain __imp_xxx references (DLL-import stubs) that
+    // can only be satisfied by the DLL import library, not by libX.a.
+    let force_dynamic = [
+        // GLib/GObject/GIO/GdkPixbuf — always DLL on Windows in MSYS2 FFmpeg
+        "glib-2.0", "gobject-2.0", "gio-2.0", "gdk_pixbuf-2.0",
+        // Cairo — MSYS2 FFmpeg's RSVG decoder uses __imp_cairo_*
+        "cairo",
+        // librsvg — Rust-based, always a DLL on Windows (no stable ABI as static)
+        "rsvg-2",
+        // Pango — also part of the GLib/GTK stack, DLL on Windows
+        "pango-1.0", "pangocairo-1.0",
+        // HWY (Highway SIMD) — libjxl was compiled against the DLL version
+        "hwy",
+        // Vulkan shader compiler — DLL only (no static build in MSYS2)
+        "shaderc_shared",
+    ];
+    // Libs handled separately (GCC driver flags -static-libgcc / -static-libstdc++).
+    let runtime_libs = ["stdc++", "atomic"];
+    // Libs that don't exist on Windows.
+    let skip_on_windows = ["dl", "m", "pthread"];
+
+    if target_os == "windows" {
+        // -----------------------------------------------------------------------
+        // All native static libraries are emitted as cargo:rustc-link-lib so
+        // that Cargo places them in the correct position relative to rlibs in
+        // the final linker command.  The ordering matters: dependencies must
+        // come AFTER the archives that need them (GNU ld single-pass model).
+        //
+        // The pkg-config output for libavformat already lists libs in the
+        // correct dependency order (avformat first, avutil last, xml2 before
+        // lzma/z/iconv, etc.).  We honour that order here.
+        // -----------------------------------------------------------------------
+
+        // Collect the full ordered lib list from pkg-config, falling back to a
+        // known-good list when pkg-config is unavailable.
+        let all_libs: Vec<String> = if let Some(flags) = pkg_libs {
+            flags.into_iter().filter_map(|token| {
+                if let Some(libname) = token.strip_prefix("-l") {
+                    if skip_on_windows.contains(&libname)
+                        || windows_sys.contains(&libname)
+                        || runtime_libs.contains(&libname)
+                    {
+                        return None;
+                    }
+                    Some(libname.to_string())
+                } else {
+                    None
+                }
+            }).collect()
+        } else {
+            eprintln!("cargo:warning=pkg-config not found; using fallback FFmpeg static lib list");
+            [
+                "raw", "png", "jpeg", "lcms2",
+                "avformat", "avcodec", "swresample", "swscale", "avutil",
+                "x265", "x264",
+                "vpx", "aom", "dav1d", "opus", "mp3lame",
+                "vorbis", "vorbisenc", "ogg", "xml2", "lzma", "bz2", "z", "iconv",
+                "srt", "ssl", "crypto", "gnutls", "hogweed", "nettle", "gmp",
+            ].iter().map(|s| s.to_string()).collect()
+        };
+
+        // Emit everything as cargo:rustc-link-lib so they land in the right
+        // linker-command section (after rlibs, before link-args).
+        // Dynamic-import libs use the DLL import library (.dll.a).
+        let mut seen = std::collections::HashSet::new();
+
+        // Always-needed BPG/codec deps that may not appear in pkg-config output.
+        for lib in ["raw", "png", "jpeg", "lcms2"] {
+            if seen.insert(lib.to_string()) {
+                println!("cargo:rustc-link-lib=static={lib}");
             }
         }
-        "linux" => {
-            println!("cargo:rustc-link-lib=dylib=stdc++");
-            println!("cargo:rustc-link-lib=dylib=pthread");
-            println!("cargo:rustc-link-lib=dylib=m");
-            println!("cargo:rustc-link-lib=dylib=dl");
-            println!("cargo:rustc-link-lib=dylib=gomp");
+
+        for libname in &all_libs {
+            if !seen.insert(libname.clone()) {
+                continue; // deduplicate
+            }
+            // Some libs were compiled against the DLL version by MSYS2 FFmpeg;
+            // their objects use __imp_xxx references that only a DLL import
+            // library can satisfy — static linking would leave them unresolved.
+            if force_dynamic.contains(&libname.as_str()) {
+                let dll_a = libdir.join(format!("lib{libname}.dll.a"));
+                if dll_a.exists() {
+                    println!("cargo:rustc-link-lib=dylib={libname}");
+                }
+                continue;
+            }
+            let static_a = libdir.join(format!("lib{libname}.a"));
+            let dll_a    = libdir.join(format!("lib{libname}.dll.a"));
+            if static_a.exists() {
+                println!("cargo:rustc-link-lib=static={libname}");
+            } else if dll_a.exists() {
+                println!("cargo:rustc-link-lib=dylib={libname}");
+            }
+            // else: silently skip — windows_sys filtered above
         }
-        _ => {}
+
+        // Ensure ssl/crypto (needed by libsrt) and gomp/winpthread (needed by
+        // libraw / OpenMP code) are always linked, even if pkg-config misses them.
+        for lib in ["ssl", "crypto", "gomp", "winpthread"] {
+            if seen.insert(lib.to_string()) {
+                let a = libdir.join(format!("lib{lib}.a"));
+                if a.exists() {
+                    println!("cargo:rustc-link-lib=static={lib}");
+                }
+            }
+        }
+
+        // GCC C++ runtime: use GCC driver flags so GCC finds libstdc++.a in its
+        // internal directory (not the MSYS2 lib search path).
+        println!("cargo:rustc-link-arg=-static-libgcc");
+        println!("cargo:rustc-link-arg=-static-libstdc++");
+
+        // Windows system DLLs (must remain dynamic).
+        for sys in [
+            "ole32", "user32", "ws2_32", "secur32", "ncrypt",
+            "crypt32", "bcrypt", "advapi32", "kernel32",
+            "mfplat", "mfuuid", "strmiids", "gdi32", "uuid",
+        ] {
+            println!("cargo:rustc-link-lib={sys}");
+        }
+    } else {
+        // Non-Windows: use cargo:rustc-link-lib for everything.
+        let skip_linux = ["dl", "m", "pthread"];
+        for lib in ["raw", "png", "jpeg", "lcms2",
+                    "avformat", "avcodec", "swresample", "swscale", "avutil",
+                    "x265", "x264"] {
+            println!("cargo:rustc-link-lib=static={lib}");
+        }
+        if let Some(flags) = pkg_libs {
+            let mut seen = std::collections::HashSet::new();
+            for token in flags {
+                if let Some(libname) = token.strip_prefix("-l") {
+                    if skip_linux.contains(&libname) || !seen.insert(libname.to_string()) {
+                        continue;
+                    }
+                    println!("cargo:rustc-link-lib=static={libname}");
+                }
+            }
+        }
+        println!("cargo:rustc-link-lib=dylib=stdc++");
+        println!("cargo:rustc-link-lib=dylib=pthread");
+        println!("cargo:rustc-link-lib=dylib=m");
+        println!("cargo:rustc-link-lib=dylib=dl");
+        println!("cargo:rustc-link-lib=dylib=gomp");
     }
+}
+
+/// Recursively expand pkg-config static link flags.
+///
+/// `pkg-config --static --libs` sometimes omits transitive private deps
+/// (e.g. libavcodec lists -ljxl but the jxl package's own Requires.private
+/// aren't expanded at that level).  We fix this by:
+///   1. Running pkg-config for the requested packages.
+///   2. For every -l<name> in the output, if lib<name>.pc exists, running
+///      pkg-config on that package too and merging the results.
+///
+/// Returns a deduplicated, ordered list of -l / -L tokens.
+fn pkg_config_recursive(pkg_config: &Path, pkg_path: &Path, packages: &[&str]) -> Vec<String> {
+    let mut ordered: Vec<String> = Vec::new();
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    fn run_one(
+        pkg_config: &Path,
+        pkg_path: &Path,
+        pkg: &str,
+        ordered: &mut Vec<String>,
+        visited: &mut std::collections::HashSet<String>,
+    ) {
+        if !visited.insert(pkg.to_string()) {
+            return;
+        }
+        let out = Command::new(pkg_config)
+            .env("PKG_CONFIG_PATH", pkg_path.display().to_string())
+            .args(["--static", "--libs", pkg])
+            .output()
+            .ok();
+        let flags = match out.and_then(|o| if o.status.success() {
+            String::from_utf8(o.stdout).ok()
+        } else {
+            None
+        }) {
+            Some(f) => f,
+            None => return,
+        };
+
+        for token in flags.split_whitespace() {
+            if let Some(libname) = token.strip_prefix("-l") {
+                // Recurse into this lib's own .pc if it exists.
+                // pkg-config files may be named either "lib{name}.pc" or "{name}.pc".
+                let pc_with_lib = pkg_path.join(format!("lib{libname}.pc"));
+                let pc_bare     = pkg_path.join(format!("{libname}.pc"));
+                if pc_with_lib.exists() {
+                    run_one(pkg_config, pkg_path, &format!("lib{libname}"), ordered, visited);
+                } else if pc_bare.exists() {
+                    run_one(pkg_config, pkg_path, libname, ordered, visited);
+                }
+                let tok = token.to_string();
+                if !ordered.contains(&tok) {
+                    ordered.push(tok);
+                }
+            } else if token.starts_with("-L") {
+                let tok = token.to_string();
+                if !ordered.contains(&tok) {
+                    ordered.push(tok);
+                }
+            }
+        }
+    }
+
+    for pkg in packages {
+        run_one(pkg_config, pkg_path, pkg, &mut ordered, &mut visited);
+    }
+    ordered
 }
 
 fn require_static_libs(libdir: &Path, libs: &[&str], context: &str) {

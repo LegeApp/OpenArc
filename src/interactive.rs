@@ -1,22 +1,22 @@
 //! Interactive CLI wizard for OpenArc
 //! Provides a friendly, guided interface with drag-and-drop support
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{anyhow, bail, Result};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::bpg_wrapper::{self, BpgConfig};
 use crate::file_tracker::{FileTracker, ProcessedFileRecord};
 use crate::hash;
-use crate::phone_backup;
 use crate::orchestrator::{
     create_archive, extract_archive_with_decoding, ExtractionSettings, OrchestratorSettings,
 };
-use codecs::ffmpeg::{FfmpegEncodeOptions, FFmpegEncoder, VideoCodec, VideoSpeedPreset};
+use crate::phone_backup;
+use codecs::ffmpeg::{FFmpegEncoder, FfmpegEncodeOptions, VideoCodec, VideoSpeedPreset};
 use codecs::video_analyzer::analyze_video_compression;
 
 // ============================================================================
@@ -34,14 +34,14 @@ pub struct ColorConfig {
 }
 
 pub const COLORS: ColorConfig = ColorConfig {
-    prompt: "\x1b[97m",          // Bright white
-    info: "\x1b[36m",            // Cyan
-    highlight: "\x1b[35m",       // Magenta
-    success: "\x1b[92m",         // Bright green
-    warning: "\x1b[93m",         // Bright yellow
-    error: "\x1b[91m",           // Bright red
-    processing: "\x1b[96m",      // Bright cyan
-    reset: "\x1b[0m",            // Reset
+    prompt: "\x1b[97m",     // Bright white
+    info: "\x1b[36m",       // Cyan
+    highlight: "\x1b[35m",  // Magenta
+    success: "\x1b[92m",    // Bright green
+    warning: "\x1b[93m",    // Bright yellow
+    error: "\x1b[91m",      // Bright red
+    processing: "\x1b[96m", // Bright cyan
+    reset: "\x1b[0m",       // Reset
 };
 
 // ============================================================================
@@ -109,15 +109,23 @@ impl Default for InteractiveConfig {
 // ============================================================================
 
 pub fn run_interactive() -> Result<()> {
-    println!("{}╔════════════════════════════════════════╗{}", COLORS.info, COLORS.reset);
-    println!("{}║   OpenArc - Media Archival Wizard     ║{}", COLORS.info, COLORS.reset);
-    println!("{}╚════════════════════════════════════════╝{}", COLORS.info, COLORS.reset);
-    println!();
-    println!("Welcome! This wizard will guide you through compressing");
-    println!("images (to BPG) and videos (to H.264/H.265).\n");
-
+    println!(
+        "{}╔════════════════════════════════════════╗{}",
+        COLORS.info, COLORS.reset
+    );
+    println!(
+        "{}║   OpenArc - Media Archival Wizard      ║{}",
+        COLORS.info, COLORS.reset
+    );
+    println!(
+        "{}╚════════════════════════════════════════╝{}",
+        COLORS.info, COLORS.reset
+    );
     let action = prompt_start_action()?;
-    if matches!(action, StartAction::ExtractNoReencode | StartAction::ExtractWithReencode) {
+    if matches!(
+        action,
+        StartAction::ExtractNoReencode | StartAction::ExtractWithReencode
+    ) {
         let decode_images = matches!(action, StartAction::ExtractWithReencode);
         return run_extract_interactive(decode_images);
     }
@@ -126,9 +134,18 @@ pub fn run_interactive() -> Result<()> {
     config.reencode_media = matches!(action, StartAction::ArchiveWithReencode);
 
     // Step 1: Collect input paths (or auto-stage phone if detected)
-    println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
-    println!("{}Step 1/4: Input Files & Folders{}", COLORS.highlight, COLORS.reset);
-    println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
+    println!(
+        "{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}",
+        COLORS.highlight, COLORS.reset
+    );
+    println!(
+        "{}Step 1/4: Input Files & Folders{}",
+        COLORS.highlight, COLORS.reset
+    );
+    println!(
+        "{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}",
+        COLORS.highlight, COLORS.reset
+    );
     if let Some(staged_phone) = maybe_prepare_phone_input()? {
         config.input_paths = vec![staged_phone.staged_root.clone()];
         config.catalog_db_path = Some(staged_phone.catalog_db_path.clone());
@@ -155,7 +172,10 @@ pub fn run_interactive() -> Result<()> {
     }
 
     if config.input_paths.is_empty() {
-        println!("{}No files selected. Exiting.{}", COLORS.warning, COLORS.reset);
+        println!(
+            "{}No files selected. Exiting.{}",
+            COLORS.warning, COLORS.reset
+        );
         return Ok(());
     }
 
@@ -168,26 +188,51 @@ pub fn run_interactive() -> Result<()> {
         println!("{}No files found. Exiting.{}", COLORS.warning, COLORS.reset);
         return Ok(());
     }
-    println!("\n{}✓ Found {} files{}", COLORS.success, media_files.len(), COLORS.reset);
+    println!(
+        "\n{}✓ Found {} files{}",
+        COLORS.success,
+        media_files.len(),
+        COLORS.reset
+    );
 
     // Step 2: Image & Video Settings
-    println!("\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
-    println!("{}Step 2/4: Compression Settings{}", COLORS.highlight, COLORS.reset);
-    println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
+    println!(
+        "\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}",
+        COLORS.highlight, COLORS.reset
+    );
+    println!(
+        "{}Step 2/4: Compression Settings{}",
+        COLORS.highlight, COLORS.reset
+    );
+    println!(
+        "{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}",
+        COLORS.highlight, COLORS.reset
+    );
     prompt_compression_settings(&mut config)?;
 
     // Step 3: Output Location
-    println!("\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
-    println!("{}Step 3/3: Output Location{}", COLORS.highlight, COLORS.reset);
-    println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
+    println!(
+        "\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}",
+        COLORS.highlight, COLORS.reset
+    );
+    println!(
+        "{}Step 3/3: Output Location{}",
+        COLORS.highlight, COLORS.reset
+    );
+    println!(
+        "{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}",
+        COLORS.highlight, COLORS.reset
+    );
     config.mode = ProcessingMode::EncodeAndArchive;
     config.output_path = prompt_output_location(&config.mode)?;
 
     // Summary and confirmation
     print_summary(&config, &media_files)?;
 
-    println!("\n{}Press Enter to start processing, or Ctrl+C to cancel...{}",
-        COLORS.prompt, COLORS.reset);
+    println!(
+        "\n{}Press Enter to start processing, or Ctrl+C to cancel...{}",
+        COLORS.prompt, COLORS.reset
+    );
     let mut confirm = String::new();
     io::stdin().read_line(&mut confirm)?;
 
@@ -228,9 +273,15 @@ fn prompt_start_action() -> Result<StartAction> {
 }
 
 fn run_extract_interactive(decode_images: bool) -> Result<()> {
-    println!("\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
+    println!(
+        "\n{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}",
+        COLORS.highlight, COLORS.reset
+    );
     println!("{}Archive Extraction{}", COLORS.highlight, COLORS.reset);
-    println!("{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}", COLORS.highlight, COLORS.reset);
+    println!(
+        "{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}",
+        COLORS.highlight, COLORS.reset
+    );
 
     print!("{}Archive path (.oarc):{} ", COLORS.prompt, COLORS.reset);
     io::stdout().flush()?;
@@ -265,9 +316,16 @@ fn run_extract_interactive(decode_images: bool) -> Result<()> {
     println!("Output:  {}", output_dir.display());
     println!(
         "Decode mode: {}",
-        if decode_images { "re-encode on extract" } else { "no re-encode (keep archived media formats)" }
+        if decode_images {
+            "re-encode on extract"
+        } else {
+            "no re-encode (keep archived media formats)"
+        }
     );
-    println!("\n{}Press Enter to start extraction, or Ctrl+C to cancel...{}", COLORS.prompt, COLORS.reset);
+    println!(
+        "\n{}Press Enter to start extraction, or Ctrl+C to cancel...{}",
+        COLORS.prompt, COLORS.reset
+    );
     let mut confirm = String::new();
     io::stdin().read_line(&mut confirm)?;
 
@@ -298,9 +356,18 @@ fn run_extract_interactive(decode_images: bool) -> Result<()> {
     )?;
     pb.finish_with_message("Complete!");
 
-    println!("\n{}╔════════════════════════════════════════╗{}", COLORS.success, COLORS.reset);
-    println!("{}║         Extraction Complete!           ║{}", COLORS.success, COLORS.reset);
-    println!("{}╚════════════════════════════════════════╝{}", COLORS.success, COLORS.reset);
+    println!(
+        "\n{}╔════════════════════════════════════════╗{}",
+        COLORS.success, COLORS.reset
+    );
+    println!(
+        "{}║         Extraction Complete!           ║{}",
+        COLORS.success, COLORS.reset
+    );
+    println!(
+        "{}╚════════════════════════════════════════╝{}",
+        COLORS.success, COLORS.reset
+    );
     println!("\n{}Statistics:{}", COLORS.info, COLORS.reset);
     println!("  • Files extracted: {}", result.files_extracted);
     println!("  • Total size: {} MB", result.total_size / 1_000_000);
@@ -326,18 +393,16 @@ fn maybe_prepare_phone_input() -> Result<Option<phone_backup::StagedPhoneInput>>
         return Ok(None);
     }
 
-    println!("{}Detected connected phone source(s):{}", COLORS.info, COLORS.reset);
+    println!(
+        "{}Detected connected phone source(s):{}",
+        COLORS.info, COLORS.reset
+    );
     for (idx, phone) in phones.iter().enumerate() {
         let source = match phone.source_kind {
             phone_backup::PhoneSourceKind::Mtp => "MTP",
             phone_backup::PhoneSourceKind::MountedFilesystem => "mounted storage",
         };
-        println!(
-            "  [{}] {} ({})",
-            idx + 1,
-            phone.display_name,
-            source
-        );
+        println!("  [{}] {} ({})", idx + 1, phone.display_name, source);
     }
 
     let selected = if phones.len() == 1 {
@@ -374,8 +439,14 @@ fn maybe_prepare_phone_input() -> Result<Option<phone_backup::StagedPhoneInput>>
 // ============================================================================
 
 fn collect_input_paths() -> Result<Vec<PathBuf>> {
-    println!("{}Drag-and-drop or paste file/folder paths below{}", COLORS.info, COLORS.reset);
-    println!("{}(One per line, or space-separated. Press Enter twice when done){}", COLORS.info, COLORS.reset);
+    println!(
+        "{}Drag-and-drop or paste file/folder paths below{}",
+        COLORS.info, COLORS.reset
+    );
+    println!(
+        "{}(One per line, or space-separated. Press Enter twice when done){}",
+        COLORS.info, COLORS.reset
+    );
     println!();
     print!("{}> {}", COLORS.prompt, COLORS.reset);
     io::stdout().flush()?;
@@ -456,8 +527,12 @@ fn validate_and_expand_paths(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
 
     for path in paths {
         if !path.exists() {
-            eprintln!("{}⚠ Path does not exist: {}{}",
-                COLORS.warning, path.display(), COLORS.reset);
+            eprintln!(
+                "{}⚠ Path does not exist: {}{}",
+                COLORS.warning,
+                path.display(),
+                COLORS.reset
+            );
             continue;
         }
 
@@ -480,12 +555,10 @@ fn validate_and_expand_paths(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
 
 fn is_media_file(path: &PathBuf) -> bool {
     const IMAGE_EXTS: &[&str] = &[
-        "jpg", "jpeg", "png", "heic", "heif", "bpg", "tiff", "tif", "bmp",
-        "webp", "dng", "cr2", "nef", "arw", "orf", "rw2", "raf", "jp2", "j2k"
+        "jpg", "jpeg", "png", "heic", "heif", "bpg", "tiff", "tif", "bmp", "webp", "dng", "cr2",
+        "nef", "arw", "orf", "rw2", "raf", "jp2", "j2k",
     ];
-    const VIDEO_EXTS: &[&str] = &[
-        "mp4", "mov", "avi", "mkv", "webm", "m4v", "wmv"
-    ];
+    const VIDEO_EXTS: &[&str] = &["mp4", "mov", "avi", "mkv", "webm", "m4v", "wmv"];
 
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         let ext_lower = ext.to_lowercase();
@@ -518,20 +591,29 @@ fn find_media_files(dir: &PathBuf) -> Result<Vec<PathBuf>> {
 // ============================================================================
 
 fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
-    println!("\n{}Image Settings (BPG Format):{}", COLORS.info, COLORS.reset);
+    println!(
+        "\n{}Image Settings (BPG Format):{}",
+        COLORS.info, COLORS.reset
+    );
     println!("Default: Quality=28 (0-51, lower=better), 8-bit depth");
 
     print!("{}Use defaults? (Y/n):{} ", COLORS.prompt, COLORS.reset);
     io::stdout().flush()?;
 
     if read_yes_no(true)? {
-        println!("{}✓ Using default image settings{}", COLORS.success, COLORS.reset);
+        println!(
+            "{}✓ Using default image settings{}",
+            COLORS.success, COLORS.reset
+        );
     } else {
         print!("{}BPG Quality (0-51) [28]:{} ", COLORS.prompt, COLORS.reset);
         io::stdout().flush()?;
         config.bpg_quality = read_number_or_default(28, 0, 51)?;
 
-        print!("{}Bit Depth (8/10/12/14) [8]:{} ", COLORS.prompt, COLORS.reset);
+        print!(
+            "{}Bit Depth (8/10/12/14) [8]:{} ",
+            COLORS.prompt, COLORS.reset
+        );
         io::stdout().flush()?;
         config.bpg_bit_depth = read_number_or_default(8, 8, 14)? as u8;
     }
@@ -543,15 +625,25 @@ fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
     io::stdout().flush()?;
 
     if read_yes_no(true)? {
-        println!("{}✓ Using default video settings{}", COLORS.success, COLORS.reset);
+        println!(
+            "{}✓ Using default video settings{}",
+            COLORS.success, COLORS.reset
+        );
     } else {
         println!("Codec: [1] H.264 (compatible)  [2] H.265 (better compression)");
         print!("{}Choice [1]:{} ", COLORS.prompt, COLORS.reset);
         io::stdout().flush()?;
         let codec_choice = read_number_or_default(1, 1, 2)?;
-        config.video_codec = if codec_choice == 2 { "h265".to_string() } else { "h264".to_string() };
+        config.video_codec = if codec_choice == 2 {
+            "h265".to_string()
+        } else {
+            "h264".to_string()
+        };
 
-        print!("{}CRF Quality (18-28, lower=better) [23]:{} ", COLORS.prompt, COLORS.reset);
+        print!(
+            "{}CRF Quality (18-28, lower=better) [23]:{} ",
+            COLORS.prompt, COLORS.reset
+        );
         io::stdout().flush()?;
         config.video_crf = read_number_or_default(23, 0, 51)?;
 
@@ -583,10 +675,14 @@ fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
 
 fn prompt_processing_mode() -> Result<ProcessingMode> {
     println!("\n{}Choose processing mode:{}", COLORS.info, COLORS.reset);
-    println!("[1] {}Encode Only{} - Compress files, save to output folder",
-        COLORS.highlight, COLORS.reset);
-    println!("[2] {}Encode + Archive{} - Compress AND create .oarc archive (recommended)",
-        COLORS.highlight, COLORS.reset);
+    println!(
+        "[1] {}Encode Only{} - Compress files, save to output folder",
+        COLORS.highlight, COLORS.reset
+    );
+    println!(
+        "[2] {}Encode + Archive{} - Compress AND create .oarc archive (recommended)",
+        COLORS.highlight, COLORS.reset
+    );
     println!();
     print!("{}Choice [2]:{} ", COLORS.prompt, COLORS.reset);
     io::stdout().flush()?;
@@ -605,9 +701,15 @@ fn prompt_output_location(mode: &ProcessingMode) -> Result<PathBuf> {
 
     match mode {
         ProcessingMode::EncodeOnly => {
-            println!("\n{}Output folder for compressed files:{}", COLORS.info, COLORS.reset);
+            println!(
+                "\n{}Output folder for compressed files:{}",
+                COLORS.info, COLORS.reset
+            );
             println!("Default: {}", default_dir.display());
-            print!("{}Path [current directory]:{} ", COLORS.prompt, COLORS.reset);
+            print!(
+                "{}Path [current directory]:{} ",
+                COLORS.prompt, COLORS.reset
+            );
             io::stdout().flush()?;
 
             let mut input = String::new();
@@ -621,18 +723,29 @@ fn prompt_output_location(mode: &ProcessingMode) -> Result<PathBuf> {
             let path = PathBuf::from(trimmed);
             if !path.exists() {
                 fs::create_dir_all(&path)?;
-                println!("{}✓ Created directory: {}{}",
-                    COLORS.success, path.display(), COLORS.reset);
+                println!(
+                    "{}✓ Created directory: {}{}",
+                    COLORS.success,
+                    path.display(),
+                    COLORS.reset
+                );
             }
 
             Ok(path)
         }
         ProcessingMode::EncodeAndArchive => {
-            println!("\n{}Archive output file (.oarc):{}", COLORS.info, COLORS.reset);
+            println!(
+                "\n{}Archive output file (.oarc):{}",
+                COLORS.info, COLORS.reset
+            );
             let default_archive = default_dir.join("openarc_archive.oarc");
             println!("Default: {}", default_archive.display());
-            print!("{}Path [{}]:{} ",
-                COLORS.prompt, default_archive.display(), COLORS.reset);
+            print!(
+                "{}Path [{}]:{} ",
+                COLORS.prompt,
+                default_archive.display(),
+                COLORS.reset
+            );
             io::stdout().flush()?;
 
             let mut input = String::new();
@@ -653,11 +766,25 @@ fn prompt_output_location(mode: &ProcessingMode) -> Result<PathBuf> {
 // ============================================================================
 
 fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<()> {
-    println!("\n{}╔════════════════════════════════════════╗{}", COLORS.success, COLORS.reset);
-    println!("{}║          Processing Summary            ║{}", COLORS.success, COLORS.reset);
-    println!("{}╚════════════════════════════════════════╝{}", COLORS.success, COLORS.reset);
+    println!(
+        "\n{}╔════════════════════════════════════════╗{}",
+        COLORS.success, COLORS.reset
+    );
+    println!(
+        "{}║          Processing Summary            ║{}",
+        COLORS.success, COLORS.reset
+    );
+    println!(
+        "{}╚════════════════════════════════════════╝{}",
+        COLORS.success, COLORS.reset
+    );
 
-    println!("\n{}Files to process:{} {}", COLORS.info, COLORS.reset, media_files.len());
+    println!(
+        "\n{}Files to process:{} {}",
+        COLORS.info,
+        COLORS.reset,
+        media_files.len()
+    );
 
     // Count file classes for summary output
     let image_count = media_files.iter().filter(|p| is_image_file(p)).count();
@@ -666,12 +793,19 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
 
     if config.reencode_media {
         if image_count > 0 {
-            println!("  • {} images → BPG (quality: {}, {}-bit)",
-                image_count, config.bpg_quality, config.bpg_bit_depth);
+            println!(
+                "  • {} images → BPG (quality: {}, {}-bit)",
+                image_count, config.bpg_quality, config.bpg_bit_depth
+            );
         }
         if video_count > 0 {
-            println!("  • {} videos → {} (CRF: {}, {})",
-                video_count, config.video_codec.to_uppercase(), config.video_crf, config.video_preset);
+            println!(
+                "  • {} videos → {} (CRF: {}, {})",
+                video_count,
+                config.video_codec.to_uppercase(),
+                config.video_crf,
+                config.video_preset
+            );
         }
         if misc_count > 0 {
             println!("  • {} other files archived as-is", misc_count);
@@ -695,23 +829,57 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
     );
 
     if config.mode == ProcessingMode::EncodeAndArchive {
-        println!("{}Archive:{} {}", COLORS.info, COLORS.reset, config.output_path.display());
+        println!(
+            "{}Archive:{} {}",
+            COLORS.info,
+            COLORS.reset,
+            config.output_path.display()
+        );
         println!("  • Compression: level {}", config.compression_level);
-        println!("  • Catalog: {}", if config.enable_catalog { "enabled" } else { "disabled" });
+        println!(
+            "  • Catalog: {}",
+            if config.enable_catalog {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        );
         if let Some(ref catalog_path) = config.catalog_db_path {
             println!("  • Catalog DB: {}", catalog_path.display());
         }
-        println!("  • Deduplication: {}", if config.enable_dedup { "enabled" } else { "disabled" });
-        println!("  • File tracking: {}", if config.enable_tracking { "enabled" } else { "disabled" });
+        println!(
+            "  • Deduplication: {}",
+            if config.enable_dedup {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        );
+        println!(
+            "  • File tracking: {}",
+            if config.enable_tracking {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        );
     } else {
-        println!("{}Output folder:{} {}", COLORS.info, COLORS.reset, config.output_path.display());
+        println!(
+            "{}Output folder:{} {}",
+            COLORS.info,
+            COLORS.reset,
+            config.output_path.display()
+        );
     }
 
     Ok(())
 }
 
 fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Result<()> {
-    println!("\n{}Starting processing...{}", COLORS.processing, COLORS.reset);
+    println!(
+        "\n{}Starting processing...{}",
+        COLORS.processing, COLORS.reset
+    );
 
     match config.mode {
         ProcessingMode::EncodeAndArchive => {
@@ -752,13 +920,27 @@ fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Resul
                 pb_clone.set_message(msg.to_string());
             });
 
-            let result = create_archive(&config.input_paths, &config.output_path, settings, Some(progress_fn))?;
+            let result = create_archive(
+                &config.input_paths,
+                &config.output_path,
+                settings,
+                Some(progress_fn),
+            )?;
 
             pb.finish_with_message("Complete!");
 
-            println!("\n{}╔════════════════════════════════════════╗{}", COLORS.success, COLORS.reset);
-            println!("{}║         Processing Complete!           ║{}", COLORS.success, COLORS.reset);
-            println!("{}╚════════════════════════════════════════╝{}", COLORS.success, COLORS.reset);
+            println!(
+                "\n{}╔════════════════════════════════════════╗{}",
+                COLORS.success, COLORS.reset
+            );
+            println!(
+                "{}║         Processing Complete!           ║{}",
+                COLORS.success, COLORS.reset
+            );
+            println!(
+                "{}╚════════════════════════════════════════╝{}",
+                COLORS.success, COLORS.reset
+            );
 
             println!("\n{}Statistics:{}", COLORS.info, COLORS.reset);
             println!("  • Processed: {} files", result.processed.len());
@@ -778,12 +960,23 @@ fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Resul
             println!("\n{}Compression:{}", COLORS.info, COLORS.reset);
             println!("  • Original: {} MB", total_original / 1_000_000);
             println!("  • Compressed: {} MB", total_compressed / 1_000_000);
-            println!("  • Ratio: {}{:.1}%{} of original size",
-                if ratio < 50.0 { COLORS.success } else { COLORS.info },
+            println!(
+                "  • Ratio: {}{:.1}%{} of original size",
+                if ratio < 50.0 {
+                    COLORS.success
+                } else {
+                    COLORS.info
+                },
                 ratio,
-                COLORS.reset);
+                COLORS.reset
+            );
 
-            println!("\n{}Output:{} {}", COLORS.highlight, COLORS.reset, config.output_path.display());
+            println!(
+                "\n{}Output:{} {}",
+                COLORS.highlight,
+                COLORS.reset,
+                config.output_path.display()
+            );
 
             if result.tracking_report.is_some() {
                 println!("{}  • File tracking: recorded{}", COLORS.info, COLORS.reset);
@@ -833,7 +1026,8 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
     let mut total_output: u64 = 0;
 
     for (idx, path) in media_files.iter().enumerate() {
-        let file_name = path.file_name()
+        let file_name = path
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
 
@@ -857,8 +1051,10 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
                 }
                 Err(e) => {
                     pb.suspend(|| {
-                        eprintln!("{}  ✗ Image error ({}): {}{}",
-                            COLORS.error, file_name, e, COLORS.reset);
+                        eprintln!(
+                            "{}  ✗ Image error ({}): {}{}",
+                            COLORS.error, file_name, e, COLORS.reset
+                        );
                     });
                     error_count += 1;
                 }
@@ -874,12 +1070,15 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
                 .unwrap_or(false);
 
             if should_skip {
-                let reason = analysis.as_ref()
+                let reason = analysis
+                    .as_ref()
                     .map(|a| a.compression_reason.as_str())
                     .unwrap_or("already compressed");
                 pb.suspend(|| {
-                    println!("{}  → Skipped ({}): {}{}",
-                        COLORS.info, reason, file_name, COLORS.reset);
+                    println!(
+                        "{}  → Skipped ({}): {}{}",
+                        COLORS.info, reason, file_name, COLORS.reset
+                    );
                 });
 
                 // Copy as-is to output
@@ -887,8 +1086,10 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
                 let original_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
                 if let Err(e) = fs::copy(path, &out_path) {
                     pb.suspend(|| {
-                        eprintln!("{}  ✗ Copy error ({}): {}{}",
-                            COLORS.error, file_name, e, COLORS.reset);
+                        eprintln!(
+                            "{}  ✗ Copy error ({}): {}{}",
+                            COLORS.error, file_name, e, COLORS.reset
+                        );
                     });
                     error_count += 1;
                 } else {
@@ -901,7 +1102,11 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
                 let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
                 let out_path = output_dir.join(format!("{}.mp4", stem));
 
-                pb.set_message(format!("{}: {}", config.video_codec.to_uppercase(), file_name));
+                pb.set_message(format!(
+                    "{}: {}",
+                    config.video_codec.to_uppercase(),
+                    file_name
+                ));
 
                 let original_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
@@ -922,8 +1127,10 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
                     }
                     Err(e) => {
                         pb.suspend(|| {
-                            eprintln!("{}  ✗ Video error ({}): {}{}",
-                                COLORS.error, file_name, e, COLORS.reset);
+                            eprintln!(
+                                "{}  ✗ Video error ({}): {}{}",
+                                COLORS.error, file_name, e, COLORS.reset
+                            );
                         });
                         error_count += 1;
                     }
@@ -940,15 +1147,27 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
     let minutes = elapsed.as_secs() / 60;
     let seconds = elapsed.as_secs() % 60;
 
-    println!("\n{}╔════════════════════════════════════════╗{}", COLORS.success, COLORS.reset);
-    println!("{}║         Encoding Complete!             ║{}", COLORS.success, COLORS.reset);
-    println!("{}╚════════════════════════════════════════╝{}", COLORS.success, COLORS.reset);
+    println!(
+        "\n{}╔════════════════════════════════════════╗{}",
+        COLORS.success, COLORS.reset
+    );
+    println!(
+        "{}║         Encoding Complete!             ║{}",
+        COLORS.success, COLORS.reset
+    );
+    println!(
+        "{}╚════════════════════════════════════════╝{}",
+        COLORS.success, COLORS.reset
+    );
 
     println!("\n{}Statistics:{}", COLORS.info, COLORS.reset);
     println!("  • Encoded: {} files", encoded_count);
     println!("  • Skipped (already compressed): {} videos", skipped_count);
     if error_count > 0 {
-        println!("  {}• Errors: {} files{}", COLORS.error, error_count, COLORS.reset);
+        println!(
+            "  {}• Errors: {} files{}",
+            COLORS.error, error_count, COLORS.reset
+        );
     }
     println!("  • Time: {}m {}s", minutes, seconds);
 
@@ -957,15 +1176,30 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
         let saved_mb = (total_original - total_output.min(total_original)) / 1_000_000;
 
         println!("\n{}Compression:{}", COLORS.info, COLORS.reset);
-        println!("  • Original: {:.1} MB", total_original as f64 / 1_000_000.0);
+        println!(
+            "  • Original: {:.1} MB",
+            total_original as f64 / 1_000_000.0
+        );
         println!("  • Output: {:.1} MB", total_output as f64 / 1_000_000.0);
-        println!("  • Ratio: {}{:.1}%{} of original",
-            if ratio < 50.0 { COLORS.success } else { COLORS.info },
-            ratio, COLORS.reset);
+        println!(
+            "  • Ratio: {}{:.1}%{} of original",
+            if ratio < 50.0 {
+                COLORS.success
+            } else {
+                COLORS.info
+            },
+            ratio,
+            COLORS.reset
+        );
         println!("  • Saved: {:.1} MB", saved_mb as f64);
     }
 
-    println!("\n{}Output:{} {}", COLORS.highlight, COLORS.reset, output_dir.display());
+    println!(
+        "\n{}Output:{} {}",
+        COLORS.highlight,
+        COLORS.reset,
+        output_dir.display()
+    );
 
     // File tracking for encode-only mode
     if config.enable_tracking {
@@ -979,7 +1213,8 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
                 if let Ok(h) = hash::sha256_file_hex(path) {
                     hashes.push(h.clone());
                     let size = fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
-                    let name = path.file_name()
+                    let name = path
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("unknown")
                         .to_string();
@@ -992,8 +1227,9 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
                 FileTracker::print_duplicate_report(&duplicates);
             }
 
-            let records: Vec<ProcessedFileRecord> = file_hashes.iter().map(|(name, h, size)| {
-                ProcessedFileRecord {
+            let records: Vec<ProcessedFileRecord> = file_hashes
+                .iter()
+                .map(|(name, h, size)| ProcessedFileRecord {
                     file_name: name.clone(),
                     file_hash: h.clone(),
                     file_size: *size,
@@ -1003,14 +1239,15 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
                     archive_hash: None,
                     output_path: output_dir.to_string_lossy().to_string(),
                     processing_mode: "encode_only".to_string(),
-                }
-            }).collect();
+                })
+                .collect();
 
             if let Err(e) = tracker.record_batch(&records) {
                 eprintln!("Warning: Failed to record tracking data: {}", e);
             }
 
-            let log_content = tracker.generate_run_log(&duplicates, media_files.len(), "encode_only");
+            let log_content =
+                tracker.generate_run_log(&duplicates, media_files.len(), "encode_only");
             if let Err(e) = tracker.write_run_log(&log_content) {
                 eprintln!("Warning: Failed to write run log: {}", e);
             }
@@ -1033,13 +1270,17 @@ fn safe_analyze_video(path: &Path) -> Option<codecs::video_analyzer::VideoAnalys
     let (tx, rx) = mpsc::channel();
 
     let _handle = thread::spawn(move || {
-        let _ = tx.send(std::panic::catch_unwind(|| analyze_video_compression(&thread_path)));
+        let _ = tx.send(std::panic::catch_unwind(|| {
+            analyze_video_compression(&thread_path)
+        }));
     });
 
-    rx.recv_timeout(Duration::from_secs(5)).ok().and_then(|r| match r {
-        Ok(Ok(v)) => Some(v),
-        _ => None,
-    })
+    rx.recv_timeout(Duration::from_secs(5))
+        .ok()
+        .and_then(|r| match r {
+            Ok(Ok(v)) => Some(v),
+            _ => None,
+        })
 }
 
 fn parse_video_settings(config: &InteractiveConfig) -> (VideoCodec, VideoSpeedPreset) {
@@ -1060,7 +1301,7 @@ fn parse_video_settings(config: &InteractiveConfig) -> (VideoCodec, VideoSpeedPr
 
 fn is_video_file(path: &PathBuf) -> bool {
     const VIDEO_EXTS: &[&str] = &[
-        "mp4", "mov", "avi", "mkv", "webm", "m4v", "3gp", "flv", "wmv", "mts", "m2ts"
+        "mp4", "mov", "avi", "mkv", "webm", "m4v", "3gp", "flv", "wmv", "mts", "m2ts",
     ];
 
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -1072,8 +1313,8 @@ fn is_video_file(path: &PathBuf) -> bool {
 
 fn is_image_file(path: &PathBuf) -> bool {
     const IMAGE_EXTS: &[&str] = &[
-        "jpg", "jpeg", "png", "heic", "heif", "bpg", "tiff", "tif", "bmp",
-        "webp", "dng", "cr2", "nef", "arw", "orf", "rw2", "raf", "jp2", "j2k"
+        "jpg", "jpeg", "png", "heic", "heif", "bpg", "tiff", "tif", "bmp", "webp", "dng", "cr2",
+        "nef", "arw", "orf", "rw2", "raf", "jp2", "j2k",
     ];
 
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -1106,7 +1347,8 @@ fn read_number_or_default(default: i32, min: i32, max: i32) -> Result<i32> {
         return Ok(default);
     }
 
-    let value: i32 = trimmed.parse()
+    let value: i32 = trimmed
+        .parse()
         .map_err(|_| anyhow!("Invalid number: {}", trimmed))?;
 
     if value < min || value > max {

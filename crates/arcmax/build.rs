@@ -131,8 +131,11 @@ fn link_system_libs(target_os: &str, target_env: &str) {
             println!("cargo:rustc-link-lib=kernel32");
             println!("cargo:rustc-link-lib=bcrypt");
             if target_env == "gnu" {
-                println!("cargo:rustc-link-lib=dylib=msvcrt");
-                println!("cargo:rustc-link-lib=static=stdc++");
+                // -static-libstdc++ tells the GCC driver to find libstdc++.a from its
+                // own internal directory (not the MSYS2 lib search path, where it doesn't live).
+                // -static-libgcc does the same for libgcc_eh / libgcc.
+                println!("cargo:rustc-link-arg=-static-libstdc++");
+                println!("cargo:rustc-link-arg=-static-libgcc");
             }
         }
         "linux" => {

@@ -1,6 +1,6 @@
 //! OpenArc - Media archiver for phone/camera files
 
-use anyhow::{Result, Context};
+use anyhow::{anyhow, Result, Context};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use openarc::orchestrator::{
@@ -14,17 +14,43 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use openarc::orchestrator::FileClass;
 
+const CODEC_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
+
+fn run_with_codec_stack<F, T>(name: &'static str, f: F) -> Result<T>
+where
+    F: FnOnce() -> Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    let handle = std::thread::Builder::new()
+        .name(name.to_string())
+        .stack_size(CODEC_THREAD_STACK_SIZE)
+        .spawn(f)
+        .with_context(|| format!("Failed to start {name} thread"))?;
+
+    match handle.join() {
+        Ok(result) => result,
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("unknown panic payload");
+            Err(anyhow!("{name} thread panicked: {message}"))
+        }
+    }
+}
+
 fn main() -> Result<()> {
     // If no arguments provided, launch interactive mode
     if std::env::args().len() == 1 {
-        return interactive::run_interactive();
+        return run_with_codec_stack("openarc-interactive", interactive::run_interactive);
     }
 
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Interactive => {
-            interactive::run_interactive()
+            run_with_codec_stack("openarc-interactive", interactive::run_interactive)
         }
         Commands::Create {
             output,
@@ -39,10 +65,26 @@ fn main() -> Result<()> {
             no_skip_compressed,
             no_tracking,
             no_reencode,
+            bpg_compress_level,
         } => {
             println!("OpenArc - Creating archive: {}", output.display());
             println!("Input sources: {} items", inputs.len());
             println!();
+
+            // Validate that every input path actually exists before doing any work.
+            // This catches the common mistake of forgetting to quote paths with spaces
+            // (the shell splits "C:\My Folder" into ["C:\My", "Folder"]).
+            let missing: Vec<&PathBuf> = inputs.iter().filter(|p| !p.exists()).collect();
+            if !missing.is_empty() {
+                eprintln!("error: the following input path(s) do not exist:");
+                for p in &missing {
+                    eprintln!("  {}", p.display());
+                }
+                eprintln!();
+                eprintln!("Tip: if your path contains spaces, wrap it in quotes:");
+                eprintln!("  openarc create \"C:\\path with spaces\" --output archive.oarc");
+                return Err(anyhow!("one or more input paths not found"));
+            }
 
             let settings = OrchestratorSettings {
                 bpg_quality,
@@ -50,7 +92,7 @@ fn main() -> Result<()> {
                 bpg_bit_depth: 8,
                 bpg_chroma_format: 1,
                 bpg_encoder_type: 0,
-                bpg_compression_level: 8,
+                bpg_compression_level: bpg_compress_level,
                 video_preset,
                 video_crf,
                 compression_level,
@@ -66,7 +108,7 @@ fn main() -> Result<()> {
             };
 
             println!("Settings:");
-            println!("  BPG quality: {} (lossless: {})", bpg_quality, bpg_lossless);
+            println!("  BPG quality: {} (lossless: {}, compress-level: {})", bpg_quality, bpg_lossless, bpg_compress_level);
             println!("  Video preset: {} (CRF: {})", video_preset, video_crf);
             println!("  ZSTD level: {}", compression_level);
             println!("  Catalog: {}", !no_catalog);
@@ -76,23 +118,37 @@ fn main() -> Result<()> {
             println!("  Re-encode media: {}", !no_reencode);
             println!();
 
-            let pb = ProgressBar::new(100);
+            // Start with a spinner (length unknown) — switches to a real bar
+            // once the orchestrator calls back with the actual file count.
+            let pb = ProgressBar::new_spinner();
             pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-                    .unwrap()
-                    .progress_chars("#>-"),
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.green} [{elapsed_precise}] {msg}")
+                    .unwrap(),
             );
+            pb.set_message("Discovering files…");
 
             let pb_clone = pb.clone();
+            let bar_style = ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+                .unwrap()
+                .progress_chars("#>-");
+            let bar_style = Arc::new(bar_style);
             let progress_fn = Arc::new(move |current: usize, total: usize, msg: &str| {
-                pb_clone.set_length(total as u64);
+                if total > 0 {
+                    pb_clone.set_style((*bar_style).clone());
+                    pb_clone.set_length(total as u64);
+                }
                 pb_clone.set_position(current as u64);
                 pb_clone.set_message(msg.to_string());
             });
 
             println!("Processing files...");
-            let result = create_archive(&inputs, &output, settings, Some(progress_fn))?;
+            let archive_inputs = inputs.clone();
+            let archive_output = output.clone();
+            let result = run_with_codec_stack("openarc-create", move || {
+                create_archive(&archive_inputs, &archive_output, settings, Some(progress_fn))
+            })?;
 
             pb.finish_with_message("Complete");
             println!();
@@ -154,16 +210,20 @@ fn main() -> Result<()> {
                 pb_clone.set_message(msg.to_string());
             });
 
-            let extraction = extract_archive_with_decoding(
-                &input,
-                &output,
-                OrchestratorSettings::default().compression_level,
-                ExtractionSettings {
-                    decode_images: !no_reencode,
-                    ..ExtractionSettings::default()
-                },
-                Some(progress_fn),
-            )?;
+            let extract_input = input.clone();
+            let extract_output = output.clone();
+            let extraction = run_with_codec_stack("openarc-extract", move || {
+                extract_archive_with_decoding(
+                    &extract_input,
+                    &extract_output,
+                    OrchestratorSettings::default().compression_level,
+                    ExtractionSettings {
+                        decode_images: !no_reencode,
+                        ..ExtractionSettings::default()
+                    },
+                    Some(progress_fn),
+                )
+            })?;
             pb.finish_with_message("Complete");
 
             println!();

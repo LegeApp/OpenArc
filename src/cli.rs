@@ -62,6 +62,10 @@ pub enum Commands {
         #[arg(long)]
         no_tracking: bool,
 
+        /// BPG internal HEVC encoder speed (1=ultrafast … 8=veryslow). Lower = faster, larger files.
+        #[arg(long, default_value = "4")]
+        bpg_compress_level: i32,
+
         /// Archive media as-is (disable image/video re-encoding)
         #[arg(long)]
         no_reencode: bool,

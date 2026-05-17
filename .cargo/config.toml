@@ -1,2 +1,21 @@
+[build]
+target = "x86_64-pc-windows-gnu"
+
 [alias]
 dist = "run --package xtask --release --"
+
+[target.x86_64-pc-windows-gnu]
+rustflags = [
+    # Large stack needed by FreeArc LZMA compression.
+    "-C", "link-arg=-Wl,--stack,16777216",
+    # BPG embeds a private copy of FFmpeg's libavcodec HEVC files which duplicate
+    # symbols already present in MSYS2's libavcodec.a (utils.c, cabac.c, etc.).
+    # rav1e bundles its own Rust std (rust_eh_personality conflict).
+    # FreeArc: C_LZMA.cpp and MultiThreading.cpp share inline threading helpers.
+    # All three are identical definitions; silently keep the first one found.
+    # MUST be in rustflags (early in ld command) — link-args arrive after archives.
+    "-C", "link-arg=-Wl,--allow-multiple-definition",
+]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:16777216"]
