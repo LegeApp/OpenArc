@@ -5,7 +5,6 @@ use arcmax::formats::freearc::writer::{ArchiveOptions, FreeArcWriter};
 use codecs::bpg::{BPGEncoderConfig, NativeBPGEncoder};
 use codecs::ffmpeg::{FfmpegEncodeOptions, FFmpegEncoder, VideoCodec, VideoSpeedPreset};
 use codecs::video_analyzer::analyze_video_compression;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -19,6 +18,7 @@ use log::warn;
 use arcmax::codecs::zstd::{ZstdCodec, ZstdOptions};
 use std::io::Read;
 use image;
+use tokio::task::JoinSet;
 
 const CODEC_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
 
@@ -39,23 +39,27 @@ fn safe_analyze_video(path: &Path) -> Option<codecs::video_analyzer::VideoAnalys
         let _ = tx.send(std::panic::catch_unwind(|| analyze_video_compression(&thread_path)));
     });
 
-    let result = rx.recv_timeout(Duration::from_secs(5)).ok().and_then(|r| match r {
-        Ok(Ok(v)) => Some(v),
-        Ok(Err(e)) => {
-            warn!("Video analysis failed for {}: {}", path.display(), e);
+    match rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(result) => {
+            let _ = handle.join();
+            match result {
+                Ok(Ok(v)) => Some(v),
+                Ok(Err(e)) => {
+                    warn!("Video analysis failed for {}: {}", path.display(), e);
+                    None
+                }
+                Err(_) => {
+                    warn!("Video analysis panicked for {}", path.display());
+                    None
+                }
+            }
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            warn!("Video analysis timed out for {}", path.display());
             None
         }
-        Err(_) => {
-            warn!("Video analysis panicked for {}", path.display());
-            None
-        }
-    });
-
-    if handle.join().is_err() {
-        warn!("Video analysis thread panicked for {}", path.display());
+        Err(mpsc::RecvTimeoutError::Disconnected) => None,
     }
-
-    result
 }
 
 impl HeavyLimiter {
@@ -823,26 +827,47 @@ pub fn create_archive(
 
     let settings_clone = settings.clone();
     let heavy_limiter = Arc::new(HeavyLimiter::new(2));
+    let ffmpeg_gate = Arc::new(StdMutex::new(()));
     let base_threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
     let optimal_threads = get_optimal_thread_count(base_threads);
-    let encoding_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(optimal_threads)
-        .stack_size(CODEC_THREAD_STACK_SIZE)
+    let pipeline_runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(optimal_threads)
+        .thread_stack_size(CODEC_THREAD_STACK_SIZE)
+        .enable_all()
         .build()
-        .context("Failed to create encoding thread pool")?;
+        .context("Failed to create Tokio archive pipeline runtime")?;
 
     // Per-thread memory cache — refreshes at most once/second, avoiding a sysinfo syscall
-    // on every image.  `thread_local!` gives each rayon worker its own copy.
+    // on every image.  `thread_local!` gives each blocking worker its own copy.
     thread_local! {
         static MEM: std::cell::RefCell<MemoryCache> =
             std::cell::RefCell::new(MemoryCache::new());
     }
 
-    encoding_pool.install(|| {
-    let heavy_limiter = heavy_limiter.clone();
-    work.par_iter().try_for_each(|item| -> Result<()> {
+    pipeline_runtime.block_on(async {
+        let mut tasks = JoinSet::new();
+        let mut next_item = 0usize;
+        let max_in_flight = optimal_threads.max(1);
+
+        loop {
+            while next_item < work.len() && tasks.len() < max_in_flight {
+                let item = work[next_item].clone();
+                next_item += 1;
+
+                let settings_clone = settings_clone.clone();
+                let heavy_limiter = heavy_limiter.clone();
+                let ffmpeg_gate = ffmpeg_gate.clone();
+                let media_dir = media_dir.clone();
+                let misc_dir = misc_dir.clone();
+                let raw_dir = raw_dir.clone();
+                let processed_mutex = processed_mutex.clone();
+                let metadata_mutex = metadata_mutex.clone();
+                let completed_count = completed_count.clone();
+                let tx = tx.clone();
+
+                tasks.spawn_blocking(move || -> Result<()> {
         // Check memory usage before processing each item (throttled to 1 Hz per thread)
         let memory_usage = MEM.with(|m| m.borrow_mut().usage());
         if memory_usage > 0.90 { // 90% threshold
@@ -1153,6 +1178,9 @@ pub fn create_archive(
                     let rel_path = format!("media/{}", out_name);
                     (out, rel_path, true, None)
                 } else {
+                let _ffmpeg_guard = ffmpeg_gate
+                    .lock()
+                    .map_err(|_| anyhow!("FFmpeg gate lock poisoned"))?;
                 let should_skip = if settings_clone.skip_already_compressed_videos {
                     safe_analyze_video(input)
                         .map(|a| a.is_efficiently_compressed)
@@ -1162,9 +1190,12 @@ pub fn create_archive(
                 };
 
                 if should_skip {
-                    let out = media_dir.join(input.file_name().unwrap());
+                    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
+                    let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+                    let out_name = format!("{}_{}.{}", stem, item.idx, ext);
+                    let out = media_dir.join(&out_name);
                     fs::copy(input, &out)?;
-                    let rel_path = format!("media/{}", out.file_name().unwrap().to_string_lossy());
+                    let rel_path = format!("media/{}", out_name);
                     (out, rel_path, true, None)
                 } else {
                     // Limit concurrent heavy video encodes to prevent memory spikes
@@ -1178,8 +1209,9 @@ pub fn create_archive(
                     };
 
                     let out = media_dir.join(format!(
-                        "{}.mp4",
-                        input.file_stem().and_then(|s| s.to_str()).unwrap_or("video")
+                        "{}_{}.mp4",
+                        input.file_stem().and_then(|s| s.to_str()).unwrap_or("video"),
+                        item.idx
                     ));
 
                     let opts = FfmpegEncodeOptions {
@@ -1207,9 +1239,12 @@ pub fn create_archive(
                 (out, rel_path, true, Some(OriginalImageFormat::Raw))
             }
             FileClass::Misc => {
-                let out = misc_dir.join(input.file_name().unwrap());
+                let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("misc");
+                let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+                let out_name = format!("{}_{}.{}", stem, item.idx, ext);
+                let out = misc_dir.join(&out_name);
                 fs::copy(input, &out)?;
-                let rel_path = format!("misc/{}", out.file_name().unwrap().to_string_lossy());
+                let rel_path = format!("misc/{}", out_name);
                 (out, rel_path, false, None)
             }
         };
@@ -1235,7 +1270,19 @@ pub fn create_archive(
         let seq = completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let _ = tx.send(WorkDone { idx: seq, file_name });
         Ok(())
-    })
+                });
+            }
+
+            if tasks.is_empty() {
+                break;
+            }
+
+            if let Some(result) = tasks.join_next().await {
+                result.map_err(|e| anyhow!("Archive pipeline worker failed: {}", e))??;
+            }
+        }
+
+        Ok::<(), anyhow::Error>(())
     })?;
 
     drop(tx);
@@ -1266,7 +1313,16 @@ pub fn create_archive(
     let hashes_path = temp_dir.path().join("HASHES.sha256");
     write_hashes(&processed, &hashes_path, &misc_arc_path, &raw_arc_path, &manifest_path)?;
 
-    let zstd = make_zstd(3);
+    if misc_dir.exists() {
+        fs::remove_dir_all(&misc_dir)
+            .with_context(|| format!("Failed to remove staged misc directory {}", misc_dir.display()))?;
+    }
+    if raw_dir.exists() {
+        fs::remove_dir_all(&raw_dir)
+            .with_context(|| format!("Failed to remove staged raw directory {}", raw_dir.display()))?;
+    }
+
+    let zstd = make_zstd(settings.compression_level);
     zstd.archive_dir_tar_zst(temp_dir.path(), output_archive)
         .with_context(|| format!("Failed to create zstd archive at {}", output_archive.display()))?;
 
@@ -1317,7 +1373,15 @@ pub fn create_archive(
         }
     }
 
-    let dedup_groups = if settings.enable_dedup { dedup_canon.len() } else { 0 };
+    let dedup_groups = if settings.enable_dedup {
+        let mut duplicate_canons = std::collections::HashSet::new();
+        for canon in duplicates_of.values() {
+            duplicate_canons.insert(canon);
+        }
+        duplicate_canons.len()
+    } else {
+        0
+    };
 
     // Phase 3 (tracking): Batch record all processed files, generate & save log
     let tracking_report = if let Some(ref tracker) = tracker {

@@ -153,7 +153,7 @@ impl BackupCatalog {
                 Ok(None) => backup.push(path),
                 Err(e) => {
                     eprintln!("Warning: Failed to check {}: {}", path.display(), e);
-                    skip.push(path);
+                    backup.push(path);
                 }
             }
         }
