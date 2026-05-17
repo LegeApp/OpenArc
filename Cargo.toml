@@ -153,6 +153,19 @@ zune-image.workspace = true
 winmtp = { path = "crates/winmtp" }
 widestring = "1.2"
 
+[profile.release]
+opt-level = 3
+# LTO is disabled: LLVM ThinLTO is incompatible with MinGW ld when linking
+# against GCC-compiled .a archives (libavcodec, libx265, etc.) — the linker
+# cannot find the .llvmbc section in GCC objects.  codegen-units=1 still
+# yields good intra-crate optimization.
+lto = false
+codegen-units = 1
+strip = "debuginfo"
+
+[profile.release.build-override]
+opt-level = 3
+
 [lib]
 name = "openarc"
 path = "src/lib.rs"

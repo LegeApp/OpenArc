@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 fn main() -> ExitCode {
@@ -45,6 +45,10 @@ fn main() -> ExitCode {
         eprintln!("xtask: copy {} -> {} failed: {e}", src.display(), dst.display());
         return ExitCode::from(1);
     }
+    if let Err(e) = stage_windows_runtime_files(&workspace_root, &dist) {
+        eprintln!("xtask: failed to stage runtime files: {e}");
+        return ExitCode::from(1);
+    }
 
     println!("\nopenarc -> {}", dst.display());
     ExitCode::SUCCESS
@@ -72,4 +76,62 @@ fn locate_binary(target_dir: &PathBuf, exe_name: &str) -> Option<PathBuf> {
 fn workspace_root() -> PathBuf {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest.parent().expect("xtask/.. exists").to_path_buf()
+}
+
+fn stage_windows_runtime_files(workspace_root: &Path, dist: &Path) -> Result<(), String> {
+    if !cfg!(windows) {
+        return Ok(());
+    }
+
+    let bpg_dir = workspace_root.join("native").join("BPG").join("libbpg-0.9.8");
+    let bpg_dll = bpg_dir.join("openarc_bpg.dll");
+    if !bpg_dll.exists() {
+        let script = bpg_dir.join("build_openarc_combined_dll.ps1");
+        if !script.exists() {
+            return Err(format!("{} is missing", bpg_dll.display()));
+        }
+
+        let status = Command::new("pwsh")
+            .current_dir(&bpg_dir)
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "build_openarc_combined_dll.ps1",
+                "-Jobs",
+                "12",
+            ])
+            .status()
+            .map_err(|e| format!("failed to start BPG DLL build: {e}"))?;
+        if !status.success() {
+            return Err(format!("BPG DLL build failed with status {status}"));
+        }
+    }
+
+    copy_file(&bpg_dll, &dist.join("openarc_bpg.dll"))?;
+
+    let msys_bin = env::var_os("MSYS2_ROOT")
+        .map(PathBuf::from)
+        .map(|root| root.join("mingw64").join("bin"))
+        .unwrap_or_else(|| PathBuf::from(r"C:\msys64\mingw64\bin"));
+    for name in [
+        "libgcc_s_seh-1.dll",
+        "libjpeg-8.dll",
+        "libpng16-16.dll",
+        "libstdc++-6.dll",
+        "libwinpthread-1.dll",
+        "libx265-215.dll",
+        "zlib1.dll",
+    ] {
+        copy_file(&msys_bin.join(name), &dist.join(name))?;
+    }
+
+    Ok(())
+}
+
+fn copy_file(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::copy(src, dst)
+        .map(|_| ())
+        .map_err(|e| format!("copy {} -> {} failed: {e}", src.display(), dst.display()))
 }

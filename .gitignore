@@ -78,5 +78,20 @@ gui/
 screen.jpg
 Screenshot*.png
 
+# Native library build artifacts
+native/libs/*.lib
+native/BPG/libbpg-0.9.8/bpgenc*
+
+# Test images and assets
+crates/zune-image/test-images
+crates/winmtp/tests/assets
+
 # marc2332/rust-skia @ 0.96.1 (required by [patch.crates-io] in gui/Freya/Cargo.toml)
 rust-skia/
+
+# Local dev / planning docs — never commit these
+SREP-port-guide.md
+srep-plan-tactical.md
+freearc-port.md
+crates/arcmax/SREP-dev/README.md
+crates/arcmax/SREP-dev/REFACTORING_SUMMARY.md

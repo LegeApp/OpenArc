@@ -13,12 +13,14 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Condvar, Mutex as StdMutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use bytemuck::cast_vec;
 use log::warn;
 use arcmax::codecs::zstd::{ZstdCodec, ZstdOptions};
 use std::io::Read;
 use image;
+
+const CODEC_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
 
 /// Bounded limiter for heavy tasks (videos/very large images)
 struct HeavyLimiter {
@@ -93,7 +95,51 @@ use crate::backup_catalog::{normalize_path, BackupCatalog, BackupEntry};
 use crate::file_tracker::{FileTracker, ProcessedFileRecord};
 use crate::hash;
 
-/// Check current memory usage and return the percentage of memory used
+/// Cached memory reading: refresh at most once per second to avoid per-item sysinfo overhead.
+/// sysinfo on Windows does Win32 API calls that can take 10–50 ms each.
+struct MemoryCache {
+    system: sysinfo::System,
+    last_refresh: Option<Instant>,
+    cached_usage: f64,
+}
+
+impl MemoryCache {
+    fn new() -> Self {
+        let mut system = sysinfo::System::new();
+        system.refresh_memory();
+        let usage = Self::compute(&system);
+        Self {
+            system,
+            last_refresh: Some(Instant::now()),
+            cached_usage: usage,
+        }
+    }
+
+    fn compute(system: &sysinfo::System) -> f64 {
+        let total = system.total_memory();
+        if total > 0 {
+            system.used_memory() as f64 / total as f64
+        } else {
+            0.0
+        }
+    }
+
+    /// Returns cached memory usage, refreshing at most once per second.
+    fn usage(&mut self) -> f64 {
+        let stale = self.last_refresh
+            .map(|t| t.elapsed() >= Duration::from_secs(1))
+            .unwrap_or(true);
+        if stale {
+            self.system.refresh_memory();
+            self.cached_usage = Self::compute(&self.system);
+            self.last_refresh = Some(Instant::now());
+        }
+        self.cached_usage
+    }
+}
+
+/// Check current memory usage and return the percentage of memory used.
+/// Creates a one-shot sysinfo::System — use `MemoryCache` in hot loops.
 fn check_memory_usage() -> f64 {
     use sysinfo::System;
     let mut system = System::new();
@@ -645,20 +691,24 @@ pub fn create_archive(
         });
     }
 
-    // Phase 1 (tracking): Hash all files and batch query DB for duplicates
+    // Phase 1: Hash all files once — results shared by both tracking and dedup.
+    // (Previously each pass read every file from disk independently; now one read each.)
+    let mut file_hashes: HashMap<PathBuf, String> = HashMap::new();
+    if settings.enable_tracking || settings.enable_dedup {
+        for p in &discovered {
+            if let Ok(h) = hash::sha256_file_hex(p) {
+                file_hashes.insert(p.clone(), h);
+            }
+        }
+    }
+
     let tracker = if settings.enable_tracking {
         FileTracker::new().ok()
     } else {
         None
     };
-    let mut tracking_hashes: HashMap<PathBuf, String> = HashMap::new();
+    let tracking_hashes = file_hashes.clone();
     let tracking_duplicates = if let Some(ref tracker) = tracker {
-        // Hash all discovered files for tracking
-        for p in &discovered {
-            if let Ok(h) = hash::sha256_file_hex(p) {
-                tracking_hashes.insert(p.clone(), h);
-            }
-        }
         let unique_hashes: Vec<String> = tracking_hashes.values().cloned().collect();
         tracker.find_duplicates(&unique_hashes).unwrap_or_default()
     } else {
@@ -696,7 +746,12 @@ pub fn create_archive(
 
     if settings.enable_dedup {
         for p in &to_process {
-            let h = hash::sha256_file_hex(p)?;
+            // Reuse the hash computed during Phase 1 — no second disk read.
+            let h = if let Some(cached) = file_hashes.get(p) {
+                cached.clone()
+            } else {
+                hash::sha256_file_hex(p)?
+            };
             if let Some(prev) = dedup_canon.get(&h) {
                 duplicates_of.insert(p.clone(), prev.clone());
             } else {
@@ -768,22 +823,34 @@ pub fn create_archive(
 
     let settings_clone = settings.clone();
     let heavy_limiter = Arc::new(HeavyLimiter::new(2));
-    let optimal_threads = get_optimal_thread_count(5); // Base thread count of 5
+    let base_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let optimal_threads = get_optimal_thread_count(base_threads);
     let encoding_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(optimal_threads)
+        .stack_size(CODEC_THREAD_STACK_SIZE)
         .build()
         .context("Failed to create encoding thread pool")?;
+
+    // Per-thread memory cache — refreshes at most once/second, avoiding a sysinfo syscall
+    // on every image.  `thread_local!` gives each rayon worker its own copy.
+    thread_local! {
+        static MEM: std::cell::RefCell<MemoryCache> =
+            std::cell::RefCell::new(MemoryCache::new());
+    }
+
     encoding_pool.install(|| {
     let heavy_limiter = heavy_limiter.clone();
     work.par_iter().try_for_each(|item| -> Result<()> {
-        // Check memory usage before processing each item
-        let memory_usage = check_memory_usage();
-        if memory_usage > 0.85 { // 85% threshold
-            // Brief pause to allow garbage collection
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        } else if memory_usage > 0.90 { // 90% threshold
+        // Check memory usage before processing each item (throttled to 1 Hz per thread)
+        let memory_usage = MEM.with(|m| m.borrow_mut().usage());
+        if memory_usage > 0.90 { // 90% threshold
             // More significant pause
             std::thread::sleep(std::time::Duration::from_millis(500));
+        } else if memory_usage > 0.85 { // 85% threshold
+            // Brief pause to allow garbage collection
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
         let input = &item.input;
