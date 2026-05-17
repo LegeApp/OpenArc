@@ -1,6 +1,6 @@
 # OpenArc
 
-OpenArc is a CLI-first media archiver for photo and video folders. Point it at one or more folders, and it will convert standard images to BPG, recompress videos when that helps, preserve camera RAW files losslessly, and bundle the result into a single archive with manifests and hashes.
+OpenArc is a media archiver for photo and video folders with both interactive and command-line workflows. Point it at one or more folders, and it will convert standard images to BPG, recompress videos when that helps, preserve camera RAW files losslessly, and bundle the result into a single archive with manifests and hashes.
 
 ## Archive layout
 
@@ -29,10 +29,13 @@ That builds the codec C/C++ sources in-tree and produces a self-contained binary
 
 ```bash
 openarc
+openarc interactive
 openarc create -o my-archive.oarc ~/Pictures ~/Videos
 openarc extract -i my-archive.oarc -o restored
 openarc list my-archive.oarc
 ```
+
+Running `openarc` with no arguments launches interactive mode. Use `openarc create`, `openarc extract`, and `openarc list` for non-interactive runs.
 
 At the end of archive creation, the CLI prints how many RAW files were preserved separately and their total size.
 
@@ -50,8 +53,8 @@ OpenArc/
 │   ├── codecs/             # BPG + FFmpeg wrappers (compiled by build.rs)
 │   ├── zune-image/         # vendored image workspace
 │   └── winmtp/             # Windows MTP helper
-├── native/                 # vendored C/C++ sources (BPG, heic-decoder, etc.)
-├── openjp2/                # JPEG2000 tooling
+├── native/                 # bundled native components, including BPG and jp2lam
+├── zenzstd/                # Rust Zstandard implementation
 ├── xtask/                  # `cargo dist` helper
 └── dist/                   # build output: openarc.exe
 ```

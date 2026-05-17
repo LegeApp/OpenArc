@@ -989,7 +989,6 @@ impl Drop for NativeBPGEncoder {
 }
 
 unsafe impl Send for NativeBPGEncoder {}
-unsafe impl Sync for NativeBPGEncoder {}
 
 pub fn decode_file(input_path: &str) -> Result<(Vec<u8>, u32, u32, BPGImageFormat)> {
     let input_cstr = CString::new(input_path)?;
@@ -1012,11 +1011,20 @@ pub fn decode_file(input_path: &str) -> Result<(Vec<u8>, u32, u32, BPGImageForma
         return Err(anyhow!("Decoding failed with error code: {}", result));
     }
 
-    if output_data.is_null() || width == 0 || height == 0 {
+    if output_data.is_null() {
         return Err(anyhow!("Decoding produced no output"));
     }
+    if width <= 0 || height <= 0 {
+        unsafe {
+            let _ = bpg_ffi::free(output_data as *mut c_void);
+        }
+        return Err(anyhow!("Decoding produced invalid dimensions"));
+    }
 
-    let size = (width * height * 4) as usize;
+    let size = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| anyhow!("Decoded BPG dimensions are too large"))?;
     let data = unsafe {
         let slice = std::slice::from_raw_parts(output_data, size);
         let vec = slice.to_vec();
