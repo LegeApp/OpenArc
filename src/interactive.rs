@@ -347,7 +347,6 @@ fn run_extract_interactive(decode_images: bool) -> Result<()> {
     let result = extract_archive_with_decoding(
         &archive_path,
         &output_dir,
-        OrchestratorSettings::default().compression_level,
         ExtractionSettings {
             decode_images,
             ..ExtractionSettings::default()

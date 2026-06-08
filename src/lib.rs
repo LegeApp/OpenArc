@@ -13,8 +13,5 @@ pub mod image_loader;
 pub mod interactive;
 pub mod phone_backup;
 
-// Re-export zstd types from arcmax for FFI use
-pub use arcmax::codecs::zstd::{ZstdCodec, ZstdOptions};
-
 // Re-export codecs for FFI use
 pub use codecs;

@@ -7,6 +7,8 @@ use openarc::orchestrator::{
     create_archive, extract_archive_with_decoding, list_archive_contents, ExtractionSettings,
     OrchestratorSettings,
 };
+use arcmax::{compress_with, decompress, CompressionOptions, Method};
+use arcmax::codec::lzma::LzmaOptions;
 use openarc::cli::{Cli, Commands};
 use openarc::interactive;
 use openarc::phone_backup;
@@ -181,11 +183,12 @@ fn main() -> Result<()> {
             println!("  Ratio: {:.2}%", ratio);
             if raw_count > 0 {
                 println!(
-                    "  RAW preserved separately: {} files, {} MB total (stored losslessly in raw.arc with FreeArc max level)",
+                    "  RAW preserved separately: {} files, {} MB total (stored losslessly in raw.arc with LZMA2 level 9, 128 MiB dict)",
                     raw_count,
                     raw_total / 1_000_000
                 );
             }
+
             println!();
             println!("Output: {}", output.display());
 
@@ -216,7 +219,6 @@ fn main() -> Result<()> {
                 extract_archive_with_decoding(
                     &extract_input,
                     &extract_output,
-                    OrchestratorSettings::default().compression_level,
                     ExtractionSettings {
                         decode_images: !no_reencode,
                         ..ExtractionSettings::default()
@@ -286,38 +288,38 @@ fn main() -> Result<()> {
 
         // === ArcMax Commands ===
         Commands::ArcCompress { input, output, method, level, dict_size } => {
-            use arcmax::{compress, CompressionMethod};
             use std::io::{Read, Write};
 
-            println!("ArcMax: Compressing files with FreeARC");
+            println!("ArcMax: Compressing with LZMA2/Zstd");
             println!("  Input: {:?}", input);
             println!("  Output: {}", output.display());
             println!("  Method: {} (level: {}, dict: {} bytes)", method, level, dict_size);
             println!();
 
-            // Read input file
             let mut input_data = Vec::new();
-            let mut input_file = std::fs::File::open(&input[0])
-                .with_context(|| format!("Failed to open input file: {}", input[0].display()))?;
-            input_file.read_to_end(&mut input_data)?;
+            std::fs::File::open(&input[0])
+                .with_context(|| format!("Failed to open input file: {}", input[0].display()))?
+                .read_to_end(&mut input_data)?;
 
-            // Parse compression method
-            let compression_method = match method.as_str() {
-                "store" => CompressionMethod::Store,
-                "lzma2" => CompressionMethod::Lzma2 { level, dict_size },
-                _ => anyhow::bail!("Unknown compression method: {}", method),
+            let arc_method = match method.as_str() {
+                "store" => Method::Store,
+                "zstd" => Method::Zstd(arcmax::codec::zstd::ZstdOptions { level }),
+                _ => Method::Lzma(LzmaOptions {
+                    lzma2: true,
+                    dict_size,
+                    level: Some(level.clamp(1, 9) as u8),
+                    ..Default::default()
+                }),
             };
 
-            // Compress
-            let compressed = compress(&input_data, compression_method)
+            let compressed = compress_with(&input_data, CompressionOptions::default().with_method(arc_method))
                 .context("Compression failed")?;
 
-            // Write output
-            let mut output_file = std::fs::File::create(&output)
-                .with_context(|| format!("Failed to create output file: {}", output.display()))?;
-            output_file.write_all(&compressed)?;
+            std::fs::File::create(&output)
+                .with_context(|| format!("Failed to create output file: {}", output.display()))?
+                .write_all(&compressed)?;
 
-            let ratio = if input_data.len() > 0 {
+            let ratio = if !input_data.is_empty() {
                 (compressed.len() as f64 / input_data.len() as f64) * 100.0
             } else {
                 0.0
@@ -331,33 +333,26 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::ArcExtract { archive, output, password } => {
-            use arcmax::decompress;
+        Commands::ArcExtract { archive, output, password: _ } => {
             use std::io::{Read, Write};
 
-            println!("ArcMax: Extracting FreeARC archive");
+            println!("ArcMax: Extracting compressed file");
             println!("  Archive: {}", archive.display());
             println!("  Output: {}", output.as_ref().unwrap_or(&PathBuf::from(".")).display());
-            if password.is_some() {
-                println!("  Password: ***");
-            }
             println!();
 
-            // Read input file
             let mut input_data = Vec::new();
-            let mut input_file = std::fs::File::open(&archive)
-                .with_context(|| format!("Failed to open archive: {}", archive.display()))?;
-            input_file.read_to_end(&mut input_data)?;
+            std::fs::File::open(&archive)
+                .with_context(|| format!("Failed to open archive: {}", archive.display()))?
+                .read_to_end(&mut input_data)?;
 
-            // Decompress
             let decompressed = decompress(&input_data)
                 .context("Decompression failed")?;
 
-            // Write output
             let output_path = output.unwrap_or_else(|| PathBuf::from("output.bin"));
-            let mut output_file = std::fs::File::create(&output_path)
-                .with_context(|| format!("Failed to create output file: {}", output_path.display()))?;
-            output_file.write_all(&decompressed)?;
+            std::fs::File::create(&output_path)
+                .with_context(|| format!("Failed to create output file: {}", output_path.display()))?
+                .write_all(&decompressed)?;
 
             println!("Extraction complete!");
             println!("  Decompressed: {} bytes", decompressed.len());
@@ -367,37 +362,37 @@ fn main() -> Result<()> {
         }
 
         Commands::ArcTest { data, method } => {
-            use arcmax::{compress, decompress, CompressionMethod, compression_ratio};
-
-            println!("ArcMax: Testing FreeARC compression");
+            println!("ArcMax: Testing compression");
             println!("  Data: {:?}", data);
             println!("  Method: {}", method);
             println!();
 
             let test_data = data.as_bytes();
 
-            // Parse compression method
-            let compression_method = match method.as_str() {
-                "store" => CompressionMethod::Store,
-                "lzma2" => CompressionMethod::Lzma2 { level: 5, dict_size: 33554432 },
-                _ => anyhow::bail!("Unknown compression method: {}", method),
+            let arc_method = match method.as_str() {
+                "store" => Method::Store,
+                "zstd" => Method::Zstd(arcmax::codec::zstd::ZstdOptions { level: 3 }),
+                _ => Method::Lzma(LzmaOptions {
+                    lzma2: true,
+                    dict_size: 128 * 1024 * 1024,
+                    level: Some(5),
+                    ..Default::default()
+                }),
             };
 
-            // Test compression
-            let compressed = compress(test_data, compression_method)
+            let compressed = compress_with(test_data, CompressionOptions::default().with_method(arc_method))
                 .context("Compression test failed")?;
 
             println!("Compression test:");
             println!("  Original: {} bytes", test_data.len());
             println!("  Compressed: {} bytes", compressed.len());
-            println!("  Ratio: {:.2}%", compression_ratio(test_data.len(), compressed.len()) * 100.0);
+            println!("  Ratio: {:.2}%", (compressed.len() as f64 / test_data.len() as f64) * 100.0);
 
-            // Test decompression
             let decompressed = decompress(&compressed)
                 .context("Decompression test failed")?;
 
-            if test_data == &decompressed {
-                println!("  Round-trip: ✓ Successful!");
+            if test_data == decompressed.as_slice() {
+                println!("  Round-trip: OK");
             } else {
                 anyhow::bail!("Round-trip verification failed - data mismatch!");
             }

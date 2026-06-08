@@ -1,0 +1,83 @@
+[package]
+name = "arcmax"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "FreeARC compression library - Rust port of FreeARC codecs"
+autobins = false
+
+[features]
+default = []
+ffi-codecs = []
+legacy-ffi-tests = ["ffi-codecs"]
+bsc = []
+tar = []
+unstable-tagged-offsets = []
+
+[dependencies]
+anyhow = "1"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+rayon = "1"
+crc32fast = "1"
+bytes = "1.11"
+byteorder = "1"
+siphasher = "0.3"
+aes = "0.8"
+ctr = "0.9"
+generic-array = "1.3"
+crypto-common = "0.1"
+pbkdf2 = "0.12"
+sha2 = "0.10"
+blowfish = "0.9"
+rand = "0.9"
+flate2 = { version = "1", features = ["zlib-rs"] }
+lz4_flex = "0.11"
+ppmd-rust = { git = "https://github.com/hasenbanck/ppmd-rust.git" }
+zstd = "0.13"
+lzma-rust2 = "0.1"
+brotli = { version = "8", default-features = false, features = ["std"] }
+snap = "1"
+rawloader = "0.37"
+tar = "0.4"
+cfb-mode = "0.8"
+zip = { version = "2", default-features = false, features = ["deflate-zlib", "time"] }
+blake3 = "1"
+argon2 = "0.5"
+memmap2 = "0.9"
+walkdir = "2"
+
+[lib]
+name = "arcmax"
+path = "src/lib.rs"
+
+[[bin]]
+name = "arcmax"
+path = "src/main.rs"
+
+[[bin]]
+name = "raw_analyze"
+path = "src/bin/raw_analyze.rs"
+
+[[bin]]
+name = "compression-bench"
+path = "src/bin/compression_bench.rs"
+
+[[bin]]
+name = "profile-all"
+path = "src/bin/profile_all.rs"
+
+[[bin]]
+name = "profile-ppmd-h"
+path = "src/bin/profile_ppmd_h.rs"
+
+[[bin]]
+name = "dispack-file"
+path = "src/bin/dispack_file.rs"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+
+[build-dependencies]
+cc = "1.2"

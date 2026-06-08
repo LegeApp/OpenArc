@@ -155,53 +155,52 @@ pub enum Commands {
     },
 
     // === ArcMax Compression Commands ===
-    // These commands provide direct access to FreeARC compression algorithms
 
-    /// Compress files with FreeARC algorithms (arcmax)
+    /// Compress a file with LZMA2 or Zstd via arcmax
     ArcCompress {
         /// Input files to compress
         #[arg(required = true)]
         input: Vec<PathBuf>,
 
-        /// Output archive file
+        /// Output file
         #[arg(short, long)]
         output: PathBuf,
 
-        /// Compression method (store, lzma2, ppmd, tornado, etc.)
+        /// Compression method (lzma2, zstd, store)
         #[arg(short, long, default_value = "lzma2")]
         method: String,
 
-        /// Compression level (1-9)
+        /// Compression level (1-9 for LZMA2, 1-22 for Zstd)
         #[arg(short, long, default_value = "5")]
         level: i32,
 
-        /// Dictionary size in bytes
-        #[arg(short, long, default_value = "33554432")]
+        /// Dictionary size in bytes (LZMA2 only)
+        #[arg(short, long, default_value = "134217728")]
         dict_size: u32,
     },
 
-    /// Extract FreeARC archive (arcmax)
+    /// Decompress a file compressed with arcmax
     ArcExtract {
-        /// Archive file to extract
+        /// File to decompress
         #[arg(required = true)]
         archive: PathBuf,
 
-        /// Output directory
+        /// Output file path
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Password for encrypted archives
+        /// Password (reserved, currently unused)
         #[arg(short, long)]
         password: Option<String>,
     },
 
-    /// Test FreeARC compression (arcmax)
+    /// Test LZMA2/Zstd round-trip via arcmax
     ArcTest {
-        /// Test data to compress and decompress
-        #[arg(short, long, default_value = "Hello, World! This is a test of FreeARC compression.")]
+        /// Test data string
+        #[arg(short, long, default_value = "Hello, World! This is a compression test.")]
         data: String,
 
-        /// Compression method to test
+        /// Compression method to test (lzma2, zstd, store)
         #[arg(short, long, default_value = "lzma2")]
         method: String,
     },
