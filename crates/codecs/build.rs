@@ -24,12 +24,12 @@ fn main() {
         return;
     }
 
-    compile_bpg(&bpg_dir);
-    compile_ffmpeg_wrapper(&wrapper_c);
+    compile_bpg(&bpg_dir, &target_os);
+    compile_ffmpeg_wrapper(&wrapper_c, &target_os);
     link_codecs_and_ffmpeg(&target_os);
 }
 
-fn compile_bpg(bpg_dir: &Path) {
+fn compile_bpg(bpg_dir: &Path, target_os: &str) {
     if !bpg_dir.exists() {
         panic!("BPG source not found at {}", bpg_dir.display());
     }
@@ -114,14 +114,18 @@ fn compile_bpg(bpg_dir: &Path) {
         .flag_if_supported("-Wno-unused-function")
         .include(bpg_dir);
 
-    if let Some(libdir) = find_msys2_lib_dir() {
-        let incdir = libdir
-            .parent()
-            .expect("mingw64/lib parent")
-            .join("include");
-        if incdir.exists() {
-            enc.include(&incdir);
+    if target_os == "windows" {
+        if let Some(libdir) = find_msys2_lib_dir() {
+            let incdir = libdir
+                .parent()
+                .expect("mingw64/lib parent")
+                .join("include");
+            if incdir.exists() {
+                enc.include(&incdir);
+            }
         }
+    } else {
+        add_pkg_config_includes(&mut enc, &["x265", "libpng", "libraw", "lcms2"]);
     }
 
     enc.file(bpg_dir.join("bpgenc.c"));
@@ -130,7 +134,7 @@ fn compile_bpg(bpg_dir: &Path) {
     enc.compile("bpg_encoder");
 }
 
-fn compile_ffmpeg_wrapper(wrapper_c: &Path) {
+fn compile_ffmpeg_wrapper(wrapper_c: &Path, target_os: &str) {
     if !wrapper_c.exists() {
         panic!("ffmpeg_wrapper.c not found at {}", wrapper_c.display());
     }
@@ -142,20 +146,115 @@ fn compile_ffmpeg_wrapper(wrapper_c: &Path) {
         .flag_if_supported("-std=c11")
         .file(wrapper_c);
 
-    if let Some(libdir) = find_msys2_lib_dir() {
-        let incdir = libdir
-            .parent()
-            .expect("mingw64/lib parent")
-            .join("include");
-        if incdir.exists() {
-            build.include(&incdir);
+    if target_os == "windows" {
+        if let Some(libdir) = find_msys2_lib_dir() {
+            let incdir = libdir
+                .parent()
+                .expect("mingw64/lib parent")
+                .join("include");
+            if incdir.exists() {
+                build.include(&incdir);
+            }
         }
+    } else {
+        add_pkg_config_includes(
+            &mut build,
+            &[
+                "libavformat",
+                "libavcodec",
+                "libavutil",
+                "libswscale",
+                "libswresample",
+            ],
+        );
     }
 
     build.compile("openarc_ffmpeg_wrapper");
 }
 
+fn add_pkg_config_includes(build: &mut cc::Build, packages: &[&str]) {
+    let output = Command::new("pkg-config")
+        .arg("--cflags")
+        .args(packages)
+        .output();
+
+    let Ok(output) = output else {
+        return;
+    };
+    if !output.status.success() {
+        return;
+    }
+
+    let Ok(flags) = String::from_utf8(output.stdout) else {
+        return;
+    };
+
+    for token in flags.split_whitespace() {
+        if let Some(path) = token.strip_prefix("-I") {
+            build.include(path);
+        } else if token.starts_with("-D") {
+            build.flag(token);
+        }
+    }
+}
+
+fn add_pkg_config_link_libs(packages: &[&str]) {
+    let output = Command::new("pkg-config")
+        .arg("--libs")
+        .args(packages)
+        .output()
+        .unwrap_or_else(|err| {
+            panic!(
+                "pkg-config failed while probing Linux codec libraries: {err}.\n\
+Install the Linux -dev packages listed in BUILDING.md."
+            )
+        });
+
+    if !output.status.success() {
+        panic!(
+            "pkg-config could not find Linux codec libraries: {}\n\
+Install the Linux -dev packages listed in BUILDING.md.",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let flags = String::from_utf8(output.stdout)
+        .expect("pkg-config emitted non-UTF-8 linker flags");
+
+    for token in flags.split_whitespace() {
+        if let Some(path) = token.strip_prefix("-L") {
+            println!("cargo:rustc-link-search=native={path}");
+        } else if let Some(lib) = token.strip_prefix("-l") {
+            println!("cargo:rustc-link-lib={lib}");
+        } else if token == "-pthread" {
+            println!("cargo:rustc-link-lib=pthread");
+        }
+    }
+}
+
 fn link_codecs_and_ffmpeg(target_os: &str) {
+    if target_os != "windows" {
+        add_pkg_config_link_libs(&[
+            "libavformat",
+            "libavcodec",
+            "libavutil",
+            "libswscale",
+            "libswresample",
+            "x265",
+            "libpng",
+            "libraw",
+            "lcms2",
+        ]);
+        println!("cargo:rustc-link-lib=jpeg");
+        println!("cargo:rustc-link-lib=z");
+        println!("cargo:rustc-link-lib=stdc++");
+        println!("cargo:rustc-link-lib=pthread");
+        println!("cargo:rustc-link-lib=m");
+        println!("cargo:rustc-link-lib=dl");
+        println!("cargo:rustc-link-lib=gomp");
+        return;
+    }
+
     let libdir = find_msys2_lib_dir().unwrap_or_else(|| {
         panic!(
             "{}",
@@ -225,9 +324,6 @@ Or set MSYS2_ROOT to a custom install path (e.g. D:\msys64)."
         // GCC internal libs that come via -static-libgcc/-static-libstdc++
         "gcc", "gcc_s", "gcc_eh",
     ];
-    // Libs that are only available as DLLs in MSYS2 (no static .a).
-    let dynamic_only: &[&str] = &[];
-
     // Libs that MUST be linked as DLLs even though static .a files exist.
     // MSYS2's FFmpeg static archives were compiled with these as shared libs,
     // so their objects contain __imp_xxx references (DLL-import stubs) that

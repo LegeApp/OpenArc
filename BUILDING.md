@@ -4,7 +4,7 @@ Single entrypoint: `cargo dist`.
 
 It runs `cargo build --release` and stages the binary at `dist/openarc.exe` (Windows) or `dist/openarc` (Linux). All codec C/C++ source is compiled in-tree by `build.rs` scripts — no separate codec build step. FFmpeg, x265, x264, BPG, libpng, libjpeg, lcms2, libraw, and the C++ runtime are statically linked into the binary, so the resulting `dist/openarc.exe` has no DLL sidecars.
 
-If you only want the binary at `target/release/openarc.exe` without the dist staging, `cargo build --release` works directly.
+If you only want the binary at `target/release/openarc` without the dist staging, `cargo build --release` works directly on Linux. For a Windows GNU binary from a machine with the MinGW/MSYS2 prerequisites, use `cargo build --release --target x86_64-pc-windows-gnu`.
 
 ## Prerequisites
 
@@ -49,6 +49,12 @@ If you only want the binary at `target/release/openarc.exe` without the dist sta
 git clone https://github.com/LegeApp/OpenArc.git
 cd OpenArc
 cargo dist
+```
+
+For a Windows GNU build, pass the target explicitly:
+
+```
+cargo build --release --target x86_64-pc-windows-gnu
 ```
 
 First build takes ~5 minutes (FreeArc C++ codecs, BPG decoder + encoder, ffmpeg wrapper). Incremental builds re-link only.
