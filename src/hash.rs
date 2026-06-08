@@ -94,19 +94,12 @@ pub fn verify_dir_against_hashes(root_dir: impl AsRef<Path>, hashes_file: impl A
     Ok(())
 }
 
-pub fn verify_tar_zst_archive(zstd: &arcmax::codecs::zstd::ZstdCodec, archive_path: impl AsRef<Path>) -> Result<()> {
+pub fn verify_tar_zst_archive(archive_path: impl AsRef<Path>) -> Result<()> {
     let archive_path = archive_path.as_ref();
     let tmp = tempfile::TempDir::new().context("Failed to create temp dir")?;
-    zstd.extract_tar_zst(archive_path, tmp.path())
+    arcmax::tar_zst::extract_tar_zst(archive_path, tmp.path())
         .with_context(|| format!("Failed to extract {}", archive_path.display()))?;
 
     let hashes_path = tmp.path().join("HASHES.sha256");
     verify_dir_against_hashes(tmp.path(), &hashes_path)
-}
-
-pub fn verify_tar_zst_archive_with_level(archive_path: impl AsRef<Path>, zstd_level: i32) -> Result<()> {
-    let mut opts = arcmax::codecs::zstd::ZstdOptions::default();
-    opts.level = zstd_level;
-    let codec = arcmax::codecs::zstd::ZstdCodec::new(opts);
-    verify_tar_zst_archive(&codec, archive_path)
 }

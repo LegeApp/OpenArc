@@ -1,22 +1,19 @@
 use anyhow::{anyhow, Context, Result};
-use arcmax::core::archive::ArchiveReader;
-use arcmax::formats::freearc::reader::FreeArcReader;
-use arcmax::formats::freearc::writer::{ArchiveOptions, FreeArcWriter};
+use arcmax::codec::{LzmaCodec, LzmaOptions};
+use arcmax::codec::traits::Codec;
 use codecs::bpg::{BPGEncoderConfig, NativeBPGEncoder};
 use codecs::ffmpeg::{FfmpegEncodeOptions, FFmpegEncoder, VideoCodec, VideoSpeedPreset};
 use codecs::video_analyzer::analyze_video_compression;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Condvar, Mutex as StdMutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use bytemuck::cast_vec;
 use log::warn;
-use arcmax::codecs::zstd::{ZstdCodec, ZstdOptions};
-use std::io::Read;
 use image;
 use tokio::task::JoinSet;
 
@@ -382,10 +379,8 @@ fn parse_manifest_sizes(manifest_text: &str) -> HashMap<String, (u64, u64)> {
 }
 
 pub fn list_archive_contents(archive_path: &Path) -> Result<Vec<ListedArchiveFile>> {
-    let file = std::fs::File::open(archive_path)
+    let decoder = arcmax::tar_zst::open_zst_reader(archive_path)
         .with_context(|| format!("Failed to open archive: {}", archive_path.display()))?;
-    let decoder = zenzstd::decoding::StreamingDecoder::new(file)
-        .with_context(|| format!("Failed to create zstd decoder for {}", archive_path.display()))?;
     let mut archive = tar::Archive::new(decoder);
 
     let mut files: Vec<(String, u64)> = Vec::new();
@@ -464,10 +459,8 @@ pub fn list_archive_contents(archive_path: &Path) -> Result<Vec<ListedArchiveFil
 pub fn extract_archive_entry(archive_path: &Path, entry_name: &str, output_path: &Path) -> Result<()> {
     let entry_name = normalize_archive_rel_path(entry_name);
 
-    let file = std::fs::File::open(archive_path)
+    let decoder = arcmax::tar_zst::open_zst_reader(archive_path)
         .with_context(|| format!("Failed to open archive: {}", archive_path.display()))?;
-    let decoder = zenzstd::decoding::StreamingDecoder::new(file)
-        .with_context(|| format!("Failed to create zstd decoder for {}", archive_path.display()))?;
     let mut archive = tar::Archive::new(decoder);
 
     for entry in archive.entries().context("Failed to read tar entries")? {
@@ -1302,10 +1295,10 @@ pub fn create_archive(
     fs::write(&metadata_path, &metadata_json)?;
 
     let misc_arc_path = temp_dir.path().join("misc.arc");
-    create_misc_arc(&processed, &misc_arc_path, settings.compression_level)?;
+    create_lzma2_bundle(&processed.iter().filter(|p| p.class == FileClass::Misc).collect::<Vec<_>>(), &misc_arc_path, settings.compression_level)?;
 
     let raw_arc_path = temp_dir.path().join("raw.arc");
-    create_raw_arc(&processed, &raw_arc_path)?;
+    create_lzma2_bundle(&processed.iter().filter(|p| p.class == FileClass::Raw).collect::<Vec<_>>(), &raw_arc_path, 9)?;
 
     let manifest_path = temp_dir.path().join("MANIFEST.txt");
     write_manifest(&processed, &skipped_by_catalog, &manifest_path)?;
@@ -1322,9 +1315,8 @@ pub fn create_archive(
             .with_context(|| format!("Failed to remove staged raw directory {}", raw_dir.display()))?;
     }
 
-    let zstd = make_zstd(settings.compression_level);
-    zstd.archive_dir_tar_zst(temp_dir.path(), output_archive)
-        .with_context(|| format!("Failed to create zstd archive at {}", output_archive.display()))?;
+    arcmax::tar_zst::archive_dir_tar_zst(temp_dir.path(), output_archive, settings.compression_level)
+        .with_context(|| format!("Failed to create archive at {}", output_archive.display()))?;
 
     // Record archive information in the database
     if let Some(ref mut cat) = catalog {
@@ -1443,67 +1435,61 @@ pub fn create_archive(
     })
 }
 
-fn create_misc_arc(processed: &[ProcessedFile], output_arc: &Path, compression_level: i32) -> Result<()> {
-    let misc: Vec<&ProcessedFile> = processed.iter().filter(|p| p.class == FileClass::Misc).collect();
-    if misc.is_empty() {
-        return Ok(());
-    }
-
-    create_freearc_bundle(&misc, output_arc, compression_level)
-}
-
-fn create_raw_arc(processed: &[ProcessedFile], output_arc: &Path) -> Result<()> {
-    let raw: Vec<&ProcessedFile> = processed.iter().filter(|p| p.class == FileClass::Raw).collect();
-    if raw.is_empty() {
-        return Ok(());
-    }
-
-    // RAW files are large and already lossless; always use the highest available
-    // FreeArc level in this path instead of the user-tuned mixed-content setting.
-    create_freearc_bundle(&raw, output_arc, 9)
-}
-
-fn create_freearc_bundle(files: &[&ProcessedFile], output_arc: &Path, compression_level: i32) -> Result<()> {
+/// Pack a list of processed files into a tar archive compressed with LZMA2.
+///
+/// Uses a 128 MiB dictionary for maximum solid-compression quality (7-Zip "Ultra"
+/// equivalent). The `level` parameter is clamped to the 1–9 range that `lzma-rust2`
+/// accepts.
+fn create_lzma2_bundle(files: &[&ProcessedFile], output_arc: &Path, level: i32) -> Result<()> {
     if files.is_empty() {
         return Ok(());
     }
 
-    let f = std::fs::File::create(output_arc)
-        .with_context(|| format!("Failed to create {}", output_arc.display()))?;
-    let mut writer = std::io::BufWriter::new(f);
+    // Build an in-memory tar stream.
+    let mut tar_data: Vec<u8> = Vec::new();
+    {
+        let mut name_counts: HashMap<String, usize> = HashMap::new();
+        let mut ar = tar::Builder::new(&mut tar_data);
 
-    let mut arc = FreeArcWriter::new(
-        &mut writer,
-        ArchiveOptions {
-            compression: "lzma".to_string(),
-            compression_level,
-            encryption: None,
-            password: None,
-        },
-    )?;
+        for item in files {
+            let data = fs::read(&item.output_path)
+                .with_context(|| format!("Failed to read {}", item.output_path.display()))?;
 
-    let mut name_counts: HashMap<String, usize> = HashMap::new();
+            let mut name = item
+                .output_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("file")
+                .to_string();
+            let c = name_counts.entry(name.clone()).or_insert(0);
+            if *c > 0 {
+                name = format!("{}_{}", *c, name);
+            }
+            *c += 1;
 
-    for item in files {
-        let data = std::fs::read(&item.output_path)?;
-        let mut name = item
-            .output_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("file")
-            .to_string();
-
-        let c = name_counts.entry(name.clone()).or_insert(0);
-        if *c > 0 {
-            name = format!("{}_{}", *c, name);
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            ar.append_data(&mut header, &name, data.as_slice())
+                .with_context(|| format!("Failed to append {} to tar", name))?;
         }
-        *c += 1;
-
-        arc.add_file(&name, &data)?;
+        ar.finish()?;
     }
 
-    let inner = arc.finish()?;
-    inner.flush()?;
+    // Compress the tar stream with LZMA2.
+    let opts = LzmaOptions {
+        lzma2: true,
+        dict_size: 128 * 1024 * 1024,
+        level: Some(level.clamp(1, 9) as u8),
+        ..Default::default()
+    };
+    let mut codec = LzmaCodec::new(opts);
+    let f = fs::File::create(output_arc)
+        .with_context(|| format!("Failed to create {}", output_arc.display()))?;
+    let mut writer = std::io::BufWriter::new(f);
+    codec.compress(&mut tar_data.as_slice(), &mut writer)
+        .with_context(|| format!("LZMA2 compression failed for {}", output_arc.display()))?;
 
     Ok(())
 }
@@ -1600,12 +1586,6 @@ fn record_catalog_entries(catalog: &mut BackupCatalog, processed: &[ProcessedFil
     catalog.record_backups(entries)
 }
 
-fn make_zstd(level: i32) -> ZstdCodec {
-    let mut opts = ZstdOptions::default();
-    opts.level = level;
-    ZstdCodec::new(opts)
-}
-
 /// Update the destination location of an archive in the tracking database
 pub fn update_archive_destination(
     catalog_db_path: &Path,
@@ -1652,18 +1632,16 @@ impl Default for ExtractionSettings {
 pub fn extract_archive(
     archive_path: &Path,
     output_dir: &Path,
-    compression_level: i32,
     progress: Option<Arc<ProgressFn>>,
 ) -> Result<ExtractionResult> {
     let settings = ExtractionSettings::default();
-    extract_archive_with_decoding(archive_path, output_dir, compression_level, settings, progress)
+    extract_archive_with_decoding(archive_path, output_dir, settings, progress)
 }
 
 /// Extract archive and decode images back to original formats
 pub fn extract_archive_with_decoding(
     archive_path: &Path,
     output_dir: &Path,
-    compression_level: i32,
     settings: ExtractionSettings,
     progress: Option<Arc<ProgressFn>>,
 ) -> Result<ExtractionResult> {
@@ -1678,15 +1656,13 @@ pub fn extract_archive_with_decoding(
         cb(0, 1, "Extracting archive...");
     }
 
-    // Extract the archive
-    let zstd = make_zstd(compression_level);
-    zstd.extract_tar_zst(archive_path, output_dir)
+    arcmax::tar_zst::extract_tar_zst(archive_path, output_dir)
         .with_context(|| format!("Failed to extract archive: {}", archive_path.display()))?;
 
     let mut decoded_count = 0usize;
 
-    extract_inner_freearc_bundle(&output_dir.join("misc.arc"), &output_dir.join("misc"))?;
-    extract_inner_freearc_bundle(&output_dir.join("raw.arc"), &output_dir.join("raw"))?;
+    extract_lzma2_bundle(&output_dir.join("misc.arc"), &output_dir.join("misc"))?;
+    extract_lzma2_bundle(&output_dir.join("raw.arc"), &output_dir.join("raw"))?;
 
     // Load metadata if available
     let metadata_path = output_dir.join("OPENARC_METADATA.json");
@@ -1784,7 +1760,7 @@ pub fn extract_archive_with_decoding(
     })
 }
 
-fn extract_inner_freearc_bundle(archive_path: &Path, output_dir: &Path) -> Result<()> {
+fn extract_lzma2_bundle(archive_path: &Path, output_dir: &Path) -> Result<()> {
     if !archive_path.exists() {
         return Ok(());
     }
@@ -1792,12 +1768,19 @@ fn extract_inner_freearc_bundle(archive_path: &Path, output_dir: &Path) -> Resul
     fs::create_dir_all(output_dir)
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
-    let file = fs::File::open(archive_path)
+    let f = fs::File::open(archive_path)
         .with_context(|| format!("Failed to open {}", archive_path.display()))?;
-    let mut reader = FreeArcReader::new(std::io::BufReader::new(file), None)
-        .with_context(|| format!("Failed to read {}", archive_path.display()))?;
-    reader.extract_all(output_dir)
-        .with_context(|| format!("Failed to extract {}", archive_path.display()))?;
+    let mut reader = std::io::BufReader::new(f);
+
+    let mut tar_data = Vec::new();
+    let opts = LzmaOptions { lzma2: true, dict_size: 128 * 1024 * 1024, ..Default::default() };
+    let mut codec = LzmaCodec::new(opts);
+    codec.decompress(&mut reader, &mut tar_data)
+        .with_context(|| format!("LZMA2 decompression failed for {}", archive_path.display()))?;
+
+    let mut archive = tar::Archive::new(tar_data.as_slice());
+    archive.unpack(output_dir)
+        .with_context(|| format!("Failed to unpack {}", archive_path.display()))?;
 
     let _ = fs::remove_file(archive_path);
     Ok(())
