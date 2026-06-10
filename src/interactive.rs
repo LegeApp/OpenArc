@@ -66,10 +66,16 @@ pub struct InteractiveConfig {
     pub bpg_quality: i32,
     pub bpg_lossless: bool,
     pub bpg_bit_depth: u8,
+    /// 0 = x265, 1 = JCTVC (HM reference HEVC encoder)
+    pub bpg_encoder_type: i32,
     pub video_codec: String,
     pub video_preset: String,
     pub video_crf: i32,
+    /// ZSTD level (1-22) for the final archive container (low, since it wraps
+    /// already-compressed media).
     pub compression_level: i32,
+    /// LZMA2 level (1-9) for misc.arc.
+    pub misc_compression_level: i32,
     pub enable_catalog: bool,
     pub enable_dedup: bool,
     pub skip_compressed_videos: bool,
@@ -87,10 +93,12 @@ impl Default for InteractiveConfig {
             bpg_quality: 28,
             bpg_lossless: false,
             bpg_bit_depth: 8,
+            bpg_encoder_type: 1, // JCTVC (best compression)
             video_codec: "h264".to_string(),
             video_preset: "medium".to_string(),
             video_crf: 23,
-            compression_level: 22,
+            compression_level: 3,
+            misc_compression_level: 6,
             enable_catalog: true,
             enable_dedup: true,
             skip_compressed_videos: true,
@@ -589,73 +597,98 @@ fn find_media_files(dir: &PathBuf) -> Result<Vec<PathBuf>> {
 // Settings Prompts
 // ============================================================================
 
+/// Named ffmpeg "basic quality" presets: (label, codec, speed preset, default CRF).
+const VIDEO_QUALITY_PRESETS: &[(&str, &str, &str, i32)] = &[
+    ("Fast", "h264", "fast", 28),
+    ("Balanced", "h264", "medium", 23),
+    ("High Quality", "h265", "medium", 22),
+    ("Max Compression", "h265", "slow", 20),
+];
+
+fn bpg_quality_hint(v: i32) -> String {
+    match v {
+        0..=15 => "near-lossless".to_string(),
+        16..=30 => "high quality".to_string(),
+        31..=42 => "balanced".to_string(),
+        _ => "max compression".to_string(),
+    }
+}
+
+fn crf_hint(v: i32) -> String {
+    match v {
+        0..=17 => "visually lossless".to_string(),
+        18..=23 => "high quality".to_string(),
+        24..=30 => "balanced".to_string(),
+        _ => "small file".to_string(),
+    }
+}
+
 fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
+    use crate::interactive_menu::{select_option, select_value, SelectOption};
+
     println!(
         "\n{}Image Settings (BPG Format):{}",
         COLORS.info, COLORS.reset
     );
-    println!("Default: Quality=28 (0-51, lower=better), 8-bit depth");
 
-    print!("{}Use defaults? (Y/n):{} ", COLORS.prompt, COLORS.reset);
-    io::stdout().flush()?;
+    let encoder_idx = select_option(
+        "BPG encoder:",
+        &[
+            SelectOption::new("JCTVC (HM reference)", "best compression, slower"),
+            SelectOption::new("x265", "faster, slightly larger files"),
+        ],
+        if config.bpg_encoder_type == 1 { 0 } else { 1 },
+    )?;
+    config.bpg_encoder_type = if encoder_idx == 0 { 1 } else { 0 };
 
-    if read_yes_no(true)? {
-        println!(
-            "{}✓ Using default image settings{}",
-            COLORS.success, COLORS.reset
-        );
-    } else {
-        print!("{}BPG Quality (0-51) [28]:{} ", COLORS.prompt, COLORS.reset);
-        io::stdout().flush()?;
-        config.bpg_quality = read_number_or_default(28, 0, 51)?;
-
-        print!(
-            "{}Bit Depth (8/10/12/14) [8]:{} ",
-            COLORS.prompt, COLORS.reset
-        );
-        io::stdout().flush()?;
-        config.bpg_bit_depth = read_number_or_default(8, 8, 14)? as u8;
-    }
+    config.bpg_quality = select_value(
+        "BPG quality (lower = better quality, larger files):",
+        0,
+        51,
+        config.bpg_quality,
+        1,
+        5,
+        bpg_quality_hint,
+    )?;
 
     println!("\n{}Video Settings:{}", COLORS.info, COLORS.reset);
-    println!("Default: H.264, CRF=23, Medium speed");
 
-    print!("{}Use defaults? (Y/n):{} ", COLORS.prompt, COLORS.reset);
-    io::stdout().flush()?;
+    let preset_options: Vec<SelectOption> = VIDEO_QUALITY_PRESETS
+        .iter()
+        .map(|(name, codec, speed, crf)| {
+            SelectOption::new(*name, format!("{} {}, CRF {}", codec.to_uppercase(), speed, crf))
+        })
+        .collect();
+    let default_preset_idx = VIDEO_QUALITY_PRESETS
+        .iter()
+        .position(|(_, codec, speed, _)| *codec == config.video_codec && *speed == config.video_preset)
+        .unwrap_or(1);
+    let preset_idx = select_option("Video quality preset:", &preset_options, default_preset_idx)?;
+    let (_, codec, speed, default_crf) = VIDEO_QUALITY_PRESETS[preset_idx];
+    config.video_codec = codec.to_string();
+    config.video_preset = speed.to_string();
+    config.video_crf = default_crf;
 
-    if read_yes_no(true)? {
-        println!(
-            "{}✓ Using default video settings{}",
-            COLORS.success, COLORS.reset
-        );
-    } else {
-        println!("Codec: [1] H.264 (compatible)  [2] H.265 (better compression)");
-        print!("{}Choice [1]:{} ", COLORS.prompt, COLORS.reset);
-        io::stdout().flush()?;
-        let codec_choice = read_number_or_default(1, 1, 2)?;
-        config.video_codec = if codec_choice == 2 {
-            "h265".to_string()
-        } else {
-            "h264".to_string()
-        };
+    config.video_crf = select_value(
+        "Fine-tune video CRF (lower = better quality, larger files):",
+        0,
+        51,
+        config.video_crf,
+        1,
+        5,
+        crf_hint,
+    )?;
 
-        print!(
-            "{}CRF Quality (18-28, lower=better) [23]:{} ",
-            COLORS.prompt, COLORS.reset
-        );
-        io::stdout().flush()?;
-        config.video_crf = read_number_or_default(23, 0, 51)?;
-
-        println!("Speed: [1] Fast  [2] Medium  [3] Slow");
-        print!("{}Choice [2]:{} ", COLORS.prompt, COLORS.reset);
-        io::stdout().flush()?;
-        let speed_choice = read_number_or_default(2, 1, 3)?;
-        config.video_preset = match speed_choice {
-            1 => "fast".to_string(),
-            3 => "slow".to_string(),
-            _ => "medium".to_string(),
-        };
-    }
+    println!("\n{}Archive Settings:{}", COLORS.info, COLORS.reset);
+    config.misc_compression_level = select_value(
+        "Misc-file compression (LZMA2 level for non-media files):",
+        1,
+        9,
+        config.misc_compression_level,
+        1,
+        2,
+        |v| format!("level {v}"),
+    )?;
 
     // File tracking toggle
     println!("\n{}File Tracking:{}", COLORS.info, COLORS.reset);
@@ -792,9 +825,14 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
 
     if config.reencode_media {
         if image_count > 0 {
+            let max_depth = if config.bpg_encoder_type == 1 { 14 } else { 12 };
             println!(
-                "  • {} images → BPG (quality: {}, {}-bit)",
-                image_count, config.bpg_quality, config.bpg_bit_depth
+                "  • {} images → BPG (encoder: {}, quality: {}, bit depth: adaptive, 8-bit \
+                 sources stay 8-bit, high-depth sources up to {}-bit)",
+                image_count,
+                if config.bpg_encoder_type == 1 { "JCTVC" } else { "x265" },
+                config.bpg_quality,
+                max_depth
             );
         }
         if video_count > 0 {
@@ -834,7 +872,10 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
             COLORS.reset,
             config.output_path.display()
         );
-        println!("  • Compression: level {}", config.compression_level);
+        println!(
+            "  • Compression: ZSTD container level {}, misc LZMA2 level {}",
+            config.compression_level, config.misc_compression_level
+        );
         println!(
             "  • Catalog: {}",
             if config.enable_catalog {
@@ -888,11 +929,12 @@ fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Resul
                 bpg_lossless: config.bpg_lossless,
                 bpg_bit_depth: config.bpg_bit_depth as i32,
                 bpg_chroma_format: 1,
-                bpg_encoder_type: 0,
+                bpg_encoder_type: config.bpg_encoder_type,
                 bpg_compression_level: 8,
                 video_preset: video_preset_to_int(&config.video_codec, &config.video_preset),
                 video_crf: config.video_crf,
                 compression_level: config.compression_level,
+                misc_compression_level: config.misc_compression_level,
                 enable_catalog: config.enable_catalog,
                 catalog_db_path: config.catalog_db_path.clone(),
                 enable_dedup: config.enable_dedup,
@@ -1012,7 +1054,7 @@ fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Resu
         quality: config.bpg_quality as u8,
         lossless: config.bpg_lossless,
         bit_depth: config.bpg_bit_depth,
-        encoder_type: 0, // x265
+        encoder_type: config.bpg_encoder_type as u8,
         compression_level: 8,
     };
 

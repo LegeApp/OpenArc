@@ -5,9 +5,11 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=ffmpeg_wrapper.c");
+    println!("cargo:rerun-if-changed=ucrt_compat.c");
     println!("cargo:rerun-if-changed=../../native/BPG/libbpg-0.9.8");
     println!("cargo:rerun-if-env-changed=MSYS2_ROOT");
     println!("cargo:rerun-if-env-changed=MSYS2_PATH");
+    println!("cargo:rerun-if-env-changed=OPENARC_FFMPEG_PREFIX");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let workspace_root = manifest_dir.join("..").join("..");
@@ -18,18 +20,33 @@ fn main() {
     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
 
     if target_os == "windows" && target_env == "msvc" {
-        // MSVC builds still use the prebuilt openarc_bpg.dll runtime-loaded path in
-        // crates/codecs/bpg.rs. FFmpeg also uses the ffmpeg executable under MSVC,
-        // because MSYS2 headers/static archives are not compatible with cl/link.exe.
-        return;
+        panic!(
+            "openarc cannot be built for the MSVC target: the in-tree codecs link \
+against GCC-built MSYS2 static archives that cl/link.exe cannot consume.\n\
+Build with the GNU toolchain instead (rust-toolchain.toml pins it; if you are \
+overriding it, use `cargo build --target x86_64-pc-windows-gnu` with \
+`rustup default stable-x86_64-pc-windows-gnu`)."
+        );
     }
 
-    compile_bpg(&bpg_dir, &target_os);
+    let jctvc = env::var_os("CARGO_FEATURE_JCTVC").is_some();
+
+    compile_bpg(&bpg_dir, &target_os, jctvc);
     compile_ffmpeg_wrapper(&wrapper_c, &target_os);
+    compile_ucrt_compat(&manifest_dir, &target_os);
     link_codecs_and_ffmpeg(&target_os);
 }
 
-fn compile_bpg(bpg_dir: &Path, target_os: &str) {
+fn compile_ucrt_compat(manifest_dir: &Path, target_os: &str) {
+    if target_os != "windows" {
+        return;
+    }
+    cc::Build::new()
+        .file(manifest_dir.join("ucrt_compat.c"))
+        .compile("ucrt_compat");
+}
+
+fn compile_bpg(bpg_dir: &Path, target_os: &str, jctvc: bool) {
     if !bpg_dir.exists() {
         panic!("BPG source not found at {}", bpg_dir.display());
     }
@@ -64,6 +81,60 @@ fn compile_bpg(bpg_dir: &Path, target_os: &str) {
         .to_string();
     let version_define = format!("\"{version}\"");
 
+    // Encoder portion: bpgenc.c (in library mode) + x265_glue.c + bpg_api.c.
+    // Needs USE_X265 + BPG_ENCODER_LIB. Includes MSYS2 mingw64/include for x265.h.
+    // Compiled (and thus emitted as -l) BEFORE the decoder archive: bpg_api.c
+    // calls bpg_decoder_* symbols, and GNU ld's single-pass model only resolves
+    // them if libbpg_decoder.a comes after libbpg_encoder.a on the link line.
+    // (The openarc binary doesn't care — both archives are bundled into the
+    // codecs rlib — but standalone test binaries link them in emission order.)
+    let mut enc = cc::Build::new();
+    enc.warnings(false)
+        .extra_warnings(false)
+        .opt_level(3)
+        .flag_if_supported("-std=c99")
+        .define("_FILE_OFFSET_BITS", "64")
+        .define("_LARGEFILE_SOURCE", None)
+        .define("_REENTRANT", None)
+        .define("CONFIG_BPG_VERSION", Some(version_define.as_str()))
+        .define("USE_X265", None)
+        .define("BPG_ENCODER_LIB", None)
+        .flag_if_supported("-Wno-unused-but-set-variable")
+        .flag_if_supported("-Wno-unused-function")
+        .include(bpg_dir);
+
+    if jctvc {
+        // Registers &jctvc_encoder (defined in jctvc_glue.cpp) in bpgenc.c's
+        // encoder table so encoder_type = 1 dispatches to it at runtime.
+        enc.define("USE_JCTVC", None);
+    }
+
+    if target_os == "windows" {
+        if let Some(libdir) = find_msys2_lib_dir() {
+            let incdir = libdir
+                .parent()
+                .expect("mingw64/lib parent")
+                .join("include");
+            if incdir.exists() {
+                enc.include(&incdir);
+            }
+        }
+    } else {
+        add_pkg_config_includes(&mut enc, &["x265", "libpng", "libraw", "lcms2"]);
+    }
+
+    enc.file(bpg_dir.join("bpgenc.c"));
+    enc.file(bpg_dir.join("x265_glue.c"));
+    enc.file(bpg_dir.join("bpg_api.c"));
+    enc.compile("bpg_encoder");
+
+    // JCTVC archives come after the encoder (bpgenc.o references
+    // jctvc_encoder) and before the decoder, for the same single-pass
+    // link-order reason as above.
+    if jctvc {
+        compile_jctvc(bpg_dir, target_os, &version_define);
+    }
+
     // Decoder portion: libavcodec/* + libavutil/* + libbpg.c.
     // These need -DHAVE_AV_CONFIG_H -DUSE_VAR_BIT_DEPTH -DUSE_PRED + c99.
     let mut dec = cc::Build::new();
@@ -96,42 +167,88 @@ fn compile_bpg(bpg_dir: &Path, target_os: &str) {
     }
     dec.file(bpg_dir.join("libbpg.c"));
     dec.compile("bpg_decoder");
+}
 
-    // Encoder portion: bpgenc.c (in library mode) + x265_glue.c + bpg_api.c.
-    // Needs USE_X265 + BPG_ENCODER_LIB. Includes MSYS2 mingw64/include for x265.h.
-    let mut enc = cc::Build::new();
-    enc.warnings(false)
+/// Compile the JCTVC (HM reference) HEVC encoder. Same sources and flags the
+/// retired build_openarc_combined_dll.ps1 used, minus the DLL-only defines.
+/// jctvc_glue.cpp (the HEVCEncoder vtable bpgenc.c dispatches to) lives in the
+/// same archive as the TLib code it calls, so intra-archive resolution covers
+/// it; libmd5 is plain C and goes in its own archive after the C++ one.
+fn compile_jctvc(bpg_dir: &Path, target_os: &str, version_define: &str) {
+    let jctvc_dir = bpg_dir.join("jctvc");
+    if !jctvc_dir.exists() {
+        panic!("JCTVC source not found at {}", jctvc_dir.display());
+    }
+
+    let mut cpp = cc::Build::new();
+    cpp.cpp(true)
+        .warnings(false)
         .extra_warnings(false)
         .opt_level(3)
-        .flag_if_supported("-std=c99")
+        .flag_if_supported("-std=c++11")
+        .flag_if_supported("-fno-strict-aliasing")
+        .flag_if_supported("-fexceptions")
+        .flag_if_supported("-funwind-tables")
+        .flag_if_supported("-fasynchronous-unwind-tables")
+        .flag_if_supported("-fdata-sections")
+        .flag_if_supported("-ffunction-sections")
+        .flag_if_supported("-Wno-sign-compare")
+        .flag_if_supported("-Wno-unused-parameter")
+        .flag_if_supported("-Wno-missing-field-initializers")
+        .flag_if_supported("-Wno-misleading-indentation")
+        .flag_if_supported("-Wno-class-memaccess")
         .define("_FILE_OFFSET_BITS", "64")
         .define("_LARGEFILE_SOURCE", None)
         .define("_REENTRANT", None)
-        .define("CONFIG_BPG_VERSION", Some(version_define.as_str()))
+        .define("_ISOC99_SOURCE", None)
+        .define("_GNU_SOURCE", "1")
+        .define("__STDC_LIMIT_MACROS", None)
+        .define("CONFIG_BPG_VERSION", Some(version_define))
         .define("USE_X265", None)
+        .define("USE_JCTVC", None)
         .define("BPG_ENCODER_LIB", None)
-        .flag_if_supported("-Wno-unused-but-set-variable")
-        .flag_if_supported("-Wno-unused-function")
-        .include(bpg_dir);
+        .include(bpg_dir)
+        .include(&jctvc_dir)
+        .include(jctvc_dir.join("TLibCommon"))
+        .include(jctvc_dir.join("TLibEncoder"))
+        .include(jctvc_dir.join("TLibVideoIO"))
+        .include(jctvc_dir.join("libmd5"));
 
     if target_os == "windows" {
-        if let Some(libdir) = find_msys2_lib_dir() {
-            let incdir = libdir
-                .parent()
-                .expect("mingw64/lib parent")
-                .join("include");
-            if incdir.exists() {
-                enc.include(&incdir);
-            }
-        }
-    } else {
-        add_pkg_config_includes(&mut enc, &["x265", "libpng", "libraw", "lcms2"]);
+        cpp.define("CONFIG_WIN32", "1");
+        cpp.define("_WIN32_WINNT", "0x0600");
+        // libstdc++ is linked explicitly (static) in link_codecs_and_ffmpeg;
+        // cc's implicit dylib -lstdc++ would drag libstdc++-6.dll back in.
+        cpp.cpp_link_stdlib(None);
     }
 
-    enc.file(bpg_dir.join("bpgenc.c"));
-    enc.file(bpg_dir.join("x265_glue.c"));
-    enc.file(bpg_dir.join("bpg_api.c"));
-    enc.compile("bpg_encoder");
+    for subdir in ["TLibCommon", "TLibEncoder", "TLibVideoIO"] {
+        let dir = jctvc_dir.join(subdir);
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()))
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                (path.extension()? == "cpp").then_some(path)
+            })
+            .collect();
+        files.sort();
+        for file in files {
+            cpp.file(file);
+        }
+    }
+    cpp.file(jctvc_dir.join("TAppEncCfg.cpp"));
+    cpp.file(jctvc_dir.join("TAppEncTop.cpp"));
+    cpp.file(jctvc_dir.join("program_options_lite.cpp"));
+    cpp.file(bpg_dir.join("jctvc_glue.cpp"));
+    cpp.compile("bpg_jctvc");
+
+    let mut md5 = cc::Build::new();
+    md5.warnings(false)
+        .opt_level(3)
+        .flag_if_supported("-std=c99")
+        .include(jctvc_dir.join("libmd5"))
+        .file(jctvc_dir.join("libmd5").join("libmd5.c"))
+        .compile("bpg_jctvc_md5");
 }
 
 fn compile_ffmpeg_wrapper(wrapper_c: &Path, target_os: &str) {
@@ -147,6 +264,11 @@ fn compile_ffmpeg_wrapper(wrapper_c: &Path, target_os: &str) {
         .file(wrapper_c);
 
     if target_os == "windows" {
+        // A custom FFmpeg build (OPENARC_FFMPEG_PREFIX) provides its own
+        // headers; they must shadow the MSYS2 ones, so they come first.
+        if let Some(prefix) = custom_ffmpeg_prefix() {
+            build.include(prefix.join("include"));
+        }
         if let Some(libdir) = find_msys2_lib_dir() {
             let incdir = libdir
                 .parent()
@@ -170,6 +292,25 @@ fn compile_ffmpeg_wrapper(wrapper_c: &Path, target_os: &str) {
     }
 
     build.compile("openarc_ffmpeg_wrapper");
+}
+
+/// Optional prefix of a custom static FFmpeg build (see
+/// scripts/build-static-ffmpeg.sh). Layout must be a standard install prefix:
+/// include/, lib/, lib/pkgconfig/. When set, its headers, libraries, and .pc
+/// files take precedence over the MSYS2 ones; everything FFmpeg doesn't
+/// provide (x265, libpng, ...) still comes from MSYS2.
+fn custom_ffmpeg_prefix() -> Option<PathBuf> {
+    let prefix = PathBuf::from(env::var_os("OPENARC_FFMPEG_PREFIX")?);
+    if prefix.join("lib").join("pkgconfig").join("libavcodec.pc").is_file() {
+        Some(prefix)
+    } else {
+        println!(
+            "cargo:warning=OPENARC_FFMPEG_PREFIX is set but {} has no \
+lib/pkgconfig/libavcodec.pc; falling back to the MSYS2 FFmpeg",
+            prefix.display()
+        );
+        None
+    }
 }
 
 fn add_pkg_config_includes(build: &mut cc::Build, packages: &[&str]) {
@@ -271,8 +412,17 @@ Or set MSYS2_ROOT to a custom install path (e.g. D:\msys64)."
         )
     });
 
+    // Library search order: a custom FFmpeg prefix (if any) shadows MSYS2, so
+    // its libav*.a and .pc files win while everything else still resolves
+    // from the MSYS2 tree.
+    let mut libdirs: Vec<PathBuf> = Vec::new();
+    if let Some(prefix) = custom_ffmpeg_prefix() {
+        libdirs.push(prefix.join("lib"));
+    }
+    libdirs.push(libdir.clone());
+
     require_static_libs(
-        &libdir,
+        &libdirs,
         &[
             "libavformat.a",
             "libavcodec.a",
@@ -285,7 +435,9 @@ Or set MSYS2_ROOT to a custom install path (e.g. D:\msys64)."
         "FFmpeg or x264/x265",
     );
 
-    println!("cargo:rustc-link-search=native={}", libdir.display());
+    for dir in &libdirs {
+        println!("cargo:rustc-link-search=native={}", dir.display());
+    }
 
     // Ask pkg-config for the *full* static link list that FFmpeg needs.
     // The MSYS2 FFmpeg is compiled with many optional features whose transitive
@@ -295,7 +447,7 @@ Or set MSYS2_ROOT to a custom install path (e.g. D:\msys64)."
         .expect("mingw64/lib parent")
         .join("bin")
         .join("pkg-config.exe");
-    let pkgconfig_path = libdir.join("pkgconfig");
+    let pkgconfig_paths: Vec<PathBuf> = libdirs.iter().map(|d| d.join("pkgconfig")).collect();
 
     let pkg_libs = if pkg_config_bin.exists() {
         // Some MSYS2 .pc files don't fully expand transitive private deps for
@@ -305,7 +457,7 @@ Or set MSYS2_ROOT to a custom install path (e.g. D:\msys64)."
         // querying each returned lib's .pc file as well.
         let libs = pkg_config_recursive(
             &pkg_config_bin,
-            &pkgconfig_path,
+            &pkgconfig_paths,
             &[
                 "libavformat", "libavcodec", "libavutil",
                 "libswscale", "libswresample",
@@ -407,17 +559,14 @@ Or set MSYS2_ROOT to a custom install path (e.g. D:\msys64)."
             // their objects use __imp_xxx references that only a DLL import
             // library can satisfy — static linking would leave them unresolved.
             if force_dynamic.contains(&libname.as_str()) {
-                let dll_a = libdir.join(format!("lib{libname}.dll.a"));
-                if dll_a.exists() {
+                if find_in_libdirs(&libdirs, &format!("lib{libname}.dll.a")).is_some() {
                     println!("cargo:rustc-link-lib=dylib={libname}");
                 }
                 continue;
             }
-            let static_a = libdir.join(format!("lib{libname}.a"));
-            let dll_a    = libdir.join(format!("lib{libname}.dll.a"));
-            if static_a.exists() {
+            if find_in_libdirs(&libdirs, &format!("lib{libname}.a")).is_some() {
                 println!("cargo:rustc-link-lib=static={libname}");
-            } else if dll_a.exists() {
+            } else if find_in_libdirs(&libdirs, &format!("lib{libname}.dll.a")).is_some() {
                 println!("cargo:rustc-link-lib=dylib={libname}");
             }
             // else: silently skip — windows_sys filtered above
@@ -426,24 +575,35 @@ Or set MSYS2_ROOT to a custom install path (e.g. D:\msys64)."
         // Ensure ssl/crypto (needed by libsrt) and gomp/winpthread (needed by
         // libraw / OpenMP code) are always linked, even if pkg-config misses them.
         for lib in ["ssl", "crypto", "gomp", "winpthread"] {
-            if seen.insert(lib.to_string()) {
-                let a = libdir.join(format!("lib{lib}.a"));
-                if a.exists() {
-                    println!("cargo:rustc-link-lib=static={lib}");
-                }
+            if seen.insert(lib.to_string())
+                && find_in_libdirs(&libdirs, &format!("lib{lib}.a")).is_some()
+            {
+                println!("cargo:rustc-link-lib=static={lib}");
             }
         }
 
-        // GCC C++ runtime: use GCC driver flags so GCC finds libstdc++.a in its
-        // internal directory (not the MSYS2 lib search path).
-        println!("cargo:rustc-link-arg=-static-libgcc");
-        println!("cargo:rustc-link-arg=-static-libstdc++");
+        // GCC C++ runtime. rustc drives the link through `gcc` (not `g++`),
+        // so nothing links libstdc++ implicitly — and neither `-static-libstdc++`
+        // nor any other `cargo:rustc-link-arg` helps here, because link-args
+        // from a dependency's build script do not propagate to the final
+        // binary link (only `rustc-link-lib`/`rustc-link-search` do).
+        // The C++ objects inside the MSYS2 static archives (x265, libjxl, ...)
+        // are bundled into this crate's rlib, so bundle libstdc++.a the same
+        // way; GNU ld resolves members within one archive to a fixpoint, so
+        // ordering inside the rlib does not matter.
+        println!("cargo:rustc-link-lib=static=stdc++");
 
         // Windows system DLLs (must remain dynamic).
         for sys in [
             "ole32", "user32", "ws2_32", "secur32", "ncrypt",
             "crypt32", "bcrypt", "advapi32", "kernel32",
             "mfplat", "mfuuid", "strmiids", "gdi32", "uuid",
+            // Newer MSYS2 mingw-w64 toolchains build libstdc++.a's wide-char
+            // ctype/codecvt facets against UCRT (__imp_wctype, __imp_wcrtomb,
+            // __imp_mbrtowc, __imp_btowc, __imp_wctob), but rustc's
+            // x86_64-pc-windows-gnu target only links msvcrt by default.
+            // Link the UCRT import lib too so those symbols resolve.
+            "ucrt",
         ] {
             println!("cargo:rustc-link-lib={sys}");
         }
@@ -484,13 +644,16 @@ Or set MSYS2_ROOT to a custom install path (e.g. D:\msys64)."
 ///      pkg-config on that package too and merging the results.
 ///
 /// Returns a deduplicated, ordered list of -l / -L tokens.
-fn pkg_config_recursive(pkg_config: &Path, pkg_path: &Path, packages: &[&str]) -> Vec<String> {
+///
+/// `pkg_paths` is an ordered list of pkgconfig directories; earlier entries
+/// shadow later ones (a custom FFmpeg prefix shadows MSYS2).
+fn pkg_config_recursive(pkg_config: &Path, pkg_paths: &[PathBuf], packages: &[&str]) -> Vec<String> {
     let mut ordered: Vec<String> = Vec::new();
     let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     fn run_one(
         pkg_config: &Path,
-        pkg_path: &Path,
+        pkg_paths: &[PathBuf],
         pkg: &str,
         ordered: &mut Vec<String>,
         visited: &mut std::collections::HashSet<String>,
@@ -498,8 +661,10 @@ fn pkg_config_recursive(pkg_config: &Path, pkg_path: &Path, packages: &[&str]) -
         if !visited.insert(pkg.to_string()) {
             return;
         }
+        let joined = env::join_paths(pkg_paths)
+            .expect("pkgconfig paths contain no separators");
         let out = Command::new(pkg_config)
-            .env("PKG_CONFIG_PATH", pkg_path.display().to_string())
+            .env("PKG_CONFIG_PATH", joined)
             .args(["--static", "--libs", pkg])
             .output()
             .ok();
@@ -516,12 +681,12 @@ fn pkg_config_recursive(pkg_config: &Path, pkg_path: &Path, packages: &[&str]) -
             if let Some(libname) = token.strip_prefix("-l") {
                 // Recurse into this lib's own .pc if it exists.
                 // pkg-config files may be named either "lib{name}.pc" or "{name}.pc".
-                let pc_with_lib = pkg_path.join(format!("lib{libname}.pc"));
-                let pc_bare     = pkg_path.join(format!("{libname}.pc"));
-                if pc_with_lib.exists() {
-                    run_one(pkg_config, pkg_path, &format!("lib{libname}"), ordered, visited);
-                } else if pc_bare.exists() {
-                    run_one(pkg_config, pkg_path, libname, ordered, visited);
+                let pc_with_lib = pkg_paths.iter().any(|p| p.join(format!("lib{libname}.pc")).exists());
+                let pc_bare     = pkg_paths.iter().any(|p| p.join(format!("{libname}.pc")).exists());
+                if pc_with_lib {
+                    run_one(pkg_config, pkg_paths, &format!("lib{libname}"), ordered, visited);
+                } else if pc_bare {
+                    run_one(pkg_config, pkg_paths, libname, ordered, visited);
                 }
                 let tok = token.to_string();
                 if !ordered.contains(&tok) {
@@ -537,19 +702,29 @@ fn pkg_config_recursive(pkg_config: &Path, pkg_path: &Path, packages: &[&str]) -
     }
 
     for pkg in packages {
-        run_one(pkg_config, pkg_path, pkg, &mut ordered, &mut visited);
+        run_one(pkg_config, pkg_paths, pkg, &mut ordered, &mut visited);
     }
     ordered
 }
 
-fn require_static_libs(libdir: &Path, libs: &[&str], context: &str) {
+/// First libdir (in order) containing `file_name`. Earlier dirs shadow later
+/// ones, mirroring the emitted rustc-link-search order.
+fn find_in_libdirs(libdirs: &[PathBuf], file_name: &str) -> Option<PathBuf> {
+    libdirs
+        .iter()
+        .map(|dir| dir.join(file_name))
+        .find(|p| p.exists())
+}
+
+fn require_static_libs(libdirs: &[PathBuf], libs: &[&str], context: &str) {
     let mut missing = Vec::new();
     for lib in libs {
-        if !libdir.join(lib).exists() {
+        if find_in_libdirs(libdirs, lib).is_none() {
             missing.push(*lib);
         }
     }
     if !missing.is_empty() {
+        let searched: Vec<String> = libdirs.iter().map(|d| d.display().to_string()).collect();
         panic!(
             "Required static libraries are missing from {}: {:?}.
 {} static linking is required. Install the static-enabled MSYS2 packages, e.g.:
@@ -558,7 +733,7 @@ fn require_static_libs(libdir: &Path, libs: &[&str], context: &str) {
     mingw-w64-x86_64-x265
 
 If your MSYS2 only ships dynamic libs, the package needs to be rebuilt with static support.",
-            libdir.display(),
+            searched.join(", "),
             missing,
             context
         );

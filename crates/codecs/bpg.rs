@@ -5,8 +5,20 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
+use std::sync::{Mutex, MutexGuard};
 
 use anyhow::{anyhow, ensure, Result};
+
+/// The JCTVC (HM reference) encoder is built on extensive mutable global/static
+/// state and is NOT thread-safe: running two `TAppEncTop` encodes concurrently in
+/// the same process corrupts shared globals and trips internal assertions such as
+/// "codeCoeffNxN called for empty TU!". OpenArc encodes images in parallel across
+/// worker threads, so every JCTVC encode must hold this process-wide lock,
+/// serializing them. x265 (encoder_type 0) is per-instance safe and unaffected.
+static JCTVC_LOCK: Mutex<()> = Mutex::new(());
+
+/// `encoder_type` value selecting the JCTVC (HM reference) HEVC encoder.
+const ENCODER_TYPE_JCTVC: c_int = 1;
 
 #[repr(C)]
 pub struct BPGEncoderContext {
@@ -71,343 +83,6 @@ impl BPGImageFormat {
     }
 }
 
-#[cfg(all(windows, target_env = "msvc"))]
-mod bpg_ffi {
-    use super::*;
-    use libloading::Library;
-    use std::path::PathBuf;
-    use std::sync::OnceLock;
-
-    type EncoderCreateFn = unsafe extern "C" fn() -> *mut BPGEncoderContext;
-    type EncoderCreateExFn = unsafe extern "C" fn(*const BPGEncoderConfig) -> *mut BPGEncoderContext;
-    type EncoderSetConfigFn =
-        unsafe extern "C" fn(*mut BPGEncoderContext, *const BPGEncoderConfig) -> c_int;
-    type EncoderGetDefaultConfigFn = unsafe extern "C" fn(*mut BPGEncoderConfig);
-    type EncodeFromFileFn =
-        unsafe extern "C" fn(*mut BPGEncoderContext, *const c_char, *mut *mut u8, *mut usize) -> c_int;
-    type EncodeFromMemoryFn = unsafe extern "C" fn(
-        *mut BPGEncoderContext,
-        *const u8,
-        c_int,
-        c_int,
-        c_int,
-        BPGImageFormat,
-        *mut *mut u8,
-        *mut usize,
-    ) -> c_int;
-    type EncodeFromPlanarU8Fn = unsafe extern "C" fn(
-        *mut BPGEncoderContext,
-        *const u8,
-        c_int,
-        *const u8,
-        c_int,
-        *const u8,
-        c_int,
-        c_int,
-        c_int,
-        BPGImageFormat,
-        *mut *mut u8,
-        *mut usize,
-    ) -> c_int;
-    type EncodeFromPlanarU16Fn = unsafe extern "C" fn(
-        *mut BPGEncoderContext,
-        *const u16,
-        c_int,
-        *const u16,
-        c_int,
-        *const u16,
-        c_int,
-        c_int,
-        c_int,
-        BPGImageFormat,
-        *mut *mut u8,
-        *mut usize,
-    ) -> c_int;
-    type EncodeToFileFn =
-        unsafe extern "C" fn(*mut BPGEncoderContext, *const c_char, *const c_char) -> c_int;
-    type EncoderGetErrorFn = unsafe extern "C" fn(*mut BPGEncoderContext) -> *const c_char;
-    type EncoderDestroyFn = unsafe extern "C" fn(*mut BPGEncoderContext);
-    type DecodeFileFn =
-        unsafe extern "C" fn(*const c_char, *mut *mut u8, *mut c_int, *mut c_int, *mut BPGImageFormat) -> c_int;
-    type FreeFn = unsafe extern "C" fn(*mut c_void);
-    type GetVersionFn = unsafe extern "C" fn() -> *const c_char;
-    type GetSupportedEncodersFn = unsafe extern "C" fn() -> c_int;
-
-    struct BpgLibrary {
-        _library: Library,
-        encoder_create: EncoderCreateFn,
-        encoder_create_ex: EncoderCreateExFn,
-        encoder_set_config: EncoderSetConfigFn,
-        encoder_get_default_config: EncoderGetDefaultConfigFn,
-        encode_from_file: EncodeFromFileFn,
-        encode_from_memory: EncodeFromMemoryFn,
-        encode_from_planar_u8: EncodeFromPlanarU8Fn,
-        encode_from_planar_u16: EncodeFromPlanarU16Fn,
-        encode_to_file: EncodeToFileFn,
-        encoder_get_error: EncoderGetErrorFn,
-        encoder_destroy: EncoderDestroyFn,
-        decode_file: DecodeFileFn,
-        free: FreeFn,
-        get_version: GetVersionFn,
-        get_supported_encoders: GetSupportedEncodersFn,
-    }
-
-    static BPG_LIBRARY: OnceLock<std::result::Result<BpgLibrary, String>> = OnceLock::new();
-
-    fn load_library() -> std::result::Result<BpgLibrary, String> {
-        let mut candidates = Vec::new();
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(dir) = exe_path.parent() {
-                candidates.push(dir.join("openarc_bpg.dll"));
-            }
-        }
-        candidates.push(PathBuf::from("openarc_bpg.dll"));
-
-        let mut errors = Vec::new();
-        for candidate in candidates {
-            let library = match unsafe { Library::new(&candidate) } {
-                Ok(library) => library,
-                Err(err) => {
-                    errors.push(format!("{} ({err})", candidate.display()));
-                    continue;
-                }
-            };
-
-            unsafe {
-                let encoder_create = *library
-                    .get::<EncoderCreateFn>(b"bpg_encoder_create\0")
-                    .map_err(|err| format!("bpg_encoder_create: {err}"))?;
-                let encoder_create_ex = *library
-                    .get::<EncoderCreateExFn>(b"bpg_encoder_create_ex\0")
-                    .map_err(|err| format!("bpg_encoder_create_ex: {err}"))?;
-                let encoder_set_config = *library
-                    .get::<EncoderSetConfigFn>(b"bpg_encoder_set_config\0")
-                    .map_err(|err| format!("bpg_encoder_set_config: {err}"))?;
-                let encoder_get_default_config = *library
-                    .get::<EncoderGetDefaultConfigFn>(b"bpg_encoder_get_default_config\0")
-                    .map_err(|err| format!("bpg_encoder_get_default_config: {err}"))?;
-                let encode_from_file = *library
-                    .get::<EncodeFromFileFn>(b"bpg_encode_from_file\0")
-                    .map_err(|err| format!("bpg_encode_from_file: {err}"))?;
-                let encode_from_memory = *library
-                    .get::<EncodeFromMemoryFn>(b"bpg_encode_from_memory\0")
-                    .map_err(|err| format!("bpg_encode_from_memory: {err}"))?;
-                let encode_from_planar_u8 = *library
-                    .get::<EncodeFromPlanarU8Fn>(b"bpg_encode_from_planar_u8\0")
-                    .map_err(|err| format!("bpg_encode_from_planar_u8: {err}"))?;
-                let encode_from_planar_u16 = *library
-                    .get::<EncodeFromPlanarU16Fn>(b"bpg_encode_from_planar_u16\0")
-                    .map_err(|err| format!("bpg_encode_from_planar_u16: {err}"))?;
-                let encode_to_file = *library
-                    .get::<EncodeToFileFn>(b"bpg_encode_to_file\0")
-                    .map_err(|err| format!("bpg_encode_to_file: {err}"))?;
-                let encoder_get_error = *library
-                    .get::<EncoderGetErrorFn>(b"bpg_encoder_get_error\0")
-                    .map_err(|err| format!("bpg_encoder_get_error: {err}"))?;
-                let encoder_destroy = *library
-                    .get::<EncoderDestroyFn>(b"bpg_encoder_destroy\0")
-                    .map_err(|err| format!("bpg_encoder_destroy: {err}"))?;
-                let decode_file = *library
-                    .get::<DecodeFileFn>(b"bpg_decode_file\0")
-                    .map_err(|err| format!("bpg_decode_file: {err}"))?;
-                let free = *library
-                    .get::<FreeFn>(b"bpg_free\0")
-                    .map_err(|err| format!("bpg_free: {err}"))?;
-                let get_version = *library
-                    .get::<GetVersionFn>(b"bpg_get_version\0")
-                    .map_err(|err| format!("bpg_get_version: {err}"))?;
-                let get_supported_encoders = *library
-                    .get::<GetSupportedEncodersFn>(b"bpg_get_supported_encoders\0")
-                    .map_err(|err| format!("bpg_get_supported_encoders: {err}"))?;
-
-                return Ok(BpgLibrary {
-                    _library: library,
-                    encoder_create,
-                    encoder_create_ex,
-                    encoder_set_config,
-                    encoder_get_default_config,
-                    encode_from_file,
-                    encode_from_memory,
-                    encode_from_planar_u8,
-                    encode_from_planar_u16,
-                    encode_to_file,
-                    encoder_get_error,
-                    encoder_destroy,
-                    decode_file,
-                    free,
-                    get_version,
-                    get_supported_encoders,
-                });
-            }
-        }
-
-        Err(format!(
-            "openarc_bpg.dll was not found or could not be loaded: {}",
-            errors.join("; ")
-        ))
-    }
-
-    fn library() -> Result<&'static BpgLibrary> {
-        match BPG_LIBRARY.get_or_init(load_library) {
-            Ok(library) => Ok(library),
-            Err(err) => Err(anyhow!(err.clone())),
-        }
-    }
-
-    pub unsafe fn encoder_create() -> Result<*mut BPGEncoderContext> {
-        Ok((library()?.encoder_create)())
-    }
-
-    pub unsafe fn encoder_create_ex(config: *const BPGEncoderConfig) -> Result<*mut BPGEncoderContext> {
-        Ok((library()?.encoder_create_ex)(config))
-    }
-
-    pub unsafe fn encoder_set_config(
-        ctx: *mut BPGEncoderContext,
-        config: *const BPGEncoderConfig,
-    ) -> Result<c_int> {
-        Ok((library()?.encoder_set_config)(ctx, config))
-    }
-
-    pub unsafe fn encoder_get_default_config(config: *mut BPGEncoderConfig) -> Result<()> {
-        (library()?.encoder_get_default_config)(config);
-        Ok(())
-    }
-
-    pub unsafe fn encode_from_file(
-        ctx: *mut BPGEncoderContext,
-        input_path: *const c_char,
-        output_data: *mut *mut u8,
-        output_size: *mut usize,
-    ) -> Result<c_int> {
-        Ok((library()?.encode_from_file)(ctx, input_path, output_data, output_size))
-    }
-
-    pub unsafe fn encode_from_memory(
-        ctx: *mut BPGEncoderContext,
-        input_data: *const u8,
-        width: c_int,
-        height: c_int,
-        stride: c_int,
-        format: BPGImageFormat,
-        output_data: *mut *mut u8,
-        output_size: *mut usize,
-    ) -> Result<c_int> {
-        Ok((library()?.encode_from_memory)(
-            ctx,
-            input_data,
-            width,
-            height,
-            stride,
-            format,
-            output_data,
-            output_size,
-        ))
-    }
-
-    pub unsafe fn encode_from_planar_u8(
-        ctx: *mut BPGEncoderContext,
-        y_plane: *const u8,
-        y_stride: c_int,
-        cb_plane: *const u8,
-        cb_stride: c_int,
-        cr_plane: *const u8,
-        cr_stride: c_int,
-        width: c_int,
-        height: c_int,
-        format: BPGImageFormat,
-        output_data: *mut *mut u8,
-        output_size: *mut usize,
-    ) -> Result<c_int> {
-        Ok((library()?.encode_from_planar_u8)(
-            ctx,
-            y_plane,
-            y_stride,
-            cb_plane,
-            cb_stride,
-            cr_plane,
-            cr_stride,
-            width,
-            height,
-            format,
-            output_data,
-            output_size,
-        ))
-    }
-
-    pub unsafe fn encode_from_planar_u16(
-        ctx: *mut BPGEncoderContext,
-        y_plane: *const u16,
-        y_stride: c_int,
-        cb_plane: *const u16,
-        cb_stride: c_int,
-        cr_plane: *const u16,
-        cr_stride: c_int,
-        width: c_int,
-        height: c_int,
-        format: BPGImageFormat,
-        output_data: *mut *mut u8,
-        output_size: *mut usize,
-    ) -> Result<c_int> {
-        Ok((library()?.encode_from_planar_u16)(
-            ctx,
-            y_plane,
-            y_stride,
-            cb_plane,
-            cb_stride,
-            cr_plane,
-            cr_stride,
-            width,
-            height,
-            format,
-            output_data,
-            output_size,
-        ))
-    }
-
-    pub unsafe fn encode_to_file(
-        ctx: *mut BPGEncoderContext,
-        input_path: *const c_char,
-        output_path: *const c_char,
-    ) -> Result<c_int> {
-        Ok((library()?.encode_to_file)(ctx, input_path, output_path))
-    }
-
-    pub unsafe fn encoder_get_error(ctx: *mut BPGEncoderContext) -> Result<*const c_char> {
-        Ok((library()?.encoder_get_error)(ctx))
-    }
-
-    pub unsafe fn encoder_destroy(ctx: *mut BPGEncoderContext) {
-        if let Ok(library) = library() {
-            (library.encoder_destroy)(ctx);
-        }
-    }
-
-    pub unsafe fn decode_file(
-        input_path: *const c_char,
-        output_data: *mut *mut u8,
-        width: *mut c_int,
-        height: *mut c_int,
-        format: *mut BPGImageFormat,
-    ) -> Result<c_int> {
-        Ok((library()?.decode_file)(input_path, output_data, width, height, format))
-    }
-
-    pub unsafe fn free(ptr: *mut c_void) -> Result<()> {
-        (library()?.free)(ptr);
-        Ok(())
-    }
-
-    pub unsafe fn get_version() -> Result<*const c_char> {
-        Ok((library()?.get_version)())
-    }
-
-    pub unsafe fn get_supported_encoders() -> Result<c_int> {
-        Ok((library()?.get_supported_encoders)())
-    }
-}
-
-#[cfg(not(all(windows, target_env = "msvc")))]
 mod bpg_ffi {
     use super::*;
 
@@ -641,6 +316,9 @@ mod bpg_ffi {
 
 pub struct NativeBPGEncoder {
     ctx: *mut BPGEncoderContext,
+    /// Mirrors the native context's `encoder_type` so encode calls know whether
+    /// they must serialize through `JCTVC_LOCK` (JCTVC is not thread-safe).
+    encoder_type: c_int,
 }
 
 impl NativeBPGEncoder {
@@ -649,7 +327,7 @@ impl NativeBPGEncoder {
         if ctx.is_null() {
             return Err(anyhow!("Failed to create BPG encoder"));
         }
-        Ok(Self { ctx })
+        Ok(Self { ctx, encoder_type: 0 })
     }
 
     pub fn with_quality(quality: u8) -> Result<Self> {
@@ -660,7 +338,20 @@ impl NativeBPGEncoder {
         if ctx.is_null() {
             return Err(anyhow!("Failed to create BPG encoder"));
         }
-        Ok(Self { ctx })
+        Ok(Self { ctx, encoder_type: config.encoder_type })
+    }
+
+    /// Acquire the process-wide JCTVC serialization lock when this encoder uses
+    /// the (non-thread-safe) JCTVC backend; returns `None` for thread-safe x265.
+    fn jctvc_guard(&self) -> Option<MutexGuard<'static, ()>> {
+        if self.encoder_type == ENCODER_TYPE_JCTVC {
+            // A poisoned lock just means a prior JCTVC encode panicked; the native
+            // encoder holds no Rust-visible invariants across the boundary, so
+            // recovering the guard and proceeding is safe.
+            Some(JCTVC_LOCK.lock().unwrap_or_else(|e| e.into_inner()))
+        } else {
+            None
+        }
     }
 
     pub fn default_config() -> BPGEncoderConfig {
@@ -683,6 +374,7 @@ impl NativeBPGEncoder {
         if result != 0 {
             return Err(anyhow!("Failed to set config: {}", self.get_error()));
         }
+        self.encoder_type = config.encoder_type;
         Ok(())
     }
 
@@ -691,6 +383,7 @@ impl NativeBPGEncoder {
         let mut output_data: *mut u8 = ptr::null_mut();
         let mut output_size: usize = 0;
 
+        let _jctvc = self.jctvc_guard();
         let result = unsafe {
             bpg_ffi::encode_from_file(
                 self.ctx,
@@ -711,6 +404,7 @@ impl NativeBPGEncoder {
         let input_cstr = CString::new(input_path)?;
         let output_cstr = CString::new(output_path)?;
 
+        let _jctvc = self.jctvc_guard();
         let result = unsafe {
             bpg_ffi::encode_to_file(self.ctx, input_cstr.as_ptr(), output_cstr.as_ptr())?
         };
@@ -733,6 +427,7 @@ impl NativeBPGEncoder {
         let mut output_data: *mut u8 = ptr::null_mut();
         let mut output_size: usize = 0;
 
+        let _jctvc = self.jctvc_guard();
         let result = unsafe {
             bpg_ffi::encode_from_memory(
                 self.ctx,
@@ -782,6 +477,7 @@ impl NativeBPGEncoder {
             cr_plane.as_ptr()
         };
 
+        let _jctvc = self.jctvc_guard();
         let result = unsafe {
             bpg_ffi::encode_from_planar_u8(
                 self.ctx,
@@ -835,6 +531,7 @@ impl NativeBPGEncoder {
             cr_plane.as_ptr()
         };
 
+        let _jctvc = self.jctvc_guard();
         let result = unsafe {
             bpg_ffi::encode_from_planar_u16(
                 self.ctx,
@@ -1070,6 +767,43 @@ mod tests {
     fn test_supported_encoders() {
         let encoders = get_supported_encoders();
         assert!(encoders & 0x01 != 0);
+    }
+
+    #[test]
+    #[cfg(feature = "jctvc")]
+    fn test_jctvc_encoder_available() {
+        assert!(get_supported_encoders() & 0x02 != 0, "JCTVC encoder bit not set");
+    }
+
+    #[test]
+    #[cfg(feature = "jctvc")]
+    fn test_jctvc_encode_roundtrip() {
+        let mut encoder = NativeBPGEncoder::new().unwrap();
+        let mut config = NativeBPGEncoder::default_config();
+        config.encoder_type = 1; // JCTVC
+        config.quality = 35;
+        encoder.set_config(&config).unwrap();
+
+        let (width, height) = (64u32, 64u32);
+        let y: Vec<u8> = (0..width * height).map(|i| (i % 251) as u8).collect();
+        let (cw, ch) = (width.div_ceil(2), height.div_ceil(2));
+        let cb = vec![128u8; (cw * ch) as usize];
+        let cr = vec![128u8; (cw * ch) as usize];
+
+        let bpg = encoder
+            .encode_from_planar_u8(
+                &y,
+                &cb,
+                &cr,
+                width,
+                height,
+                width,
+                cw,
+                cw,
+                BPGImageFormat::YCbCr420P,
+            )
+            .unwrap();
+        assert!(bpg.len() > 8, "JCTVC produced an implausibly small stream");
     }
 
     #[test]

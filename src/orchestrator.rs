@@ -182,14 +182,19 @@ fn detect_image_bit_depth(
         // - JCTVC supports up to 14-bit
         let max_depth = if bpg_encoder_type == 1 { 14 } else { 12 };
 
-        // Prefer common camera/source bit depths.
-        // (8-bit sources are handled above, so this is only for >8-bit input.)
+        // The `image` crate maps a source's declared bit depth to either an
+        // 8- or 16-bit type, so reaching here means the input is a 16-bit
+        // *container* (true source depth is somewhere in 9..=16, not knowable
+        // more precisely). The encoder max (14 JCTVC / 12 x265) is always ≤ 16,
+        // so encoding at it preserves the most fidelity possible while never
+        // exceeding the input's container depth.
+        //
+        // An explicit `--bpg-bit-depth` in 9..=14 is honored (capped to the
+        // encoder max); the default (8) — or anything below 9 — means "auto",
+        // in which case we use the encoder ceiling rather than a fixed 12.
         let preferred = match user_setting {
-            10 | 12 | 14 => user_setting,
-            13..=14 => 14,
-            11..=12 => 12,
-            9..=10 => 10,
-            _ => 12,
+            9..=14 => user_setting,
+            _ => max_depth,
         };
 
         preferred.min(max_depth).max(10)
@@ -518,7 +523,13 @@ pub struct OrchestratorSettings {
     pub bpg_compression_level: i32,
     pub video_preset: i32,
     pub video_crf: i32,
+    /// ZSTD level (1-22) for the final archive container. The container wraps
+    /// already-compressed BPG images, H.264/H.265 video, and LZMA2 bundles, so a
+    /// low level (1-6) is recommended; high levels burn CPU for negligible gain.
     pub compression_level: i32,
+    /// LZMA2 level (1-9) for `misc.arc`, the bundle of small/likely-uncompressible
+    /// misc files (documents, configs, etc.).
+    pub misc_compression_level: i32,
     pub enable_catalog: bool,
     /// Optional custom catalog database path. If unset, defaults to <archive>.catalog.sqlite
     pub catalog_db_path: Option<PathBuf>,
@@ -543,11 +554,12 @@ impl Default for OrchestratorSettings {
             bpg_lossless: false,
             bpg_bit_depth: 8,
             bpg_chroma_format: 1,
-            bpg_encoder_type: 0,
+            bpg_encoder_type: 1, // JCTVC (HM reference HEVC encoder, best compression)
             bpg_compression_level: 8,
             video_preset: 0,
             video_crf: 23,
-            compression_level: 22,
+            compression_level: 3,
+            misc_compression_level: 6,
             enable_catalog: true,
             catalog_db_path: None,
             enable_dedup: true,
@@ -1295,7 +1307,7 @@ pub fn create_archive(
     fs::write(&metadata_path, &metadata_json)?;
 
     let misc_arc_path = temp_dir.path().join("misc.arc");
-    create_lzma2_bundle(&processed.iter().filter(|p| p.class == FileClass::Misc).collect::<Vec<_>>(), &misc_arc_path, settings.compression_level)?;
+    create_lzma2_bundle(&processed.iter().filter(|p| p.class == FileClass::Misc).collect::<Vec<_>>(), &misc_arc_path, settings.misc_compression_level)?;
 
     let raw_arc_path = temp_dir.path().join("raw.arc");
     create_lzma2_bundle(&processed.iter().filter(|p| p.class == FileClass::Raw).collect::<Vec<_>>(), &raw_arc_path, 9)?;
