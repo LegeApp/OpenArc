@@ -2,15 +2,38 @@
 
 Single entrypoint: `cargo dist`.
 
-It runs `cargo build --release` and stages the binary at `dist/openarc.exe` (Windows) or `dist/openarc` (Linux). All codec C/C++ source is compiled in-tree by `build.rs` scripts — no separate codec build step. FFmpeg, x265, x264, BPG, libpng, libjpeg, lcms2, libraw, and the C++ runtime are statically linked into the binary, so the resulting `dist/openarc.exe` has no DLL sidecars.
+It runs `cargo build --release` and stages the binary at `dist/openarc.exe` (Windows) or `dist/openarc` (Linux). All codec C/C++ source is compiled in-tree by `build.rs` scripts — no separate codec build step. FFmpeg, x265, x264, BPG, libpng, libjpeg, lcms2, libraw, and the C++ runtime are statically linked into the binary.
 
-If you only want the binary at `target/release/openarc` without the dist staging, `cargo build --release` works directly on Linux. For a Windows GNU binary from a machine with the MinGW/MSYS2 prerequisites, use `cargo build --release --target x86_64-pc-windows-gnu`.
+On Windows the repo pins the GNU (MinGW) Rust toolchain via `rust-toolchain.toml`, so rustc, build scripts, and all in-tree C/C++ use the same MSYS2 GCC family — one toolchain, one `cargo build --release`, no separate DLL build step. (MSVC cannot consume the GCC-built MSYS2 archives, which is what previously forced the out-of-band `openarc_bpg.dll` build.)
+
+One caveat: MSYS2's static FFmpeg archives were compiled against a few DLL-only libraries (the GLib/cairo/rsvg stack, libhwy, shaderc), so the exe keeps DLL imports for those. `cargo dist` detects them from the binary's import table and copies them from `mingw64/bin` into `dist/` automatically. A bare `target/release/openarc.exe` runs as long as `C:\msys64\mingw64\bin` is on `PATH`. To eliminate these DLLs entirely, build a custom static FFmpeg (see below).
+
+Both BPG HEVC encoders are compiled in by default: x265 (`encoder_type` 0, fast) and JCTVC (`encoder_type` 1, the HM reference encoder — slower, ~25% better compression, up to 14-bit). JCTVC can be opted out with `cargo build --no-default-features` on the codecs crate.
+
+## Optional: fully static FFmpeg (no DLL sidecars)
+
+The DLL imports above come from features the MSYS2 FFmpeg package enables (librsvg, libjxl, libplacebo) that OpenArc never uses. A custom FFmpeg without them produces an exe with zero MSYS2 DLL imports:
+
+```
+# from an MSYS2 mingw64 shell
+pacman -S --needed base-devel nasm mingw-w64-x86_64-gcc
+./scripts/build-static-ffmpeg.sh
+```
+
+Then point the build at it and rebuild (the codecs build script re-runs automatically when the variable changes):
+
+```powershell
+$env:OPENARC_FFMPEG_PREFIX = "C:\ffmpeg-openarc"
+cargo dist
+```
+
+The prefix's headers, static libraries, and pkg-config files take precedence over MSYS2's; everything FFmpeg doesn't provide (x264, x265, libpng, libraw, ...) still resolves from the MSYS2 tree.
 
 ## Prerequisites
 
 ### Windows (MinGW / GNU toolchain)
 
-- Rust toolchain (stable). The repo's `rust-toolchain.toml` pins the version.
+- Rust toolchain: the repo's `rust-toolchain.toml` pins `stable-x86_64-pc-windows-gnu`; rustup installs it automatically on first build.
 - [MSYS2](https://www.msys2.org/) with the mingw64 toolchain plus codec libraries:
 
   ```
@@ -32,7 +55,7 @@ If you only want the binary at `target/release/openarc` without the dist staging
 
 ### Linux
 
-- Same Rust toolchain.
+- Stable Rust toolchain. The `rust-toolchain.toml` pin names a Windows host triple; on Linux override it with `rustup override set stable` in the repo checkout.
 - System packages providing headers and static libs for: ffmpeg (libavcodec/libavformat/libavutil/libswscale/libswresample), x264, x265, libpng, libjpeg-turbo, libraw, lcms2, zlib. On Debian/Ubuntu:
 
   ```
@@ -51,20 +74,15 @@ cd OpenArc
 cargo dist
 ```
 
-For a Windows GNU build, pass the target explicitly:
-
-```
-cargo build --release --target x86_64-pc-windows-gnu
-```
+On Windows no `--target` flag is needed — the pinned toolchain already targets `x86_64-pc-windows-gnu`, so `cargo build --release` produces the GNU binary directly.
 
 First build takes ~5 minutes (FreeArc C++ codecs, BPG decoder + encoder, ffmpeg wrapper). Incremental builds re-link only.
 
 ## Outputs
 
-- `dist/openarc.exe` or `dist/openarc` — the only file needed for distribution.
+- `dist/openarc.exe` or `dist/openarc` — the distribution binary.
+- On Windows, `dist/` also contains the handful of MSYS2 runtime DLLs the exe imports (GLib stack, libhwy, shaderc — see above). Ship `dist/` as a unit.
 - `target/release/openarc.exe` — the same binary in the standard cargo location.
-
-Nothing else is produced. No DLLs, no separate codec libraries.
 
 ## Notes on the archive format
 

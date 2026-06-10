@@ -68,6 +68,8 @@ nul
 llm-doc/
 misc/
 .codex
+.claude/
+.codegraph/
 crates/bpg-viewer/
 dng-rs/
 native/LibRaw-0.22.1/

@@ -1,6 +1,24 @@
 //! OpenArc - Media archiver for phone/camera files
 
 use anyhow::{anyhow, Result, Context};
+
+#[cfg(windows)]
+fn enable_ansi_support() {
+    unsafe extern "system" {
+        fn GetStdHandle(nStdHandle: u32) -> *mut std::ffi::c_void;
+        fn GetConsoleMode(hConsoleHandle: *mut std::ffi::c_void, lpMode: *mut u32) -> i32;
+        fn SetConsoleMode(hConsoleHandle: *mut std::ffi::c_void, dwMode: u32) -> i32;
+    }
+    const STD_OUTPUT_HANDLE: u32 = 0xFFFFFFF5_u32;
+    const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
+    unsafe {
+        let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        let mut mode: u32 = 0;
+        if GetConsoleMode(handle, &mut mode) != 0 {
+            SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        }
+    }
+}
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use openarc::orchestrator::{
@@ -43,6 +61,9 @@ where
 }
 
 fn main() -> Result<()> {
+    #[cfg(windows)]
+    enable_ansi_support();
+
     // If no arguments provided, launch interactive mode
     if std::env::args().len() == 1 {
         return run_with_codec_stack("openarc-interactive", interactive::run_interactive);
@@ -59,9 +80,11 @@ fn main() -> Result<()> {
             inputs,
             bpg_quality,
             bpg_lossless,
+            bpg_encoder,
             video_preset,
             video_crf,
             compression_level,
+            misc_compression_level,
             no_catalog,
             no_dedup,
             no_skip_compressed,
@@ -69,6 +92,11 @@ fn main() -> Result<()> {
             no_reencode,
             bpg_compress_level,
         } => {
+            let bpg_encoder_type = match bpg_encoder.to_lowercase().as_str() {
+                "x265" | "hevc" => 0,
+                "jctvc" | "hm" => 1,
+                other => return Err(anyhow!("invalid --bpg-encoder '{other}': expected 'jctvc' or 'x265'")),
+            };
             println!("OpenArc - Creating archive: {}", output.display());
             println!("Input sources: {} items", inputs.len());
             println!();
@@ -93,11 +121,12 @@ fn main() -> Result<()> {
                 bpg_lossless,
                 bpg_bit_depth: 8,
                 bpg_chroma_format: 1,
-                bpg_encoder_type: 0,
+                bpg_encoder_type,
                 bpg_compression_level: bpg_compress_level,
                 video_preset,
                 video_crf,
                 compression_level,
+                misc_compression_level,
                 enable_catalog: !no_catalog,
                 catalog_db_path: None,
                 enable_dedup: !no_dedup,
@@ -110,9 +139,20 @@ fn main() -> Result<()> {
             };
 
             println!("Settings:");
-            println!("  BPG quality: {} (lossless: {}, compress-level: {})", bpg_quality, bpg_lossless, bpg_compress_level);
+            println!(
+                "  BPG quality: {} (lossless: {}, encoder: {}, compress-level: {})",
+                bpg_quality,
+                bpg_lossless,
+                if bpg_encoder_type == 1 { "JCTVC" } else { "x265" },
+                bpg_compress_level
+            );
+            println!(
+                "  BPG bit depth: adaptive (8-bit sources stay 8-bit, high-depth sources up to {}-bit)",
+                if bpg_encoder_type == 1 { 14 } else { 12 }
+            );
             println!("  Video preset: {} (CRF: {})", video_preset, video_crf);
-            println!("  ZSTD level: {}", compression_level);
+            println!("  ZSTD container level: {}", compression_level);
+            println!("  Misc LZMA2 level: {}", misc_compression_level);
             println!("  Catalog: {}", !no_catalog);
             println!("  Deduplication: {}", !no_dedup);
             println!("  Skip compressed videos: {}", !no_skip_compressed);

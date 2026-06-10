@@ -35,7 +35,6 @@ indicatif = "0.18"
 crc32fast = "1.5"
 infer = "0.19"
 tempfile = "3.24"
-libloading = "0.9"
 flume = "0.12"
 
 # Image processing
@@ -55,6 +54,9 @@ hex = "0.4"
 
 # Compression
 tar = "0.4"
+
+# Interactive terminal UI
+crossterm = "0.28"
 
 # System
 parking_lot = "0.12"
@@ -142,6 +144,9 @@ dirs.workspace = true
 
 # Compression
 tar.workspace = true
+
+# Interactive terminal UI
+crossterm.workspace = true
 
 # Image processing
 image.workspace = true

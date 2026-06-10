@@ -1,3 +1,10 @@
+# Windows builds use the GNU (MinGW) toolchain end-to-end: rustc, build
+# scripts, and all in-tree C/C++ (BPG, FFmpeg wrapper) compile with the same
+# MSYS2 GCC family and link statically against MSYS2's codec archives.
+# The MSVC toolchain cannot consume those GCC-built archives, which previously
+# forced a separate out-of-band openarc_bpg.dll build.
+#
+# On Linux this host-specific pin does not apply; use a plain stable
+# toolchain there (`rustup override set stable` if rustup complains).
 [toolchain]
-channel = "stable"
-targets = ["x86_64-pc-windows-msvc"]
+channel = "stable-x86_64-pc-windows-gnu"

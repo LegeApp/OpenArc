@@ -1,10 +1,6 @@
-#[cfg(not(all(windows, target_env = "msvc")))]
 use std::ffi::CString;
-#[cfg(not(all(windows, target_env = "msvc")))]
 use std::os::raw::{c_char, c_int};
 use std::path::Path;
-#[cfg(all(windows, target_env = "msvc"))]
-use std::process::Command;
 
 use anyhow::{anyhow, Result};
 
@@ -39,7 +35,6 @@ impl VideoSpeedPreset {
     }
 }
 
-#[cfg(not(all(windows, target_env = "msvc")))]
 extern "C" {
     fn openarc_ffmpeg_transcode(
         input_path: *const c_char,
@@ -103,18 +98,9 @@ impl FFmpegEncoder {
     }
 
     pub fn encode_file(&self, input: &Path, output: &Path) -> Result<()> {
-        #[cfg(all(windows, target_env = "msvc"))]
-        {
-            return self.encode_file_with_command(input, output);
-        }
-
-        #[cfg(not(all(windows, target_env = "msvc")))]
-        {
-            self.encode_file_with_wrapper(input, output)
-        }
+        self.encode_file_with_wrapper(input, output)
     }
 
-    #[cfg(not(all(windows, target_env = "msvc")))]
     fn encode_file_with_wrapper(&self, input: &Path, output: &Path) -> Result<()> {
         let (codec, preset) = match self.options.codec {
             VideoCodec::H264 => (264, self.options.speed.as_x264_preset()),
@@ -150,47 +136,8 @@ impl FFmpegEncoder {
         Ok(())
     }
 
-    #[cfg(all(windows, target_env = "msvc"))]
-    fn encode_file_with_command(&self, input: &Path, output: &Path) -> Result<()> {
-        let (encoder, preset) = match self.options.codec {
-            VideoCodec::H264 => ("libx264", self.options.speed.as_x264_preset()),
-            VideoCodec::H265 => ("libx265", self.options.speed.as_x265_preset()),
-        };
-
-        let mut cmd = Command::new("ffmpeg");
-        cmd.arg("-nostdin")
-            .arg("-y")
-            .arg("-i")
-            .arg(input)
-            .arg("-c:v")
-            .arg(encoder)
-            .arg("-preset")
-            .arg(preset)
-            .arg("-crf")
-            .arg(self.options.effective_crf().to_string());
-
-        if self.options.copy_audio {
-            cmd.arg("-c:a").arg("copy");
-        } else {
-            cmd.arg("-an");
-        }
-
-        let output_status = cmd.arg(output).status();
-        let status = output_status.map_err(|err| {
-            anyhow!(
-                "Failed to execute ffmpeg: {err}. Ensure ffmpeg.exe is installed and on PATH."
-            )
-        })?;
-
-        if !status.success() {
-            return Err(anyhow!("ffmpeg failed with status {status}"));
-        }
-
-        Ok(())
-    }
 }
 
-#[cfg(not(all(windows, target_env = "msvc")))]
 fn ffmpeg_err_to_string(err: c_int) -> String {
     let mut buf = vec![0 as c_char; 256];
     let ret = unsafe { openarc_ffmpeg_strerror(err, buf.as_mut_ptr(), buf.len() as c_int) };

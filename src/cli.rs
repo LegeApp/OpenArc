@@ -29,23 +29,35 @@ pub enum Commands {
         /// BPG quality (0-51, lower = better quality, higher compression)
         #[arg(long, default_value = "25")]
         bpg_quality: i32,
-        
+
         /// Enable lossless BPG compression
         #[arg(long)]
         bpg_lossless: bool,
-        
+
+        /// BPG image encoder: "jctvc" (HM reference HEVC, best compression but
+        /// slow) or "x265" (much faster, slightly larger files)
+        #[arg(long, default_value = "jctvc")]
+        bpg_encoder: String,
+
         /// Video preset: 0=H264/Medium, 1=H265/Medium, 2=H264/Fast, 3=H265/Slow
         #[arg(long, default_value = "0")]
         video_preset: i32,
-        
+
         /// Video CRF quality (lower = better, typical: 18-28)
         #[arg(long, default_value = "23")]
         video_crf: i32,
-        
-        /// ZSTD compression level (1-22, higher = better compression)
+
+        /// ZSTD level (1-22) for the final archive container. The container
+        /// wraps already-compressed BPG/video/LZMA2 data, so a low value
+        /// (1-6) is recommended; higher levels mostly waste CPU.
         #[arg(long, default_value = "3")]
         compression_level: i32,
-        
+
+        /// LZMA2 level (1-9) for misc.arc, the bundle of small/likely
+        /// uncompressible misc files (documents, configs, etc.)
+        #[arg(long, default_value = "6")]
+        misc_compression_level: i32,
+
         /// Disable catalog (incremental backup tracking)
         #[arg(long)]
         no_catalog: bool,
