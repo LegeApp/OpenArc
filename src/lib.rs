@@ -11,6 +11,7 @@ pub mod orchestrator;
 pub mod bpg_wrapper;
 pub mod image_loader;
 pub mod interactive;
+pub mod interactive_menu;
 pub mod phone_backup;
 
 // Re-export codecs for FFI use

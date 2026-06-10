@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -45,8 +46,8 @@ fn main() -> ExitCode {
         eprintln!("xtask: copy {} -> {} failed: {e}", src.display(), dst.display());
         return ExitCode::from(1);
     }
-    if let Err(e) = stage_windows_runtime_files(&workspace_root, &dist) {
-        eprintln!("xtask: failed to stage runtime files: {e}");
+    if let Err(e) = stage_runtime_dlls(&dst, &dist) {
+        eprintln!("xtask: failed to stage runtime DLLs: {e}");
         return ExitCode::from(1);
     }
 
@@ -78,55 +79,72 @@ fn workspace_root() -> PathBuf {
     manifest.parent().expect("xtask/.. exists").to_path_buf()
 }
 
-fn stage_windows_runtime_files(workspace_root: &Path, dist: &Path) -> Result<(), String> {
+/// Copy the MSYS2 runtime DLLs the binary actually imports.
+///
+/// Most codec libraries are statically linked, but MSYS2's static FFmpeg
+/// archives were compiled against a few DLL-only libraries (the GLib stack
+/// for the rsvg decoder, libhwy for jxl, shaderc for Vulkan filters), so the
+/// exe carries DLL imports for those. We walk the import table transitively
+/// with objdump and copy every DLL that resolves inside mingw64/bin; system
+/// DLLs (kernel32 and friends) don't live there and are skipped naturally.
+fn stage_runtime_dlls(exe: &Path, dist: &Path) -> Result<(), String> {
     if !cfg!(windows) {
         return Ok(());
     }
 
-    let bpg_dir = workspace_root.join("native").join("BPG").join("libbpg-0.9.8");
-    let bpg_dll = bpg_dir.join("openarc_bpg.dll");
-    if !bpg_dll.exists() {
-        let script = bpg_dir.join("build_openarc_combined_dll.ps1");
-        if !script.exists() {
-            return Err(format!("{} is missing", bpg_dll.display()));
-        }
-
-        let status = Command::new("pwsh")
-            .current_dir(&bpg_dir)
-            .args([
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                "build_openarc_combined_dll.ps1",
-                "-Jobs",
-                "12",
-            ])
-            .status()
-            .map_err(|e| format!("failed to start BPG DLL build: {e}"))?;
-        if !status.success() {
-            return Err(format!("BPG DLL build failed with status {status}"));
-        }
-    }
-
-    copy_file(&bpg_dll, &dist.join("openarc_bpg.dll"))?;
-
     let msys_bin = env::var_os("MSYS2_ROOT")
         .map(PathBuf::from)
-        .map(|root| root.join("mingw64").join("bin"))
-        .unwrap_or_else(|| PathBuf::from(r"C:\msys64\mingw64\bin"));
-    for name in [
-        "libgcc_s_seh-1.dll",
-        "libjpeg-8.dll",
-        "libpng16-16.dll",
-        "libstdc++-6.dll",
-        "libwinpthread-1.dll",
-        "libx265-215.dll",
-        "zlib1.dll",
-    ] {
-        copy_file(&msys_bin.join(name), &dist.join(name))?;
+        .unwrap_or_else(|| PathBuf::from(r"C:\msys64"))
+        .join("mingw64")
+        .join("bin");
+    let objdump = {
+        let bundled = msys_bin.join("objdump.exe");
+        if bundled.is_file() {
+            bundled
+        } else {
+            PathBuf::from("objdump")
+        }
+    };
+
+    let mut staged: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut pending: Vec<PathBuf> = vec![exe.to_path_buf()];
+
+    while let Some(binary) = pending.pop() {
+        let output = Command::new(&objdump)
+            .arg("-p")
+            .arg(&binary)
+            .output()
+            .map_err(|e| format!("failed to run {}: {e}", objdump.display()))?;
+        if !output.status.success() {
+            return Err(format!(
+                "objdump -p {} failed: {}",
+                binary.display(),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let Some(name) = line.trim().strip_prefix("DLL Name:") else {
+                continue;
+            };
+            let name = name.trim();
+            if !seen.insert(name.to_ascii_lowercase()) {
+                continue;
+            }
+            let src = msys_bin.join(name);
+            if src.is_file() {
+                copy_file(&src, &dist.join(name))?;
+                staged.push(name.to_string());
+                pending.push(src);
+            }
+        }
     }
 
+    if !staged.is_empty() {
+        staged.sort();
+        println!("staged MSYS2 runtime DLLs: {}", staged.join(", "));
+    }
     Ok(())
 }
 
