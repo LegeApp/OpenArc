@@ -1,9 +1,6 @@
-// BPG JavaScript Decoder
-// Uses the bpgdec.js decoder from libbpg for decoding BPG images
-// This provides an alternative to native decoding for portability
+// BPG JavaScript decoder fallback for portability.
 
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use anyhow::{Result, anyhow, Context};
@@ -33,7 +30,7 @@ impl Default for BpgJsConfig {
 /// BPG JavaScript decoder
 pub struct BpgJsDecoder {
     config: BpgJsConfig,
-    temp_dir: Option<TempDir>,
+    _temp_dir: Option<TempDir>,
     decoder_script: PathBuf,
 }
 
@@ -61,7 +58,7 @@ impl BpgJsDecoder {
 
         Ok(Self {
             config,
-            temp_dir,
+            _temp_dir: temp_dir,
             decoder_script,
         })
     }

@@ -1,44 +1,26 @@
-// Native BPG library FFI bindings.
-// The archival HEIC path uses direct planar YUV entry points so the encoder can
-// keep source bit depth, chroma sampling, and range metadata intact.
+//! BPG encode/decode facade backed by the Rust `bpg-rs` crates.
 
-use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_void};
-use std::ptr;
-use std::sync::{Mutex, MutexGuard};
+use anyhow::{anyhow, bail, ensure, Context, Result};
+use bpg_decode::{DecoderConfig, PixelLayout};
+use bpg_encode::{encode_still_image, EncoderTuning, HevcEncoder};
+use bpg_image::{ChromaFormat, ColorSpace, Image, Plane};
+use still265::backend::RustStillHevcEncoder;
+use still265::batch;
+use still265::{DeblockMode, Effort, SaoMode, StillHevcConfig};
+use std::path::Path;
 
-use anyhow::{anyhow, ensure, Result};
-
-/// The JCTVC (HM reference) encoder is built on extensive mutable global/static
-/// state and is NOT thread-safe: running two `TAppEncTop` encodes concurrently in
-/// the same process corrupts shared globals and trips internal assertions such as
-/// "codeCoeffNxN called for empty TU!". OpenArc encodes images in parallel across
-/// worker threads, so every JCTVC encode must hold this process-wide lock,
-/// serializing them. x265 (encoder_type 0) is per-instance safe and unaffected.
-static JCTVC_LOCK: Mutex<()> = Mutex::new(());
-
-/// `encoder_type` value selecting the JCTVC (HM reference) HEVC encoder.
-const ENCODER_TYPE_JCTVC: c_int = 1;
-
-#[repr(C)]
-pub struct BPGEncoderContext {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
 #[derive(Debug, Clone)]
 pub struct BPGEncoderConfig {
-    pub quality: c_int,
-    pub bit_depth: c_int,
-    pub lossless: c_int,
-    pub chroma_format: c_int,
-    pub encoder_type: c_int,
-    pub compress_level: c_int,
-    pub color_space: c_int,
-    pub limited_range: c_int,
+    pub quality: i32,
+    pub bit_depth: i32,
+    pub lossless: i32,
+    pub chroma_format: i32,
+    pub encoder_type: i32,
+    pub compress_level: i32,
+    pub color_space: i32,
+    pub limited_range: i32,
 }
 
-#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BPGError {
     Ok = 0,
@@ -51,7 +33,7 @@ pub enum BPGError {
     InvalidImage = -7,
 }
 
-#[repr(C)]
+#[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BPGImageFormat {
     Gray = 0,
@@ -78,342 +60,67 @@ impl BPGImageFormat {
             Self::YCbCr420P => Ok((width.div_ceil(2), height.div_ceil(2))),
             Self::YCbCr422P => Ok((width.div_ceil(2), height)),
             Self::YCbCr444P => Ok((width, height)),
-            _ => Err(anyhow!("Format {:?} is not planar YCbCr", self)),
+            _ => Err(anyhow!("format {self:?} is not planar YCbCr")),
         }
     }
-}
 
-mod bpg_ffi {
-    use super::*;
-
-    extern "C" {
-        fn bpg_encoder_create() -> *mut BPGEncoderContext;
-        fn bpg_encoder_create_ex(config: *const BPGEncoderConfig) -> *mut BPGEncoderContext;
-        fn bpg_encoder_set_config(ctx: *mut BPGEncoderContext, config: *const BPGEncoderConfig)
-            -> c_int;
-        fn bpg_encoder_get_default_config(config: *mut BPGEncoderConfig);
-
-        fn bpg_encode_from_file(
-            ctx: *mut BPGEncoderContext,
-            input_path: *const c_char,
-            output_data: *mut *mut u8,
-            output_size: *mut usize,
-        ) -> c_int;
-
-        fn bpg_encode_from_memory(
-            ctx: *mut BPGEncoderContext,
-            input_data: *const u8,
-            width: c_int,
-            height: c_int,
-            stride: c_int,
-            format: BPGImageFormat,
-            output_data: *mut *mut u8,
-            output_size: *mut usize,
-        ) -> c_int;
-
-        fn bpg_encode_from_planar_u8(
-            ctx: *mut BPGEncoderContext,
-            y_plane: *const u8,
-            y_stride: c_int,
-            cb_plane: *const u8,
-            cb_stride: c_int,
-            cr_plane: *const u8,
-            cr_stride: c_int,
-            width: c_int,
-            height: c_int,
-            format: BPGImageFormat,
-            output_data: *mut *mut u8,
-            output_size: *mut usize,
-        ) -> c_int;
-
-        fn bpg_encode_from_planar_u16(
-            ctx: *mut BPGEncoderContext,
-            y_plane: *const u16,
-            y_stride: c_int,
-            cb_plane: *const u16,
-            cb_stride: c_int,
-            cr_plane: *const u16,
-            cr_stride: c_int,
-            width: c_int,
-            height: c_int,
-            format: BPGImageFormat,
-            output_data: *mut *mut u8,
-            output_size: *mut usize,
-        ) -> c_int;
-
-        fn bpg_encode_to_file(
-            ctx: *mut BPGEncoderContext,
-            input_path: *const c_char,
-            output_path: *const c_char,
-        ) -> c_int;
-
-        fn bpg_encoder_get_error(ctx: *mut BPGEncoderContext) -> *const c_char;
-        fn bpg_encoder_destroy(ctx: *mut BPGEncoderContext);
-
-        fn bpg_decode_file(
-            input_path: *const c_char,
-            output_data: *mut *mut u8,
-            width: *mut c_int,
-            height: *mut c_int,
-            format: *mut BPGImageFormat,
-        ) -> c_int;
-
-        fn bpg_free(ptr: *mut c_void);
-        fn bpg_get_version() -> *const c_char;
-        fn bpg_get_supported_encoders() -> c_int;
-    }
-
-    pub unsafe fn encoder_create() -> Result<*mut BPGEncoderContext> {
-        Ok(bpg_encoder_create())
-    }
-
-    pub unsafe fn encoder_create_ex(config: *const BPGEncoderConfig) -> Result<*mut BPGEncoderContext> {
-        Ok(bpg_encoder_create_ex(config))
-    }
-
-    pub unsafe fn encoder_set_config(
-        ctx: *mut BPGEncoderContext,
-        config: *const BPGEncoderConfig,
-    ) -> Result<c_int> {
-        Ok(bpg_encoder_set_config(ctx, config))
-    }
-
-    pub unsafe fn encoder_get_default_config(config: *mut BPGEncoderConfig) -> Result<()> {
-        bpg_encoder_get_default_config(config);
-        Ok(())
-    }
-
-    pub unsafe fn encode_from_file(
-        ctx: *mut BPGEncoderContext,
-        input_path: *const c_char,
-        output_data: *mut *mut u8,
-        output_size: *mut usize,
-    ) -> Result<c_int> {
-        Ok(bpg_encode_from_file(ctx, input_path, output_data, output_size))
-    }
-
-    pub unsafe fn encode_from_memory(
-        ctx: *mut BPGEncoderContext,
-        input_data: *const u8,
-        width: c_int,
-        height: c_int,
-        stride: c_int,
-        format: BPGImageFormat,
-        output_data: *mut *mut u8,
-        output_size: *mut usize,
-    ) -> Result<c_int> {
-        Ok(bpg_encode_from_memory(
-            ctx,
-            input_data,
-            width,
-            height,
-            stride,
-            format,
-            output_data,
-            output_size,
-        ))
-    }
-
-    pub unsafe fn encode_from_planar_u8(
-        ctx: *mut BPGEncoderContext,
-        y_plane: *const u8,
-        y_stride: c_int,
-        cb_plane: *const u8,
-        cb_stride: c_int,
-        cr_plane: *const u8,
-        cr_stride: c_int,
-        width: c_int,
-        height: c_int,
-        format: BPGImageFormat,
-        output_data: *mut *mut u8,
-        output_size: *mut usize,
-    ) -> Result<c_int> {
-        Ok(bpg_encode_from_planar_u8(
-            ctx,
-            y_plane,
-            y_stride,
-            cb_plane,
-            cb_stride,
-            cr_plane,
-            cr_stride,
-            width,
-            height,
-            format,
-            output_data,
-            output_size,
-        ))
-    }
-
-    pub unsafe fn encode_from_planar_u16(
-        ctx: *mut BPGEncoderContext,
-        y_plane: *const u16,
-        y_stride: c_int,
-        cb_plane: *const u16,
-        cb_stride: c_int,
-        cr_plane: *const u16,
-        cr_stride: c_int,
-        width: c_int,
-        height: c_int,
-        format: BPGImageFormat,
-        output_data: *mut *mut u8,
-        output_size: *mut usize,
-    ) -> Result<c_int> {
-        Ok(bpg_encode_from_planar_u16(
-            ctx,
-            y_plane,
-            y_stride,
-            cb_plane,
-            cb_stride,
-            cr_plane,
-            cr_stride,
-            width,
-            height,
-            format,
-            output_data,
-            output_size,
-        ))
-    }
-
-    pub unsafe fn encode_to_file(
-        ctx: *mut BPGEncoderContext,
-        input_path: *const c_char,
-        output_path: *const c_char,
-    ) -> Result<c_int> {
-        Ok(bpg_encode_to_file(ctx, input_path, output_path))
-    }
-
-    pub unsafe fn encoder_get_error(ctx: *mut BPGEncoderContext) -> Result<*const c_char> {
-        Ok(bpg_encoder_get_error(ctx))
-    }
-
-    pub unsafe fn encoder_destroy(ctx: *mut BPGEncoderContext) {
-        bpg_encoder_destroy(ctx);
-    }
-
-    pub unsafe fn decode_file(
-        input_path: *const c_char,
-        output_data: *mut *mut u8,
-        width: *mut c_int,
-        height: *mut c_int,
-        format: *mut BPGImageFormat,
-    ) -> Result<c_int> {
-        Ok(bpg_decode_file(input_path, output_data, width, height, format))
-    }
-
-    pub unsafe fn free(ptr: *mut c_void) -> Result<()> {
-        bpg_free(ptr);
-        Ok(())
-    }
-
-    pub unsafe fn get_version() -> Result<*const c_char> {
-        Ok(bpg_get_version())
-    }
-
-    pub unsafe fn get_supported_encoders() -> Result<c_int> {
-        Ok(bpg_get_supported_encoders())
+    const fn chroma_format(self) -> ChromaFormat {
+        match self {
+            Self::Gray => ChromaFormat::Gray,
+            Self::YCbCr420P => ChromaFormat::Yuv420,
+            Self::YCbCr422P => ChromaFormat::Yuv422,
+            Self::YCbCr444P => ChromaFormat::Yuv444,
+            _ => ChromaFormat::Yuv444,
+        }
     }
 }
 
 pub struct NativeBPGEncoder {
-    ctx: *mut BPGEncoderContext,
-    /// Mirrors the native context's `encoder_type` so encode calls know whether
-    /// they must serialize through `JCTVC_LOCK` (JCTVC is not thread-safe).
-    encoder_type: c_int,
+    config: BPGEncoderConfig,
 }
 
 impl NativeBPGEncoder {
     pub fn new() -> Result<Self> {
-        let ctx = unsafe { bpg_ffi::encoder_create()? };
-        if ctx.is_null() {
-            return Err(anyhow!("Failed to create BPG encoder"));
-        }
-        Ok(Self { ctx, encoder_type: 0 })
+        Ok(Self {
+            config: Self::default_config(),
+        })
     }
 
     pub fn with_quality(quality: u8) -> Result<Self> {
-        let mut config = Self::default_config();
-        config.quality = quality as c_int;
-
-        let ctx = unsafe { bpg_ffi::encoder_create_ex(&config)? };
-        if ctx.is_null() {
-            return Err(anyhow!("Failed to create BPG encoder"));
-        }
-        Ok(Self { ctx, encoder_type: config.encoder_type })
-    }
-
-    /// Acquire the process-wide JCTVC serialization lock when this encoder uses
-    /// the (non-thread-safe) JCTVC backend; returns `None` for thread-safe x265.
-    fn jctvc_guard(&self) -> Option<MutexGuard<'static, ()>> {
-        if self.encoder_type == ENCODER_TYPE_JCTVC {
-            // A poisoned lock just means a prior JCTVC encode panicked; the native
-            // encoder holds no Rust-visible invariants across the boundary, so
-            // recovering the guard and proceeding is safe.
-            Some(JCTVC_LOCK.lock().unwrap_or_else(|e| e.into_inner()))
-        } else {
-            None
-        }
+        let mut encoder = Self::new()?;
+        encoder.config.quality = i32::from(quality);
+        Ok(encoder)
     }
 
     pub fn default_config() -> BPGEncoderConfig {
-        let mut config = BPGEncoderConfig {
+        BPGEncoderConfig {
             quality: 28,
             bit_depth: 8,
             lossless: 0,
             chroma_format: 1,
             encoder_type: 0,
             compress_level: 8,
-            color_space: 3,
+            color_space: 0,
             limited_range: 0,
-        };
-        let _ = unsafe { bpg_ffi::encoder_get_default_config(&mut config) };
-        config
+        }
     }
 
     pub fn set_config(&mut self, config: &BPGEncoderConfig) -> Result<()> {
-        let result = unsafe { bpg_ffi::encoder_set_config(self.ctx, config)? };
-        if result != 0 {
-            return Err(anyhow!("Failed to set config: {}", self.get_error()));
-        }
-        self.encoder_type = config.encoder_type;
+        validate_config(config)?;
+        self.config = config.clone();
         Ok(())
     }
 
     pub fn encode_from_file(&self, input_path: &str) -> Result<Vec<u8>> {
-        let input_cstr = CString::new(input_path)?;
-        let mut output_data: *mut u8 = ptr::null_mut();
-        let mut output_size: usize = 0;
-
-        let _jctvc = self.jctvc_guard();
-        let result = unsafe {
-            bpg_ffi::encode_from_file(
-                self.ctx,
-                input_cstr.as_ptr(),
-                &mut output_data,
-                &mut output_size,
-            )?
-        };
-
-        if result != 0 {
-            return Err(anyhow!("Encoding failed: {}", self.get_error()));
-        }
-
-        Self::take_output(output_data, output_size)
+        let image = image::open(Path::new(input_path))
+            .with_context(|| format!("failed to open image: {input_path}"))?;
+        self.encode_dynamic_image(image)
     }
 
     pub fn encode_to_file(&self, input_path: &str, output_path: &str) -> Result<()> {
-        let input_cstr = CString::new(input_path)?;
-        let output_cstr = CString::new(output_path)?;
-
-        let _jctvc = self.jctvc_guard();
-        let result = unsafe {
-            bpg_ffi::encode_to_file(self.ctx, input_cstr.as_ptr(), output_cstr.as_ptr())?
-        };
-
-        if result != 0 {
-            return Err(anyhow!("Encoding failed: {}", self.get_error()));
-        }
-
-        Ok(())
+        let data = self.encode_from_file(input_path)?;
+        std::fs::write(output_path, data)
+            .with_context(|| format!("failed to write BPG file: {output_path}"))
     }
 
     pub fn encode_from_memory(
@@ -424,30 +131,41 @@ impl NativeBPGEncoder {
         stride: u32,
         format: BPGImageFormat,
     ) -> Result<Vec<u8>> {
-        let mut output_data: *mut u8 = ptr::null_mut();
-        let mut output_size: usize = 0;
+        ensure!(width > 0 && height > 0, "image dimensions must be non-zero");
+        let bit_depth = target_bit_depth(self.config.bit_depth)?;
+        let color_space = color_space_from_config(self.config.color_space);
+        let limited_range = self.config.limited_range != 0;
 
-        let _jctvc = self.jctvc_guard();
-        let result = unsafe {
-            bpg_ffi::encode_from_memory(
-                self.ctx,
-                data.as_ptr(),
-                width as c_int,
-                height as c_int,
-                stride as c_int,
-                format,
-                &mut output_data,
-                &mut output_size,
-            )?
+        let mut image = match format {
+            BPGImageFormat::Gray => image_from_gray_memory(
+                data,
+                width,
+                height,
+                stride,
+                bit_depth,
+                color_space,
+                limited_range,
+            )?,
+            BPGImageFormat::RGB24 | BPGImageFormat::RGBA32 | BPGImageFormat::BGR24 | BPGImageFormat::BGRA32 => {
+                image_from_rgb_memory(
+                    data,
+                    width,
+                    height,
+                    stride,
+                    format,
+                    bit_depth,
+                    color_space,
+                    limited_range,
+                )?
+            }
+            other => bail!("encode_from_memory does not accept planar format {other:?}"),
         };
 
-        if result != 0 {
-            return Err(anyhow!("Encoding failed: {}", self.get_error()));
-        }
-
-        Self::take_output(output_data, output_size)
+        apply_requested_chroma(&mut image, self.config.chroma_format)?;
+        self.encode_image(image)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn encode_from_planar_u8(
         &self,
         y_plane: &[u8],
@@ -464,44 +182,22 @@ impl NativeBPGEncoder {
             y_plane, cb_plane, cr_plane, width, height, y_stride, cb_stride, cr_stride, format,
         )?;
 
-        let mut output_data: *mut u8 = ptr::null_mut();
-        let mut output_size: usize = 0;
-        let cb_ptr = if cb_plane.is_empty() {
-            ptr::null()
-        } else {
-            cb_plane.as_ptr()
-        };
-        let cr_ptr = if cr_plane.is_empty() {
-            ptr::null()
-        } else {
-            cr_plane.as_ptr()
-        };
-
-        let _jctvc = self.jctvc_guard();
-        let result = unsafe {
-            bpg_ffi::encode_from_planar_u8(
-                self.ctx,
-                y_plane.as_ptr(),
-                y_stride as c_int,
-                cb_ptr,
-                cb_stride as c_int,
-                cr_ptr,
-                cr_stride as c_int,
-                width as c_int,
-                height as c_int,
-                format,
-                &mut output_data,
-                &mut output_size,
-            )?
-        };
-
-        if result != 0 {
-            return Err(anyhow!("Encoding failed: {}", self.get_error()));
-        }
-
-        Self::take_output(output_data, output_size)
+        let bit_depth = target_bit_depth(self.config.bit_depth)?;
+        let image = planar_image(
+            width,
+            height,
+            bit_depth,
+            format.chroma_format(),
+            color_space_from_config(self.config.color_space),
+            self.config.limited_range != 0,
+            plane_from_u8(y_plane, width, height, y_stride, bit_depth)?,
+            chroma_plane_from_u8(cb_plane, width, height, cb_stride, format, bit_depth)?,
+            chroma_plane_from_u8(cr_plane, width, height, cr_stride, format, bit_depth)?,
+        )?;
+        self.encode_image(image)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn encode_from_planar_u16(
         &self,
         y_plane: &[u16],
@@ -518,44 +214,22 @@ impl NativeBPGEncoder {
             y_plane, cb_plane, cr_plane, width, height, y_stride, cb_stride, cr_stride, format,
         )?;
 
-        let mut output_data: *mut u8 = ptr::null_mut();
-        let mut output_size: usize = 0;
-        let cb_ptr = if cb_plane.is_empty() {
-            ptr::null()
-        } else {
-            cb_plane.as_ptr()
-        };
-        let cr_ptr = if cr_plane.is_empty() {
-            ptr::null()
-        } else {
-            cr_plane.as_ptr()
-        };
-
-        let _jctvc = self.jctvc_guard();
-        let result = unsafe {
-            bpg_ffi::encode_from_planar_u16(
-                self.ctx,
-                y_plane.as_ptr(),
-                y_stride as c_int,
-                cb_ptr,
-                cb_stride as c_int,
-                cr_ptr,
-                cr_stride as c_int,
-                width as c_int,
-                height as c_int,
-                format,
-                &mut output_data,
-                &mut output_size,
-            )?
-        };
-
-        if result != 0 {
-            return Err(anyhow!("Encoding failed: {}", self.get_error()));
-        }
-
-        Self::take_output(output_data, output_size)
+        let bit_depth = target_bit_depth(self.config.bit_depth)?;
+        let image = planar_image(
+            width,
+            height,
+            bit_depth,
+            format.chroma_format(),
+            color_space_from_config(self.config.color_space),
+            self.config.limited_range != 0,
+            plane_from_u16(y_plane, width, height, y_stride, bit_depth)?,
+            chroma_plane_from_u16(cb_plane, width, height, cb_stride, format, bit_depth)?,
+            chroma_plane_from_u16(cr_plane, width, height, cr_stride, format, bit_depth)?,
+        )?;
+        self.encode_image(image)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn encode_from_ycbcr420_planar(
         &self,
         y_plane: &[u8],
@@ -580,35 +254,354 @@ impl NativeBPGEncoder {
         )
     }
 
-    fn take_output(output_data: *mut u8, output_size: usize) -> Result<Vec<u8>> {
-        if output_data.is_null() || output_size == 0 {
-            return Err(anyhow!("Encoding produced no output"));
-        }
-
-        let data = unsafe {
-            let slice = std::slice::from_raw_parts(output_data, output_size);
-            let vec = slice.to_vec();
-            bpg_ffi::free(output_data as *mut c_void)?;
-            vec
-        };
-
-        Ok(data)
+    pub fn get_error(&self) -> String {
+        "bpg-rs encoder error".to_string()
     }
 
-    fn get_error(&self) -> String {
-        unsafe {
-            let err_ptr = match bpg_ffi::encoder_get_error(self.ctx) {
-                Ok(err_ptr) => err_ptr,
-                Err(err) => return err.to_string(),
-            };
-            if err_ptr.is_null() {
-                return "Unknown error".to_string();
+    fn encode_dynamic_image(&self, dyn_img: image::DynamicImage) -> Result<Vec<u8>> {
+        let bit_depth = target_bit_depth(self.config.bit_depth)?;
+        let color_space = color_space_from_config(self.config.color_space);
+        let limited_range = self.config.limited_range != 0;
+
+        let mut image = match dyn_img {
+            image::DynamicImage::ImageLuma16(_) | image::DynamicImage::ImageLumaA16(_) => {
+                let luma = dyn_img.to_luma16();
+                let (w, h) = luma.dimensions();
+                Image::from_luma16(&luma, w, h, color_space, limited_range, bit_depth)
             }
-            CStr::from_ptr(err_ptr).to_string_lossy().into_owned()
+            image::DynamicImage::ImageRgb16(_) | image::DynamicImage::ImageRgba16(_) => {
+                let rgb = dyn_img.to_rgb16();
+                let (w, h) = rgb.dimensions();
+                Image::from_rgb16(&rgb, w, h, color_space, limited_range, bit_depth)
+            }
+            image::DynamicImage::ImageLuma8(_) | image::DynamicImage::ImageLumaA8(_) => {
+                let luma = dyn_img.to_luma8();
+                let (w, h) = luma.dimensions();
+                Image::from_luma8(&luma, w, h, color_space, limited_range, bit_depth)
+            }
+            _ => {
+                let rgb = dyn_img.to_rgb8();
+                let (w, h) = rgb.dimensions();
+                Image::from_rgb8(&rgb, w, h, color_space, limited_range, bit_depth)
+            }
+        };
+        apply_requested_chroma(&mut image, self.config.chroma_format)?;
+        self.encode_image(image)
+    }
+
+    /// Encode a pre-built [`bpg_image::Image`] directly.
+    /// This is the low-level workhorse; use the higher-level
+    /// [`encode_from_memory`]/[`encode_from_planar_u16`] etc. for normal usage.
+    pub fn encode_image_data(&self, image: Image) -> Result<Vec<u8>> {
+        self.encode_image(image)
+    }
+
+    fn encode_image(&self, image: Image) -> Result<Vec<u8>> {
+        if self.config.lossless != 0 {
+            bail!("bpg-rs lossless encode is not implemented yet");
         }
+
+        let backend = RustStillHevcEncoder::new(Effort::Best)
+            .with_sao(SaoMode::Off)
+            .with_deblock(DeblockMode::On);
+        let caps = backend.caps();
+        if !caps.supports_bit_depth(image.bit_depth) {
+            bail!(
+                "bpg-rs backend does not support {}-bit BPG encode",
+                image.bit_depth
+            );
+        }
+        if !caps.supports_chroma_format(image.chroma_format) {
+            bail!(
+                "bpg-rs backend does not support {:?} BPG encode",
+                image.chroma_format
+            );
+        }
+
+        let qp = self.config.quality.clamp(0, 51) as u8;
+        let compress_level = self.config.compress_level.clamp(1, 9) as u8;
+        encode_still_image(
+            image,
+            &backend,
+            qp,
+            compress_level,
+            EncoderTuning::neutral(),
+        )
+        .map_err(|err| anyhow!("bpg-rs encode failed: {err}"))
     }
 }
 
+pub fn decode_file(input_path: &str) -> Result<(Vec<u8>, u32, u32, BPGImageFormat)> {
+    let data = std::fs::read(input_path)
+        .with_context(|| format!("failed to read BPG file: {input_path}"))?;
+    let decoded = DecoderConfig::new()
+        .decode(&data, PixelLayout::Rgba8)
+        .map_err(|err| anyhow!("bpg-rs decode failed: {err}"))?;
+    Ok((
+        decoded.data,
+        decoded.width,
+        decoded.height,
+        BPGImageFormat::RGBA32,
+    ))
+}
+
+pub fn get_version() -> String {
+    "bpg-rs".to_string()
+}
+
+pub fn get_supported_encoders() -> i32 {
+    1
+}
+
+fn validate_config(config: &BPGEncoderConfig) -> Result<()> {
+    ensure!(
+        (0..=51).contains(&config.quality),
+        "BPG QP must be in 0..=51"
+    );
+    target_bit_depth(config.bit_depth)?;
+    ensure!(
+        matches!(config.chroma_format, 0..=3),
+        "BPG chroma format must be 0..=3"
+    );
+    Ok(())
+}
+
+fn target_bit_depth(bit_depth: i32) -> Result<u8> {
+    match bit_depth {
+        8 | 10 | 12 => Ok(bit_depth as u8),
+        other => bail!("bpg-rs supports 8, 10, and 12-bit encode, got {other}"),
+    }
+}
+
+fn color_space_from_config(color_space: i32) -> ColorSpace {
+    match color_space {
+        3 => ColorSpace::YCbCrBt709,
+        4 => ColorSpace::YCbCrBt2020,
+        _ => ColorSpace::YCbCr,
+    }
+}
+
+fn apply_requested_chroma(image: &mut Image, chroma_format: i32) -> Result<()> {
+    if image.chroma_format == ChromaFormat::Gray {
+        return Ok(());
+    }
+    match chroma_format {
+        2 => image.subsample_to_422(1),
+        3 => {}
+        _ => image.subsample_to_420(1),
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn image_from_rgb_memory(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    stride: u32,
+    format: BPGImageFormat,
+    bit_depth: u8,
+    color_space: ColorSpace,
+    limited_range: bool,
+) -> Result<Image> {
+    let channels = match format {
+        BPGImageFormat::RGB24 | BPGImageFormat::BGR24 => 3usize,
+        BPGImageFormat::RGBA32 | BPGImageFormat::BGRA32 => 4usize,
+        _ => bail!("unsupported packed format {format:?}"),
+    };
+    let width_usize = width as usize;
+    let height_usize = height as usize;
+    let stride = stride as usize;
+    let samples_8_stride = width_usize
+        .checked_mul(channels)
+        .context("packed row width overflow")?;
+    let samples_16_stride = samples_8_stride
+        .checked_mul(2)
+        .context("packed 16-bit row width overflow")?;
+
+    if stride >= samples_16_stride && data.len() >= stride.saturating_mul(height_usize) {
+        let mut pixels = Vec::<u16>::with_capacity(width_usize * height_usize * 3);
+        for row in 0..height_usize {
+            let row_data = &data[row * stride..row * stride + samples_16_stride];
+            for px in row_data.chunks_exact(channels * 2) {
+                let first = u16::from_ne_bytes([px[0], px[1]]);
+                let second = u16::from_ne_bytes([px[2], px[3]]);
+                let third = u16::from_ne_bytes([px[4], px[5]]);
+                let (r, g, b) = if matches!(format, BPGImageFormat::BGR24 | BPGImageFormat::BGRA32) {
+                    (third, second, first)
+                } else {
+                    (first, second, third)
+                };
+                pixels.extend([r, g, b]);
+            }
+        }
+        let rgb = image::ImageBuffer::<image::Rgb<u16>, Vec<u16>>::from_raw(width, height, pixels)
+            .ok_or_else(|| anyhow!("invalid RGB16 buffer dimensions"))?;
+        return Ok(Image::from_rgb16(&rgb, width, height, color_space, limited_range, bit_depth));
+    }
+
+    ensure!(
+        stride >= samples_8_stride,
+        "packed stride {stride} is too small for {width}x{channels}"
+    );
+    ensure!(
+        data.len() >= stride.saturating_mul(height_usize),
+        "packed buffer is shorter than stride * height"
+    );
+    let mut pixels = Vec::<u8>::with_capacity(width_usize * height_usize * 3);
+    for row in 0..height_usize {
+        let row_data = &data[row * stride..row * stride + samples_8_stride];
+        for px in row_data.chunks_exact(channels) {
+            let (r, g, b) = if matches!(format, BPGImageFormat::BGR24 | BPGImageFormat::BGRA32) {
+                (px[2], px[1], px[0])
+            } else {
+                (px[0], px[1], px[2])
+            };
+            pixels.extend([r, g, b]);
+        }
+    }
+    let rgb = image::RgbImage::from_raw(width, height, pixels)
+        .ok_or_else(|| anyhow!("invalid RGB8 buffer dimensions"))?;
+    Ok(Image::from_rgb8(&rgb, width, height, color_space, limited_range, bit_depth))
+}
+
+fn image_from_gray_memory(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    stride: u32,
+    bit_depth: u8,
+    color_space: ColorSpace,
+    limited_range: bool,
+) -> Result<Image> {
+    let width_usize = width as usize;
+    let height_usize = height as usize;
+    let stride = stride as usize;
+    ensure!(stride >= width_usize, "gray stride is too small");
+    ensure!(
+        data.len() >= stride.saturating_mul(height_usize),
+        "gray buffer is shorter than stride * height"
+    );
+    let mut pixels = Vec::<u8>::with_capacity(width_usize * height_usize);
+    for row in 0..height_usize {
+        pixels.extend_from_slice(&data[row * stride..row * stride + width_usize]);
+    }
+    let gray = image::GrayImage::from_raw(width, height, pixels)
+        .ok_or_else(|| anyhow!("invalid gray buffer dimensions"))?;
+    Ok(Image::from_luma8(&gray, width, height, color_space, limited_range, bit_depth))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn planar_image(
+    width: u32,
+    height: u32,
+    bit_depth: u8,
+    chroma_format: ChromaFormat,
+    color_space: ColorSpace,
+    limited_range: bool,
+    y: Plane<u16>,
+    cb: Option<Plane<u16>>,
+    cr: Option<Plane<u16>>,
+) -> Result<Image> {
+    let mut planes = vec![y];
+    if chroma_format != ChromaFormat::Gray {
+        planes.push(cb.context("missing Cb plane")?);
+        planes.push(cr.context("missing Cr plane")?);
+    }
+    Ok(Image {
+        width,
+        height,
+        bit_depth,
+        chroma_format,
+        color_space,
+        limited_range,
+        planes,
+        has_alpha: false,
+    })
+}
+
+fn plane_from_u8(data: &[u8], width: u32, height: u32, stride: u32, bit_depth: u8) -> Result<Plane<u16>> {
+    let samples = copy_plane(data, width, height, stride)?;
+    let scaled = samples
+        .into_iter()
+        .map(|v| scale_sample(u16::from(v), 8, bit_depth))
+        .collect();
+    Ok(Plane {
+        data: scaled,
+        width,
+        height,
+        stride: width as usize,
+    })
+}
+
+fn plane_from_u16(data: &[u16], width: u32, height: u32, stride: u32, bit_depth: u8) -> Result<Plane<u16>> {
+    let samples = copy_plane(data, width, height, stride)?;
+    let max = (1u16 << bit_depth) - 1;
+    let clamped = samples.into_iter().map(|v| v.min(max)).collect();
+    Ok(Plane {
+        data: clamped,
+        width,
+        height,
+        stride: width as usize,
+    })
+}
+
+fn chroma_plane_from_u8(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    stride: u32,
+    format: BPGImageFormat,
+    bit_depth: u8,
+) -> Result<Option<Plane<u16>>> {
+    let (cw, ch) = format.chroma_dimensions(width, height)?;
+    if cw == 0 || ch == 0 {
+        return Ok(None);
+    }
+    Ok(Some(plane_from_u8(data, cw, ch, stride, bit_depth)?))
+}
+
+fn chroma_plane_from_u16(
+    data: &[u16],
+    width: u32,
+    height: u32,
+    stride: u32,
+    format: BPGImageFormat,
+    bit_depth: u8,
+) -> Result<Option<Plane<u16>>> {
+    let (cw, ch) = format.chroma_dimensions(width, height)?;
+    if cw == 0 || ch == 0 {
+        return Ok(None);
+    }
+    Ok(Some(plane_from_u16(data, cw, ch, stride, bit_depth)?))
+}
+
+fn copy_plane<T: Copy>(data: &[T], width: u32, height: u32, stride: u32) -> Result<Vec<T>> {
+    let width = width as usize;
+    let height = height as usize;
+    let stride = stride as usize;
+    ensure!(stride >= width, "plane stride is smaller than width");
+    ensure!(
+        data.len() >= stride.saturating_mul(height),
+        "plane buffer is shorter than stride * height"
+    );
+    let mut out = Vec::with_capacity(width * height);
+    for row in 0..height {
+        out.extend_from_slice(&data[row * stride..row * stride + width]);
+    }
+    Ok(out)
+}
+
+fn scale_sample(sample: u16, in_bit_depth: u8, out_bit_depth: u8) -> u16 {
+    if in_bit_depth == out_bit_depth {
+        return sample;
+    }
+    let in_max = (1u32 << in_bit_depth) - 1;
+    let out_max = (1u32 << out_bit_depth) - 1;
+    ((u32::from(sample) * out_max + in_max / 2) / in_max) as u16
+}
+
+#[allow(clippy::too_many_arguments)]
 fn validate_planar_inputs_u8(
     y_plane: &[u8],
     cb_plane: &[u8],
@@ -620,9 +613,20 @@ fn validate_planar_inputs_u8(
     cr_stride: u32,
     format: BPGImageFormat,
 ) -> Result<()> {
-    validate_planar_inputs(y_plane.len(), cb_plane.len(), cr_plane.len(), width, height, y_stride, cb_stride, cr_stride, format)
+    validate_planar_inputs(
+        y_plane.len(),
+        cb_plane.len(),
+        cr_plane.len(),
+        width,
+        height,
+        y_stride,
+        cb_stride,
+        cr_stride,
+        format,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn validate_planar_inputs_u16(
     y_plane: &[u16],
     cb_plane: &[u16],
@@ -634,9 +638,20 @@ fn validate_planar_inputs_u16(
     cr_stride: u32,
     format: BPGImageFormat,
 ) -> Result<()> {
-    validate_planar_inputs(y_plane.len(), cb_plane.len(), cr_plane.len(), width, height, y_stride, cb_stride, cr_stride, format)
+    validate_planar_inputs(
+        y_plane.len(),
+        cb_plane.len(),
+        cr_plane.len(),
+        width,
+        height,
+        y_stride,
+        cb_stride,
+        cr_stride,
+        format,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn validate_planar_inputs(
     y_len: usize,
     cb_len: usize,
@@ -648,105 +663,204 @@ fn validate_planar_inputs(
     cr_stride: u32,
     format: BPGImageFormat,
 ) -> Result<()> {
-    ensure!(format.is_planar_yuv(), "Format {:?} is not planar YUV", format);
-    ensure!(width > 0 && height > 0, "Invalid planar image dimensions");
-    ensure!(y_stride >= width, "Luma stride is smaller than width");
-
-    let y_required = checked_plane_len(y_stride, height)?;
-    ensure!(y_len >= y_required, "Luma plane is smaller than expected");
-
-    let (chroma_width, chroma_height) = format.chroma_dimensions(width, height)?;
-    if format == BPGImageFormat::Gray {
-        ensure!(cb_len == 0 && cr_len == 0, "Gray input should not provide chroma data");
+    ensure!(format.is_planar_yuv(), "format {format:?} is not planar YUV");
+    ensure!(width > 0 && height > 0, "image dimensions must be non-zero");
+    ensure!(y_stride >= width, "Y stride is smaller than width");
+    ensure!(
+        y_len >= y_stride as usize * height as usize,
+        "Y plane is shorter than y_stride * height"
+    );
+    let (cw, ch) = format.chroma_dimensions(width, height)?;
+    if cw == 0 || ch == 0 {
         return Ok(());
     }
-
-    ensure!(cb_stride >= chroma_width, "Cb stride is smaller than chroma width");
-    ensure!(cr_stride >= chroma_width, "Cr stride is smaller than chroma width");
-
-    let cb_required = checked_plane_len(cb_stride, chroma_height)?;
-    let cr_required = checked_plane_len(cr_stride, chroma_height)?;
-    ensure!(cb_len >= cb_required, "Cb plane is smaller than expected");
-    ensure!(cr_len >= cr_required, "Cr plane is smaller than expected");
+    ensure!(cb_stride >= cw, "Cb stride is smaller than chroma width");
+    ensure!(cr_stride >= cw, "Cr stride is smaller than chroma width");
+    ensure!(
+        cb_len >= cb_stride as usize * ch as usize,
+        "Cb plane is shorter than cb_stride * chroma_height"
+    );
+    ensure!(
+        cr_len >= cr_stride as usize * ch as usize,
+        "Cr plane is shorter than cr_stride * chroma_height"
+    );
     Ok(())
 }
 
-fn checked_plane_len(stride: u32, height: u32) -> Result<usize> {
-    (stride as usize)
-        .checked_mul(height as usize)
-        .ok_or_else(|| anyhow!("Plane size overflow"))
+// ---------------------------------------------------------------------------
+// Batch / memory-budget-aware concurrent encoding
+// ---------------------------------------------------------------------------
+
+/// A job ready for batch BPG encoding: an [`Image`] plus its config.
+pub struct EncodeBatchJob {
+    pub image: Image,
+    pub config: BPGEncoderConfig,
 }
 
-impl Drop for NativeBPGEncoder {
-    fn drop(&mut self) {
-        unsafe {
-            bpg_ffi::encoder_destroy(self.ctx);
-        }
-    }
-}
-
-unsafe impl Send for NativeBPGEncoder {}
-
-pub fn decode_file(input_path: &str) -> Result<(Vec<u8>, u32, u32, BPGImageFormat)> {
-    let input_cstr = CString::new(input_path)?;
-    let mut output_data: *mut u8 = ptr::null_mut();
-    let mut width: c_int = 0;
-    let mut height: c_int = 0;
-    let mut format = BPGImageFormat::RGBA32;
-
-    let result = unsafe {
-        bpg_ffi::decode_file(
-            input_cstr.as_ptr(),
-            &mut output_data,
-            &mut width,
-            &mut height,
-            &mut format,
-        )?
+/// Estimate how much peak memory one encode of `config` at `(w, h)` would need.
+/// Uses the same CTB-alignment and worker-clone accounting as
+/// `still265::batch::estimate_memory`.
+pub fn estimate_bpg_memory(
+    w: u32,
+    h: u32,
+    bit_depth: u8,
+    chroma: ChromaFormat,
+    effort: Effort,
+) -> batch::MemoryEstimate {
+    let cfg = StillHevcConfig {
+        width: w,
+        height: h,
+        bit_depth,
+        chroma,
+        qp: 28,
+        effort,
+        sao: SaoMode::Off,
+        deblock: DeblockMode::On,
+        adaptive_qp: false,
     };
+    batch::estimate_memory(&cfg)
+}
 
-    if result != 0 {
-        return Err(anyhow!("Decoding failed with error code: {}", result));
-    }
-
-    if output_data.is_null() {
-        return Err(anyhow!("Decoding produced no output"));
-    }
-    if width <= 0 || height <= 0 {
-        unsafe {
-            let _ = bpg_ffi::free(output_data as *mut c_void);
-        }
-        return Err(anyhow!("Decoding produced invalid dimensions"));
-    }
-
-    let size = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or_else(|| anyhow!("Decoded BPG dimensions are too large"))?;
-    let data = unsafe {
-        let slice = std::slice::from_raw_parts(output_data, size);
-        let vec = slice.to_vec();
-        bpg_ffi::free(output_data as *mut c_void)?;
-        vec
+/// How many images of `(w, h, bit_depth, chroma)` can safely be encoded
+/// concurrently within `ram_budget_bytes`. Clamped to `[1, CPU count]`.
+pub fn recommended_bpg_concurrency(
+    w: u32,
+    h: u32,
+    bit_depth: u8,
+    chroma: ChromaFormat,
+    effort: Effort,
+    ram_budget_bytes: u64,
+) -> usize {
+    let cfg = StillHevcConfig {
+        width: w,
+        height: h,
+        bit_depth,
+        chroma,
+        qp: 28,
+        effort,
+        sao: SaoMode::Off,
+        deblock: DeblockMode::On,
+        adaptive_qp: false,
     };
-
-    Ok((data, width as u32, height as u32, format))
+    batch::recommended_concurrency(&cfg, ram_budget_bytes)
 }
 
-pub fn get_version() -> String {
-    unsafe {
-        let ver_ptr = match bpg_ffi::get_version() {
-            Ok(ver_ptr) => ver_ptr,
-            Err(_) => return "unavailable".to_string(),
-        };
-        if ver_ptr.is_null() {
-            return "unknown".to_string();
-        }
-        CStr::from_ptr(ver_ptr).to_string_lossy().into_owned()
+/// Encode a batch of [`EncodeBatchJob`]s concurrently, returning BPG data in
+/// input order. `concurrency` caps image-level parallelism (call
+/// [`recommended_bpg_concurrency`] to size it against a RAM budget).
+///
+/// Note: when `concurrency > 1`, set `BPG_ENC_THREADS=1` so per-image
+/// multi-threading does not oversubscribe CPUs.
+pub fn batch_encode_images(
+    jobs: &[EncodeBatchJob],
+    concurrency: usize,
+) -> Result<Vec<Vec<u8>>> {
+    let conc = concurrency.max(1).min(jobs.len());
+    if conc <= 1 {
+        return jobs
+            .iter()
+            .map(|j| {
+                let mut enc = NativeBPGEncoder::new().with_context(|| "batch: create encoder")?;
+                enc.set_config(&j.config)
+                    .with_context(|| "batch: set config")?;
+                enc.encode_image_data(j.image.clone())
+            })
+            .collect();
     }
+
+    // Scoped threads: each worker picks the next unclaimed job.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let n = jobs.len();
+    let mut slots: Vec<Option<Vec<u8>>> = (0..n).map(|_| None).collect();
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..conc)
+            .map(|_| {
+                let next = &next;
+                s.spawn(|| {
+                    let mut local: Vec<(usize, Vec<u8>)> = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if i >= n {
+                            break;
+                        }
+                        let job = &jobs[i];
+                        let mut enc = NativeBPGEncoder::new().expect("batch: create encoder");
+                        enc.set_config(&job.config).expect("batch: set config");
+                        let bpg = enc
+                            .encode_image_data(job.image.clone())
+                            .expect("batch: encode image");
+                        local.push((i, bpg));
+                    }
+                    local
+                })
+            })
+            .collect();
+        for h in handles {
+            for (i, bpg) in h.join().expect("batch worker panicked") {
+                slots[i] = Some(bpg);
+            }
+        }
+    });
+    slots
+        .into_iter()
+        .map(|o| o.ok_or_else(|| anyhow!("batch worker did not produce output for a job")))
+        .collect()
 }
 
-pub fn get_supported_encoders() -> i32 {
-    unsafe { bpg_ffi::get_supported_encoders().unwrap_or(0) }
+// ---------------------------------------------------------------------------
+// Convenience wrappers (integer-based, no extra imports needed by callers)
+// ---------------------------------------------------------------------------
+
+/// Peak memory estimate for one BPG encode, using integer chroma/encoder codes
+/// matching the orchestrator's convention:
+/// - `chroma_format`: 0=4:2:0, 1=4:2:0(default), 2=4:2:2, 3=4:4:4
+/// - `encoder_type`: 0=Balanced, other=Best
+pub fn estimate_encode_peak(w: u32, h: u32, bit_depth: u8, chroma_format: i32, encoder_type: i32) -> u64 {
+    use bpg_image::ChromaFormat;
+    use still265::Effort;
+    let chroma = match chroma_format {
+        2 => ChromaFormat::Yuv422,
+        3 => ChromaFormat::Yuv444,
+        _ => ChromaFormat::Yuv420,
+    };
+    let effort = if encoder_type == 0 { Effort::Balanced } else { Effort::Best };
+    estimate_bpg_memory(w, h, bit_depth, chroma, effort).peak_bytes
+}
+
+/// Safe concurrency for a given image size and system RAM budget.
+pub fn safe_encode_concurrency(w: u32, h: u32, bit_depth: u8, chroma_format: i32, encoder_type: i32, ram_budget_bytes: u64) -> usize {
+    use bpg_image::ChromaFormat;
+    use still265::Effort;
+    let chroma = match chroma_format {
+        2 => ChromaFormat::Yuv422,
+        3 => ChromaFormat::Yuv444,
+        _ => ChromaFormat::Yuv420,
+    };
+    let effort = if encoder_type == 0 { Effort::Balanced } else { Effort::Best };
+    recommended_bpg_concurrency(w, h, bit_depth, chroma, effort, ram_budget_bytes)
+}
+
+/// Build a StillHevcConfig from integer codes (for external callers).
+pub fn still_hevc_config(w: u32, h: u32, bit_depth: u8, chroma_format: i32, encoder_type: i32) -> StillHevcConfig {
+    use bpg_image::ChromaFormat;
+    use still265::Effort;
+    let chroma = match chroma_format {
+        2 => ChromaFormat::Yuv422,
+        3 => ChromaFormat::Yuv444,
+        _ => ChromaFormat::Yuv420,
+    };
+    let effort = if encoder_type == 0 { Effort::Balanced } else { Effort::Best };
+    StillHevcConfig {
+        width: w,
+        height: h,
+        bit_depth,
+        chroma,
+        qp: 28,
+        effort,
+        sao: SaoMode::Off,
+        deblock: DeblockMode::On,
+        adaptive_qp: false,
+    }
 }
 
 #[cfg(test)]
@@ -754,60 +868,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_encoder_creation() {
-        assert!(NativeBPGEncoder::new().is_ok());
+    fn default_qp_is_28() {
+        assert_eq!(NativeBPGEncoder::default_config().quality, 28);
     }
 
     #[test]
-    fn test_version() {
-        assert!(!get_version().is_empty());
-    }
-
-    #[test]
-    fn test_supported_encoders() {
-        let encoders = get_supported_encoders();
-        assert!(encoders & 0x01 != 0);
-    }
-
-    #[test]
-    #[cfg(feature = "jctvc")]
-    fn test_jctvc_encoder_available() {
-        assert!(get_supported_encoders() & 0x02 != 0, "JCTVC encoder bit not set");
-    }
-
-    #[test]
-    #[cfg(feature = "jctvc")]
-    fn test_jctvc_encode_roundtrip() {
-        let mut encoder = NativeBPGEncoder::new().unwrap();
-        let mut config = NativeBPGEncoder::default_config();
-        config.encoder_type = 1; // JCTVC
-        config.quality = 35;
-        encoder.set_config(&config).unwrap();
-
-        let (width, height) = (64u32, 64u32);
-        let y: Vec<u8> = (0..width * height).map(|i| (i % 251) as u8).collect();
-        let (cw, ch) = (width.div_ceil(2), height.div_ceil(2));
-        let cb = vec![128u8; (cw * ch) as usize];
-        let cr = vec![128u8; (cw * ch) as usize];
-
-        let bpg = encoder
-            .encode_from_planar_u8(
-                &y,
-                &cb,
-                &cr,
-                width,
-                height,
-                width,
-                cw,
-                cw,
-                BPGImageFormat::YCbCr420P,
-            )
-            .unwrap();
-        assert!(bpg.len() > 8, "JCTVC produced an implausibly small stream");
-    }
-
-    #[test]
-    fn test_planar_format_dimensions() {
+    fn chroma_dimensions_match_bpg_formats() {
         assert_eq!(
             BPGImageFormat::YCbCr420P.chroma_dimensions(11, 7).unwrap(),
             (6, 4)
@@ -820,5 +886,25 @@ mod tests {
             BPGImageFormat::YCbCr444P.chroma_dimensions(11, 7).unwrap(),
             (11, 7)
         );
+    }
+
+    #[test]
+    fn encode_rgb8_smoke() {
+        let encoder = NativeBPGEncoder::new().unwrap();
+        let rgb = vec![128u8; 8 * 8 * 3];
+        let bpg = encoder
+            .encode_from_memory(&rgb, 8, 8, 8 * 3, BPGImageFormat::RGB24)
+            .unwrap();
+        assert!(bpg.starts_with(b"BPG"));
+        assert!(bpg.len() > 8);
+    }
+
+    #[test]
+    fn estimate_memory_smoke() {
+        let est = estimate_bpg_memory(1920, 1080, 8, ChromaFormat::Yuv420, Effort::Best);
+        assert!(est.peak_bytes > 0);
+        assert!(est.peak_mib() > 0.0);
+        let conc = recommended_bpg_concurrency(1920, 1080, 8, ChromaFormat::Yuv420, Effort::Fast, 8 << 30);
+        assert!(conc >= 1);
     }
 }

@@ -57,17 +57,12 @@ pub fn load_image(path: &Path) -> Result<DecodedImage> {
 
 /// Decode JPEG using zune-jpeg (faster than image crate's JPEG decoder)
 fn decode_jpeg_from_file(path: &Path) -> Result<DecodedImage> {
-    use zune_image::JpegDecoder;
     use std::fs;
-    use std::io::Cursor;
 
     let data = fs::read(path)
         .with_context(|| format!("Failed to read JPEG file: {}", path.display()))?;
 
-    let mut decoder = JpegDecoder::new(Cursor::new(&data))
-        .map_err(|e| anyhow!("Failed to create JPEG decoder: {}", e))?;
-
-    let (pixels, width, height) = decoder.decode_rgb()
+    let (pixels, width, height) = crate::jpeg_decoder::decode_jpeg_rgb(&data)
         .map_err(|e| anyhow!("JPEG decode error: {}", e))?;
     
     // Convert to RGB8 ImageBuffer and then to DynamicImage

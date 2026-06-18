@@ -27,9 +27,11 @@ use openarc::orchestrator::{
 };
 use arcmax::{compress_with, decompress, CompressionOptions, Method};
 use arcmax::codec::lzma::LzmaOptions;
+use openarc::bpg_wrapper::{BpgConfig, BpgEffort};
 use openarc::cli::{Cli, Commands};
 use openarc::interactive;
 use openarc::phone_backup;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use openarc::orchestrator::FileClass;
@@ -60,6 +62,61 @@ where
     }
 }
 
+fn make_progress_callback(
+    initial_message: &'static str,
+) -> (ProgressBar, Arc<openarc::orchestrator::ProgressFn>) {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} [{elapsed_precise}] {msg}")
+            .unwrap(),
+    );
+    pb.set_message(initial_message);
+
+    let pb_clone = pb.clone();
+    let bar_style = Arc::new(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+    let progress_fn: Arc<openarc::orchestrator::ProgressFn> =
+        Arc::new(move |current: usize, total: usize, msg: &str| {
+            if total > 0 {
+                pb_clone.set_style((*bar_style).clone());
+                pb_clone.set_length(total as u64);
+                pb_clone.set_position((current as u64).min(total as u64));
+            }
+            pb_clone.set_message(msg.to_string());
+        });
+    (pb, progress_fn)
+}
+
+fn is_supported_image(path: &std::path::Path) -> bool {
+    const IMAGE_EXTS: &[&str] = &[
+        "jpg", "jpeg", "png", "heic", "heif", "tiff", "tif", "bmp", "webp", "jp2", "j2k",
+    ];
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+fn find_images(input_dir: &std::path::Path) -> Result<Vec<PathBuf>> {
+    let mut images = Vec::new();
+    for entry in walkdir::WalkDir::new(input_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path().to_path_buf();
+        if is_supported_image(&path) {
+            images.push(path);
+        }
+    }
+    Ok(images)
+}
+
 fn main() -> Result<()> {
     #[cfg(windows)]
     enable_ansi_support();
@@ -78,25 +135,16 @@ fn main() -> Result<()> {
         Commands::Create {
             output,
             inputs,
+            bpg_effort,
             bpg_quality,
             bpg_lossless,
-            bpg_encoder,
-            video_preset,
-            video_crf,
             compression_level,
             misc_compression_level,
             no_catalog,
             no_dedup,
-            no_skip_compressed,
             no_tracking,
             no_reencode,
-            bpg_compress_level,
         } => {
-            let bpg_encoder_type = match bpg_encoder.to_lowercase().as_str() {
-                "x265" | "hevc" => 0,
-                "jctvc" | "hm" => 1,
-                other => return Err(anyhow!("invalid --bpg-encoder '{other}': expected 'jctvc' or 'x265'")),
-            };
             println!("OpenArc - Creating archive: {}", output.display());
             println!("Input sources: {} items", inputs.len());
             println!();
@@ -116,21 +164,22 @@ fn main() -> Result<()> {
                 return Err(anyhow!("one or more input paths not found"));
             }
 
+            let bpg_effort = BpgEffort::parse(&bpg_effort)?;
+            let bpg_quality = bpg_quality.unwrap_or_else(|| bpg_effort.default_quality() as i32);
+
             let settings = OrchestratorSettings {
                 bpg_quality,
                 bpg_lossless,
+                bpg_effort,
                 bpg_bit_depth: 8,
                 bpg_chroma_format: 1,
-                bpg_encoder_type,
-                bpg_compression_level: bpg_compress_level,
-                video_preset,
-                video_crf,
+                bpg_encoder_type: bpg_effort.encoder_type() as i32,
+                bpg_compression_level: bpg_effort.compression_level() as i32,
                 compression_level,
                 misc_compression_level,
                 enable_catalog: !no_catalog,
                 catalog_db_path: None,
                 enable_dedup: !no_dedup,
-                skip_already_compressed_videos: !no_skip_compressed,
                 staging_dir: None,
                 heic_quality: 90,
                 jpeg_quality: 92,
@@ -140,50 +189,23 @@ fn main() -> Result<()> {
 
             println!("Settings:");
             println!(
-                "  BPG quality: {} (lossless: {}, encoder: {}, compress-level: {})",
-                bpg_quality,
+                "  BPG: {} (lossless: {}, internal QP: {})",
+                bpg_effort,
                 bpg_lossless,
-                if bpg_encoder_type == 1 { "JCTVC" } else { "x265" },
-                bpg_compress_level
+                bpg_quality
             );
             println!(
-                "  BPG bit depth: adaptive (8-bit sources stay 8-bit, high-depth sources up to {}-bit)",
-                if bpg_encoder_type == 1 { 14 } else { 12 }
+                "  BPG bit depth: adaptive (8-bit sources stay 8-bit, high-depth sources up to 12-bit)"
             );
-            println!("  Video preset: {} (CRF: {})", video_preset, video_crf);
             println!("  ZSTD container level: {}", compression_level);
             println!("  Misc LZMA2 level: {}", misc_compression_level);
             println!("  Catalog: {}", !no_catalog);
             println!("  Deduplication: {}", !no_dedup);
-            println!("  Skip compressed videos: {}", !no_skip_compressed);
             println!("  File tracking: {}", !no_tracking);
             println!("  Re-encode media: {}", !no_reencode);
             println!();
 
-            // Start with a spinner (length unknown) — switches to a real bar
-            // once the orchestrator calls back with the actual file count.
-            let pb = ProgressBar::new_spinner();
-            pb.set_style(
-                ProgressStyle::default_spinner()
-                    .template("{spinner:.green} [{elapsed_precise}] {msg}")
-                    .unwrap(),
-            );
-            pb.set_message("Discovering files…");
-
-            let pb_clone = pb.clone();
-            let bar_style = ProgressStyle::default_bar()
-                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-                .unwrap()
-                .progress_chars("#>-");
-            let bar_style = Arc::new(bar_style);
-            let progress_fn = Arc::new(move |current: usize, total: usize, msg: &str| {
-                if total > 0 {
-                    pb_clone.set_style((*bar_style).clone());
-                    pb_clone.set_length(total as u64);
-                }
-                pb_clone.set_position(current as u64);
-                pb_clone.set_message(msg.to_string());
-            });
+            let (pb, progress_fn) = make_progress_callback("Discovering files...");
 
             println!("Processing files...");
             let archive_inputs = inputs.clone();
@@ -197,9 +219,16 @@ fn main() -> Result<()> {
             println!("Archive creation complete!");
             println!("  Discovered: {} files", result.discovered_files.len());
             println!("  Processed: {} files", result.processed.len());
+            println!("  Failed: {} files", result.failed.len());
             println!("  Skipped (catalog): {} files", result.skipped_by_catalog.len());
             if result.dedup_groups > 0 {
                 println!("  Dedup groups: {}", result.dedup_groups);
+            }
+            if !result.failed.is_empty() {
+                println!("  Failed file list:");
+                for failed in &result.failed {
+                    println!("    - {}", failed.original_path.display());
+                }
             }
 
             let total_original: u64 = result.processed.iter().map(|p| p.original_size).sum();
@@ -232,26 +261,45 @@ fn main() -> Result<()> {
             println!();
             println!("Output: {}", output.display());
 
+            if !result.staged_uncompressed_videos.is_empty() {
+                println!();
+                println!(
+                    "Staged uncompressed videos: {}",
+                    result.staged_uncompressed_videos.len()
+                );
+                if let Some(stage_root) = result
+                    .staged_uncompressed_videos
+                    .first()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                {
+                    println!("Stage folder: {}", stage_root.display());
+                }
+                println!("Next step: encode these videos externally (HandBrake/ffmpeg/etc.), then merge them into this archive.");
+                print!("Encoded video folder to merge (leave empty to skip now): ");
+                io::stdout().flush()?;
+                let mut encoded_dir = String::new();
+                io::stdin().read_line(&mut encoded_dir)?;
+                let encoded_dir = encoded_dir.trim().trim_matches('"');
+                if !encoded_dir.is_empty() {
+                    let merged = openarc::orchestrator::append_external_video_bundle(
+                        &output,
+                        &PathBuf::from(encoded_dir),
+                        misc_compression_level,
+                        compression_level,
+                    )?;
+                    println!("Merged externally encoded videos: {}", merged);
+                    println!("Archive updated: {}", output.display());
+                }
+            }
+
             Ok(())
         }
 
         Commands::Extract { input, output, no_reencode } => {
             println!("Extracting archive: {} to {}", input.display(), output.display());
 
-            let pb = ProgressBar::new(1);
-            pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-                    .unwrap()
-                    .progress_chars("#>-"),
-            );
-
-            let pb_clone = pb.clone();
-            let progress_fn = Arc::new(move |current: usize, total: usize, msg: &str| {
-                pb_clone.set_length(total as u64);
-                pb_clone.set_position(current as u64);
-                pb_clone.set_message(msg.to_string());
-            });
+            let (pb, progress_fn) = make_progress_callback("Extracting archive...");
 
             let extract_input = input.clone();
             let extract_output = output.clone();
@@ -320,9 +368,55 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::ConvertBpg { .. } | Commands::BatchBpg { .. } | Commands::ConvertVideo { .. } => {
-            println!("Note: Individual conversion commands are available for testing.");
-            println!("For full archiving, use the 'create' command.");
+        Commands::ConvertBpg { input, output, effort, quality, lossless } => {
+            let effort = BpgEffort::parse(&effort)?;
+            let cfg = BpgConfig {
+                effort,
+                lossless,
+                bit_depth: 8,
+                quality_override: quality,
+            };
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.green} [{elapsed_precise}] {msg}")
+                    .unwrap(),
+            );
+            pb.set_message(format!("BPG {}: {}", effort, input.display()));
+            openarc::bpg_wrapper::encode_image_to_bpg(&input, &output, &cfg)?;
+            pb.finish_with_message("Complete");
+            println!("Output: {}", output.display());
+            Ok(())
+        }
+
+        Commands::BatchBpg { input, output, effort, quality, lossless } => {
+            let effort = BpgEffort::parse(&effort)?;
+            std::fs::create_dir_all(&output)
+                .with_context(|| format!("Failed to create output directory {}", output.display()))?;
+            let images = find_images(&input)?;
+            let pb = ProgressBar::new(images.len() as u64);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
+            let cfg = BpgConfig {
+                effort,
+                lossless,
+                bit_depth: 8,
+                quality_override: quality,
+            };
+            for (idx, path) in images.iter().enumerate() {
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
+                let out_path = output.join(format!("{}.bpg", stem));
+                pb.set_position(idx as u64);
+                pb.set_message(path.file_name().and_then(|s| s.to_str()).unwrap_or("image").to_string());
+                openarc::bpg_wrapper::encode_image_to_bpg(path, &out_path, &cfg)
+                    .with_context(|| format!("Failed to encode {}", path.display()))?;
+            }
+            pb.finish_with_message("Complete");
+            println!("Encoded {} image(s) to {}", images.len(), output.display());
             Ok(())
         }
 

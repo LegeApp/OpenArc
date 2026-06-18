@@ -82,7 +82,6 @@ Screenshot*.png
 
 # Native library build artifacts
 native/libs/*.lib
-native/BPG/libbpg-0.9.8/bpgenc*
 
 # Test images and assets
 crates/zune-image/test-images

@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "crates/codecs",
-    "crates/zune-image",
     "xtask",
 ]
 default-members = ["."]
@@ -9,7 +8,7 @@ exclude = [
     "openjp2",
     "openjp2/tools",
     "openjp2/libtiff-sys",
-    "native/jp2lam",
+    "jp2lam",
     "dng-rs",
 ]
 resolver = "2"
@@ -39,7 +38,8 @@ flume = "0.12"
 
 # Image processing
 image = { version = "0.25.9", default-features = false, features = ["png", "jpeg", "tiff", "webp", "bmp"] }
-zune-image = { path = "crates/zune-image" }
+zune-jpeg = "0.5.12"
+zune-core = "0.5"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -150,7 +150,8 @@ crossterm.workspace = true
 
 # Image processing
 image.workspace = true
-zune-image.workspace = true
+zune-jpeg.workspace = true
+zune-core.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 winmtp = { path = "crates/winmtp" }
@@ -158,13 +159,13 @@ widestring = "1.2"
 
 [profile.release]
 opt-level = 3
-# LTO is disabled: LLVM ThinLTO is incompatible with MinGW ld when linking
-# against GCC-compiled .a archives (libavcodec, libx265, etc.) — the linker
-# cannot find the .llvmbc section in GCC objects.  codegen-units=1 still
-# yields good intra-crate optimization.
-lto = false
+lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
+
+[profile.release-lto]
+inherits = "release"
+lto = "thin"
 
 [profile.release.build-override]
 opt-level = 3

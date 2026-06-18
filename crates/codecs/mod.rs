@@ -10,7 +10,6 @@ pub mod heic;
 pub mod jpeg2000;
 
 // Future codecs
-pub mod ffmpeg;
 pub mod video_analyzer;
 pub mod freearc_wrapper;
 // pub mod arc;
