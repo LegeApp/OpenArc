@@ -1,11 +1,14 @@
-// HEIC/HEIF decoding via the newer pure-Rust decoder.
+// HEIC/HEIF decoding via bpg-decode (bpg-rs).
 // The archival path keeps decoded YUV planes in their original bit depth so the
 // BPG encoder can preserve HEIC fidelity instead of forcing an 8-bit RGB path.
 
 use std::path::Path;
 
 use anyhow::{anyhow, ensure, Context, Result};
-use heic_decoder::{DecoderConfig, ImageInfo, PixelLayout};
+use bpg_decode::heic::{
+    decode_heic, decode_heic_thumbnail, decode_heic_to_frame, get_heic_image_info, DecodedFrame,
+};
+use bpg_decode::{DecodeOutput, PixelLayout};
 
 // Compression format for encoding (kept for API compatibility)
 #[repr(C)]
@@ -117,16 +120,12 @@ impl Default for HeicEncoderConfig {
     }
 }
 
-/// HEIC codec using the newer pure-Rust decoder.
-pub struct HeicCodec {
-    decoder: DecoderConfig,
-}
+/// HEIC codec backed by bpg-decode (pure Rust HEVC decoder from bpg-rs).
+pub struct HeicCodec;
 
 impl HeicCodec {
     pub fn new() -> Result<Self> {
-        Ok(Self {
-            decoder: DecoderConfig::new(),
-        })
+        Ok(Self)
     }
 
     pub fn is_available() -> bool {
@@ -134,7 +133,7 @@ impl HeicCodec {
     }
 
     pub fn get_version() -> Option<String> {
-        Some("heic-decoder-rs new (pure Rust, frame-preserving path)".to_string())
+        Some("bpg-decode (pure Rust HEVC decoder, HEIF container parser)".to_string())
     }
 
     pub fn decode_file(&mut self, path: &Path) -> Result<DecodedHeicImage> {
@@ -144,14 +143,11 @@ impl HeicCodec {
     }
 
     pub fn decode_from_memory(&mut self, buffer: &[u8]) -> Result<DecodedHeicImage> {
-        let info = ImageInfo::from_bytes(buffer)
+        let info = get_heic_image_info(buffer)
             .map_err(|err| anyhow!("Failed to inspect HEIC image metadata: {err}"))?;
         let layout = pixel_layout_for_alpha(info.has_alpha);
-        let decoded = self
-            .decoder
-            .decode(buffer, layout)
+        let decoded = decode_heic(buffer, layout)
             .map_err(|err| anyhow!("Failed to decode HEIC from memory: {err}"))?;
-
         Ok(decoded_output_to_image(decoded, info.has_alpha))
     }
 
@@ -177,13 +173,12 @@ impl HeicCodec {
         max_width: u32,
         max_height: u32,
     ) -> Result<DecodedHeicImage> {
-        let info = ImageInfo::from_bytes(buffer)
+        let info = get_heic_image_info(buffer)
             .map_err(|err| anyhow!("Failed to inspect HEIC image metadata: {err}"))?;
         let layout = pixel_layout_for_alpha(info.has_alpha);
 
         let preview = if info.has_thumbnail {
-            self.decoder
-                .decode_thumbnail(buffer, layout)
+            decode_heic_thumbnail(buffer, layout)
                 .map_err(|err| anyhow!("Failed to decode HEIC thumbnail: {err}"))?
         } else {
             None
@@ -192,9 +187,7 @@ impl HeicCodec {
         let decoded = match preview {
             Some(decoded) => decoded_output_to_image(decoded, info.has_alpha),
             None => {
-                let decoded = self
-                    .decoder
-                    .decode(buffer, layout)
+                let decoded = decode_heic(buffer, layout)
                     .map_err(|err| anyhow!("Failed to decode HEIC from memory: {err}"))?;
                 decoded_output_to_image(decoded, info.has_alpha)
             }
@@ -212,9 +205,7 @@ impl HeicCodec {
     }
 
     pub fn decode_yuv_from_memory(&mut self, buffer: &[u8]) -> Result<DecodedHeicYuv> {
-        let frame = self
-            .decoder
-            .decode_to_frame(buffer)
+        let frame = decode_heic_to_frame(buffer)
             .map_err(|err| anyhow!("Failed to decode HEIC to YUV frame: {err}"))?;
         Self::convert_frame(frame)
     }
@@ -303,7 +294,7 @@ impl HeicCodec {
         Err(anyhow!("HEIC encoding not supported - decoding only"))
     }
 
-    fn convert_frame(frame: heic_decoder::DecodedFrame) -> Result<DecodedHeicYuv> {
+    fn convert_frame(frame: DecodedFrame) -> Result<DecodedHeicYuv> {
         let chroma_format = HeicChromaFormat::from_decoder_value(frame.chroma_format)?;
         let width = frame.cropped_width();
         let height = frame.cropped_height();
@@ -420,7 +411,7 @@ fn pixel_layout_for_alpha(has_alpha: bool) -> PixelLayout {
     }
 }
 
-fn decoded_output_to_image(decoded: heic_decoder::DecodeOutput, has_alpha: bool) -> DecodedHeicImage {
+fn decoded_output_to_image(decoded: DecodeOutput, has_alpha: bool) -> DecodedHeicImage {
     DecodedHeicImage {
         width: decoded.width,
         height: decoded.height,

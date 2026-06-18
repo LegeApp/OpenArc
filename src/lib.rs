@@ -10,6 +10,7 @@ pub mod hash;
 pub mod orchestrator;
 pub mod bpg_wrapper;
 pub mod image_loader;
+pub mod jpeg_decoder;
 pub mod interactive;
 pub mod interactive_menu;
 pub mod phone_backup;

@@ -64,10 +64,13 @@ pub fn read_hashes_file(path: impl AsRef<Path>) -> Result<Vec<(String, String)>>
         if line.is_empty() {
             continue;
         }
-        let mut parts = line.split_whitespace();
-        let hash = parts.next().ok_or_else(|| anyhow!("Invalid hashes line"))?.to_string();
-        let rel = parts.next().ok_or_else(|| anyhow!("Invalid hashes line"))?.to_string();
-        out.push((hash, rel));
+        let (hash, rel) = line
+            .split_once("  ")
+            .ok_or_else(|| anyhow!("Invalid hashes line"))?;
+        if hash.is_empty() || rel.is_empty() {
+            return Err(anyhow!("Invalid hashes line"));
+        }
+        out.push((hash.to_string(), rel.to_string()));
     }
 
     Ok(out)

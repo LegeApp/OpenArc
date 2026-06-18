@@ -7,17 +7,12 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
 
-use crate::bpg_wrapper::{self, BpgConfig};
-use crate::file_tracker::{FileTracker, ProcessedFileRecord};
-use crate::hash;
+use crate::bpg_wrapper::BpgEffort;
 use crate::orchestrator::{
-    create_archive, extract_archive_with_decoding, ExtractionSettings, OrchestratorSettings,
+    append_external_video_bundle, create_archive, extract_archive_with_decoding, ExtractionSettings, OrchestratorSettings,
 };
 use crate::phone_backup;
-use codecs::ffmpeg::{FFmpegEncoder, FfmpegEncodeOptions, VideoCodec, VideoSpeedPreset};
-use codecs::video_analyzer::analyze_video_compression;
 
 // ============================================================================
 // COLOR CONFIGURATION
@@ -50,7 +45,6 @@ pub const COLORS: ColorConfig = ColorConfig {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProcessingMode {
-    EncodeOnly,
     EncodeAndArchive,
 }
 
@@ -63,14 +57,11 @@ enum StartAction {
 }
 
 pub struct InteractiveConfig {
-    pub bpg_quality: i32,
+    pub bpg_effort: BpgEffort,
     pub bpg_lossless: bool,
     pub bpg_bit_depth: u8,
-    /// 0 = x265, 1 = JCTVC (HM reference HEVC encoder)
-    pub bpg_encoder_type: i32,
-    pub video_codec: String,
-    pub video_preset: String,
-    pub video_crf: i32,
+    /// Advanced/testing numeric override. Normal interactive mode leaves this as None.
+    pub bpg_quality_override: Option<i32>,
     /// ZSTD level (1-22) for the final archive container (low, since it wraps
     /// already-compressed media).
     pub compression_level: i32,
@@ -78,7 +69,6 @@ pub struct InteractiveConfig {
     pub misc_compression_level: i32,
     pub enable_catalog: bool,
     pub enable_dedup: bool,
-    pub skip_compressed_videos: bool,
     pub enable_tracking: bool,
     pub mode: ProcessingMode,
     pub output_path: PathBuf,
@@ -90,18 +80,14 @@ pub struct InteractiveConfig {
 impl Default for InteractiveConfig {
     fn default() -> Self {
         Self {
-            bpg_quality: 28,
+            bpg_effort: BpgEffort::Good,
             bpg_lossless: false,
             bpg_bit_depth: 8,
-            bpg_encoder_type: 1, // JCTVC (best compression)
-            video_codec: "h264".to_string(),
-            video_preset: "medium".to_string(),
-            video_crf: 23,
+            bpg_quality_override: None,
             compression_level: 3,
             misc_compression_level: 6,
             enable_catalog: true,
             enable_dedup: true,
-            skip_compressed_videos: true,
             enable_tracking: true,
             mode: ProcessingMode::EncodeAndArchive,
             output_path: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
@@ -257,7 +243,7 @@ fn prompt_start_action() -> Result<StartAction> {
         COLORS.highlight, COLORS.reset
     );
     println!(
-        "[2] {}Compress (Re-encode){} - Images→BPG, videos→H.264/H.265",
+        "[2] {}Compress (Re-encode){} - Images→BPG, Videos→staged for external encoding",
         COLORS.highlight, COLORS.reset
     );
     println!(
@@ -597,30 +583,8 @@ fn find_media_files(dir: &PathBuf) -> Result<Vec<PathBuf>> {
 // Settings Prompts
 // ============================================================================
 
-/// Named ffmpeg "basic quality" presets: (label, codec, speed preset, default CRF).
-const VIDEO_QUALITY_PRESETS: &[(&str, &str, &str, i32)] = &[
-    ("Fast", "h264", "fast", 28),
-    ("Balanced", "h264", "medium", 23),
-    ("High Quality", "h265", "medium", 22),
-    ("Max Compression", "h265", "slow", 20),
-];
-
-fn bpg_quality_hint(v: i32) -> String {
-    match v {
-        0..=15 => "near-lossless".to_string(),
-        16..=30 => "high quality".to_string(),
-        31..=42 => "balanced".to_string(),
-        _ => "max compression".to_string(),
-    }
-}
-
-fn crf_hint(v: i32) -> String {
-    match v {
-        0..=17 => "visually lossless".to_string(),
-        18..=23 => "high quality".to_string(),
-        24..=30 => "balanced".to_string(),
-        _ => "small file".to_string(),
-    }
+fn bpg_effort_hint(effort: BpgEffort) -> String {
+    effort.hint().to_string()
 }
 
 fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
@@ -631,53 +595,22 @@ fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
         COLORS.info, COLORS.reset
     );
 
-    let encoder_idx = select_option(
-        "BPG encoder:",
-        &[
-            SelectOption::new("JCTVC (HM reference)", "best compression, slower"),
-            SelectOption::new("x265", "faster, slightly larger files"),
-        ],
-        if config.bpg_encoder_type == 1 { 0 } else { 1 },
-    )?;
-    config.bpg_encoder_type = if encoder_idx == 0 { 1 } else { 0 };
-
-    config.bpg_quality = select_value(
-        "BPG quality (lower = better quality, larger files):",
-        0,
-        51,
-        config.bpg_quality,
-        1,
-        5,
-        bpg_quality_hint,
-    )?;
-
-    println!("\n{}Video Settings:{}", COLORS.info, COLORS.reset);
-
-    let preset_options: Vec<SelectOption> = VIDEO_QUALITY_PRESETS
-        .iter()
-        .map(|(name, codec, speed, crf)| {
-            SelectOption::new(*name, format!("{} {}, CRF {}", codec.to_uppercase(), speed, crf))
-        })
-        .collect();
-    let default_preset_idx = VIDEO_QUALITY_PRESETS
-        .iter()
-        .position(|(_, codec, speed, _)| *codec == config.video_codec && *speed == config.video_preset)
-        .unwrap_or(1);
-    let preset_idx = select_option("Video quality preset:", &preset_options, default_preset_idx)?;
-    let (_, codec, speed, default_crf) = VIDEO_QUALITY_PRESETS[preset_idx];
-    config.video_codec = codec.to_string();
-    config.video_preset = speed.to_string();
-    config.video_crf = default_crf;
-
-    config.video_crf = select_value(
-        "Fine-tune video CRF (lower = better quality, larger files):",
-        0,
-        51,
-        config.video_crf,
-        1,
-        5,
-        crf_hint,
-    )?;
+    let bpg_options = [
+        SelectOption::new("Balanced", bpg_effort_hint(BpgEffort::Balanced)),
+        SelectOption::new("Good", bpg_effort_hint(BpgEffort::Good)),
+        SelectOption::new("Best", bpg_effort_hint(BpgEffort::Best)),
+    ];
+    let default_bpg_idx = match config.bpg_effort {
+        BpgEffort::Balanced => 0,
+        BpgEffort::Good => 1,
+        BpgEffort::Best => 2,
+    };
+    let bpg_idx = select_option("BPG image preset:", &bpg_options, default_bpg_idx)?;
+    config.bpg_effort = match bpg_idx {
+        0 => BpgEffort::Balanced,
+        2 => BpgEffort::Best,
+        _ => BpgEffort::Good,
+    };
 
     println!("\n{}Archive Settings:{}", COLORS.info, COLORS.reset);
     config.misc_compression_level = select_value(
@@ -705,66 +638,10 @@ fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
     Ok(())
 }
 
-fn prompt_processing_mode() -> Result<ProcessingMode> {
-    println!("\n{}Choose processing mode:{}", COLORS.info, COLORS.reset);
-    println!(
-        "[1] {}Encode Only{} - Compress files, save to output folder",
-        COLORS.highlight, COLORS.reset
-    );
-    println!(
-        "[2] {}Encode + Archive{} - Compress AND create .oarc archive (recommended)",
-        COLORS.highlight, COLORS.reset
-    );
-    println!();
-    print!("{}Choice [2]:{} ", COLORS.prompt, COLORS.reset);
-    io::stdout().flush()?;
-
-    let choice = read_number_or_default(2, 1, 2)?;
-
-    Ok(if choice == 1 {
-        ProcessingMode::EncodeOnly
-    } else {
-        ProcessingMode::EncodeAndArchive
-    })
-}
-
 fn prompt_output_location(mode: &ProcessingMode) -> Result<PathBuf> {
     let default_dir = std::env::current_dir()?;
 
     match mode {
-        ProcessingMode::EncodeOnly => {
-            println!(
-                "\n{}Output folder for compressed files:{}",
-                COLORS.info, COLORS.reset
-            );
-            println!("Default: {}", default_dir.display());
-            print!(
-                "{}Path [current directory]:{} ",
-                COLORS.prompt, COLORS.reset
-            );
-            io::stdout().flush()?;
-
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-            let trimmed = input.trim();
-
-            if trimmed.is_empty() {
-                return Ok(default_dir);
-            }
-
-            let path = PathBuf::from(trimmed);
-            if !path.exists() {
-                fs::create_dir_all(&path)?;
-                println!(
-                    "{}✓ Created directory: {}{}",
-                    COLORS.success,
-                    path.display(),
-                    COLORS.reset
-                );
-            }
-
-            Ok(path)
-        }
         ProcessingMode::EncodeAndArchive => {
             println!(
                 "\n{}Archive output file (.oarc):{}",
@@ -825,30 +702,21 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
 
     if config.reencode_media {
         if image_count > 0 {
-            let max_depth = if config.bpg_encoder_type == 1 { 14 } else { 12 };
             println!(
-                "  • {} images → BPG (encoder: {}, quality: {}, bit depth: adaptive, 8-bit \
-                 sources stay 8-bit, high-depth sources up to {}-bit)",
+                "  • {} images → BPG (preset: {}, bit depth: adaptive, 8-bit \
+                 sources stay 8-bit, high-depth sources up to 12-bit)",
                 image_count,
-                if config.bpg_encoder_type == 1 { "JCTVC" } else { "x265" },
-                config.bpg_quality,
-                max_depth
+                config.bpg_effort
             );
         }
         if video_count > 0 {
-            println!(
-                "  • {} videos → {} (CRF: {}, {})",
-                video_count,
-                config.video_codec.to_uppercase(),
-                config.video_crf,
-                config.video_preset
-            );
+            println!("  • {} videos staged for external encoding", video_count);
         }
         if misc_count > 0 {
             println!("  • {} other files archived as-is", misc_count);
         }
     } else {
-        println!("  • Media files archived as-is (no image/video transcoding)");
+        println!("  • Media files archived as-is (no image transcoding)");
         if misc_count > 0 {
             println!("  • Other files archived as-is: {}", misc_count);
         }
@@ -915,7 +783,7 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
     Ok(())
 }
 
-fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Result<()> {
+fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Result<()> {
     println!(
         "\n{}Starting processing...{}",
         COLORS.processing, COLORS.reset
@@ -925,20 +793,20 @@ fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Resul
         ProcessingMode::EncodeAndArchive => {
             // Use existing archive creation
             let settings = OrchestratorSettings {
-                bpg_quality: config.bpg_quality,
+                bpg_quality: config
+                    .bpg_quality_override
+                    .unwrap_or_else(|| config.bpg_effort.default_quality() as i32),
                 bpg_lossless: config.bpg_lossless,
+                bpg_effort: config.bpg_effort,
                 bpg_bit_depth: config.bpg_bit_depth as i32,
                 bpg_chroma_format: 1,
-                bpg_encoder_type: config.bpg_encoder_type,
-                bpg_compression_level: 8,
-                video_preset: video_preset_to_int(&config.video_codec, &config.video_preset),
-                video_crf: config.video_crf,
+                bpg_encoder_type: config.bpg_effort.encoder_type() as i32,
+                bpg_compression_level: config.bpg_effort.compression_level() as i32,
                 compression_level: config.compression_level,
                 misc_compression_level: config.misc_compression_level,
                 enable_catalog: config.enable_catalog,
                 catalog_db_path: config.catalog_db_path.clone(),
                 enable_dedup: config.enable_dedup,
-                skip_already_compressed_videos: config.skip_compressed_videos,
                 staging_dir: None,
                 heic_quality: 90,
                 jpeg_quality: 92,
@@ -946,18 +814,27 @@ fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Resul
                 reencode_media: config.reencode_media,
             };
 
-            let pb = ProgressBar::new(100);
+            let pb = ProgressBar::new_spinner();
             pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.green} [{elapsed_precise}] {msg}")
+                    .unwrap(),
+            );
+            pb.set_message("Starting...");
+
+            let pb_clone = pb.clone();
+            let bar_style = Arc::new(
                 ProgressStyle::default_bar()
                     .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
                     .unwrap()
                     .progress_chars("#>-"),
             );
-
-            let pb_clone = pb.clone();
             let progress_fn = Arc::new(move |current: usize, total: usize, msg: &str| {
-                pb_clone.set_length(total as u64);
-                pb_clone.set_position(current as u64);
+                if total > 0 {
+                    pb_clone.set_style((*bar_style).clone());
+                    pb_clone.set_length(total as u64);
+                    pb_clone.set_position((current as u64).min(total as u64));
+                }
                 pb_clone.set_message(msg.to_string());
             });
 
@@ -1019,325 +896,45 @@ fn process_files(config: &InteractiveConfig, media_files: Vec<PathBuf>) -> Resul
                 config.output_path.display()
             );
 
+            if !result.staged_uncompressed_videos.is_empty() {
+                println!(
+                    "{}Staged uncompressed videos:{} {}",
+                    COLORS.info,
+                    COLORS.reset,
+                    result.staged_uncompressed_videos.len()
+                );
+                if let Some(stage_root) = result
+                    .staged_uncompressed_videos
+                    .first()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                {
+                    println!("  • Stage folder: {}", stage_root.display());
+                }
+                println!("  • Encode these videos externally (HandBrake/ffmpeg/etc.) then merge them.");
+                print!("{}Encoded video folder to merge now (leave empty to skip):{} ", COLORS.prompt, COLORS.reset);
+                io::stdout().flush()?;
+                let mut encoded_dir = String::new();
+                io::stdin().read_line(&mut encoded_dir)?;
+                let encoded_dir = encoded_dir.trim().trim_matches('"');
+                if !encoded_dir.is_empty() {
+                    let merged = append_external_video_bundle(
+                        &config.output_path,
+                        Path::new(encoded_dir),
+                        config.misc_compression_level,
+                        config.compression_level,
+                    )?;
+                    println!("  • Merged externally encoded videos: {}", merged);
+                }
+            }
+
             if result.tracking_report.is_some() {
                 println!("{}  • File tracking: recorded{}", COLORS.info, COLORS.reset);
             }
         }
-        ProcessingMode::EncodeOnly => {
-            encode_only_mode(config, &media_files)?;
-        }
     }
 
     Ok(())
-}
-
-// ============================================================================
-// Encode-Only Mode
-// ============================================================================
-
-fn encode_only_mode(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<()> {
-    let output_dir = &config.output_path;
-    fs::create_dir_all(output_dir)?;
-
-    let total = media_files.len();
-    let start = Instant::now();
-
-    let pb = ProgressBar::new(total as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-            .unwrap()
-            .progress_chars("#>-"),
-    );
-
-    let bpg_config = BpgConfig {
-        quality: config.bpg_quality as u8,
-        lossless: config.bpg_lossless,
-        bit_depth: config.bpg_bit_depth,
-        encoder_type: config.bpg_encoder_type as u8,
-        compression_level: 8,
-    };
-
-    let (codec, speed) = parse_video_settings(config);
-
-    let mut encoded_count = 0u64;
-    let mut skipped_count = 0u64;
-    let mut error_count = 0u64;
-    let mut total_original: u64 = 0;
-    let mut total_output: u64 = 0;
-
-    for (idx, path) in media_files.iter().enumerate() {
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown");
-
-        pb.set_position(idx as u64);
-
-        if is_image_file(path) {
-            // Encode image to BPG
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
-            let out_path = output_dir.join(format!("{}.bpg", stem));
-
-            pb.set_message(format!("BPG: {}", file_name));
-
-            let original_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-
-            match bpg_wrapper::encode_image_to_bpg(path, &out_path, &bpg_config) {
-                Ok(()) => {
-                    let output_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
-                    total_original += original_size;
-                    total_output += output_size;
-                    encoded_count += 1;
-                }
-                Err(e) => {
-                    pb.suspend(|| {
-                        eprintln!(
-                            "{}  ✗ Image error ({}): {}{}",
-                            COLORS.error, file_name, e, COLORS.reset
-                        );
-                    });
-                    error_count += 1;
-                }
-            }
-        } else if is_video_file(path) {
-            // Check if video is already efficiently compressed
-            pb.set_message(format!("Analyzing: {}", file_name));
-
-            let analysis = safe_analyze_video(path);
-            let should_skip = analysis
-                .as_ref()
-                .map(|a| a.is_efficiently_compressed)
-                .unwrap_or(false);
-
-            if should_skip {
-                let reason = analysis
-                    .as_ref()
-                    .map(|a| a.compression_reason.as_str())
-                    .unwrap_or("already compressed");
-                pb.suspend(|| {
-                    println!(
-                        "{}  → Skipped ({}): {}{}",
-                        COLORS.info, reason, file_name, COLORS.reset
-                    );
-                });
-
-                // Copy as-is to output
-                let out_path = output_dir.join(path.file_name().unwrap());
-                let original_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                if let Err(e) = fs::copy(path, &out_path) {
-                    pb.suspend(|| {
-                        eprintln!(
-                            "{}  ✗ Copy error ({}): {}{}",
-                            COLORS.error, file_name, e, COLORS.reset
-                        );
-                    });
-                    error_count += 1;
-                } else {
-                    total_original += original_size;
-                    total_output += original_size;
-                    skipped_count += 1;
-                }
-            } else {
-                // Re-encode video
-                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
-                let out_path = output_dir.join(format!("{}.mp4", stem));
-
-                pb.set_message(format!(
-                    "{}: {}",
-                    config.video_codec.to_uppercase(),
-                    file_name
-                ));
-
-                let original_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-
-                let opts = FfmpegEncodeOptions {
-                    codec: codec.clone(),
-                    speed: speed.clone(),
-                    crf: Some(config.video_crf as u8),
-                    copy_audio: true,
-                };
-
-                let enc = FFmpegEncoder::with_options(opts);
-                match enc.encode_file(path, &out_path) {
-                    Ok(()) => {
-                        let output_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
-                        total_original += original_size;
-                        total_output += output_size;
-                        encoded_count += 1;
-                    }
-                    Err(e) => {
-                        pb.suspend(|| {
-                            eprintln!(
-                                "{}  ✗ Video error ({}): {}{}",
-                                COLORS.error, file_name, e, COLORS.reset
-                            );
-                        });
-                        error_count += 1;
-                    }
-                }
-            }
-        }
-        // Non-media files are silently ignored (already filtered)
-    }
-
-    pb.finish_and_clear();
-
-    // Print results
-    let elapsed = start.elapsed();
-    let minutes = elapsed.as_secs() / 60;
-    let seconds = elapsed.as_secs() % 60;
-
-    println!(
-        "\n{}╔════════════════════════════════════════╗{}",
-        COLORS.success, COLORS.reset
-    );
-    println!(
-        "{}║         Encoding Complete!             ║{}",
-        COLORS.success, COLORS.reset
-    );
-    println!(
-        "{}╚════════════════════════════════════════╝{}",
-        COLORS.success, COLORS.reset
-    );
-
-    println!("\n{}Statistics:{}", COLORS.info, COLORS.reset);
-    println!("  • Encoded: {} files", encoded_count);
-    println!("  • Skipped (already compressed): {} videos", skipped_count);
-    if error_count > 0 {
-        println!(
-            "  {}• Errors: {} files{}",
-            COLORS.error, error_count, COLORS.reset
-        );
-    }
-    println!("  • Time: {}m {}s", minutes, seconds);
-
-    if total_original > 0 {
-        let ratio = (total_output as f64 / total_original as f64) * 100.0;
-        let saved_mb = (total_original - total_output.min(total_original)) / 1_000_000;
-
-        println!("\n{}Compression:{}", COLORS.info, COLORS.reset);
-        println!(
-            "  • Original: {:.1} MB",
-            total_original as f64 / 1_000_000.0
-        );
-        println!("  • Output: {:.1} MB", total_output as f64 / 1_000_000.0);
-        println!(
-            "  • Ratio: {}{:.1}%{} of original",
-            if ratio < 50.0 {
-                COLORS.success
-            } else {
-                COLORS.info
-            },
-            ratio,
-            COLORS.reset
-        );
-        println!("  • Saved: {:.1} MB", saved_mb as f64);
-    }
-
-    println!(
-        "\n{}Output:{} {}",
-        COLORS.highlight,
-        COLORS.reset,
-        output_dir.display()
-    );
-
-    // File tracking for encode-only mode
-    if config.enable_tracking {
-        if let Ok(tracker) = FileTracker::new() {
-            let now = crate::file_tracker::iso8601_now();
-
-            // Hash all input files and check for duplicates
-            let mut hashes: Vec<String> = Vec::new();
-            let mut file_hashes: Vec<(String, String, i64)> = Vec::new(); // (name, hash, size)
-            for path in media_files {
-                if let Ok(h) = hash::sha256_file_hex(path) {
-                    hashes.push(h.clone());
-                    let size = fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
-                    let name = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-                    file_hashes.push((name, h, size));
-                }
-            }
-
-            let duplicates = tracker.find_duplicates(&hashes).unwrap_or_default();
-            if !duplicates.is_empty() {
-                FileTracker::print_duplicate_report(&duplicates);
-            }
-
-            let records: Vec<ProcessedFileRecord> = file_hashes
-                .iter()
-                .map(|(name, h, size)| ProcessedFileRecord {
-                    file_name: name.clone(),
-                    file_hash: h.clone(),
-                    file_size: *size,
-                    processed_at: now.clone(),
-                    run_id: tracker.run_id().to_string(),
-                    archive_name: None,
-                    archive_hash: None,
-                    output_path: output_dir.to_string_lossy().to_string(),
-                    processing_mode: "encode_only".to_string(),
-                })
-                .collect();
-
-            if let Err(e) = tracker.record_batch(&records) {
-                eprintln!("Warning: Failed to record tracking data: {}", e);
-            }
-
-            let log_content =
-                tracker.generate_run_log(&duplicates, media_files.len(), "encode_only");
-            if let Err(e) = tracker.write_run_log(&log_content) {
-                eprintln!("Warning: Failed to write run log: {}", e);
-            }
-
-            println!("{}  • File tracking: recorded{}", COLORS.info, COLORS.reset);
-        }
-    }
-
-    Ok(())
-}
-
-/// Analyze video with timeout to prevent hangs (mirrors orchestrator logic)
-fn safe_analyze_video(path: &Path) -> Option<codecs::video_analyzer::VideoAnalysis> {
-    use std::sync::mpsc;
-    use std::thread;
-    use std::time::Duration;
-
-    let path = path.to_path_buf();
-    let thread_path = path.clone();
-    let (tx, rx) = mpsc::channel();
-
-    let _handle = thread::spawn(move || {
-        let _ = tx.send(std::panic::catch_unwind(|| {
-            analyze_video_compression(&thread_path)
-        }));
-    });
-
-    rx.recv_timeout(Duration::from_secs(5))
-        .ok()
-        .and_then(|r| match r {
-            Ok(Ok(v)) => Some(v),
-            _ => None,
-        })
-}
-
-fn parse_video_settings(config: &InteractiveConfig) -> (VideoCodec, VideoSpeedPreset) {
-    let codec = if config.video_codec == "h265" {
-        VideoCodec::H265
-    } else {
-        VideoCodec::H264
-    };
-
-    let speed = match config.video_preset.as_str() {
-        "fast" => VideoSpeedPreset::Fast,
-        "slow" => VideoSpeedPreset::Slow,
-        _ => VideoSpeedPreset::Medium,
-    };
-
-    (codec, speed)
 }
 
 fn is_video_file(path: &PathBuf) -> bool {
@@ -1362,16 +959,6 @@ fn is_image_file(path: &PathBuf) -> bool {
         IMAGE_EXTS.contains(&ext.to_lowercase().as_str())
     } else {
         false
-    }
-}
-
-fn video_preset_to_int(codec: &str, preset: &str) -> i32 {
-    match (codec, preset) {
-        ("h264", "fast") => 2,
-        ("h264", "medium") => 0,
-        ("h265", "medium") => 1,
-        ("h265", "slow") => 3,
-        _ => 0,
     }
 }
 

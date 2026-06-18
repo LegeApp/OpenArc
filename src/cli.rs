@@ -26,26 +26,18 @@ pub enum Commands {
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         
-        /// BPG quality (0-51, lower = better quality, higher compression)
-        #[arg(long, default_value = "25")]
-        bpg_quality: i32,
+        /// BPG effort preset (balanced, good, best)
+        #[arg(long, default_value = "good", value_parser = ["balanced", "good", "best"])]
+        bpg_effort: String,
+
+        /// Advanced/testing override for BPG QP (0-51, lower = better quality).
+        /// Normal use should prefer --bpg-effort.
+        #[arg(long, hide = true)]
+        bpg_quality: Option<i32>,
 
         /// Enable lossless BPG compression
         #[arg(long)]
         bpg_lossless: bool,
-
-        /// BPG image encoder: "jctvc" (HM reference HEVC, best compression but
-        /// slow) or "x265" (much faster, slightly larger files)
-        #[arg(long, default_value = "jctvc")]
-        bpg_encoder: String,
-
-        /// Video preset: 0=H264/Medium, 1=H265/Medium, 2=H264/Fast, 3=H265/Slow
-        #[arg(long, default_value = "0")]
-        video_preset: i32,
-
-        /// Video CRF quality (lower = better, typical: 18-28)
-        #[arg(long, default_value = "23")]
-        video_crf: i32,
 
         /// ZSTD level (1-22) for the final archive container. The container
         /// wraps already-compressed BPG/video/LZMA2 data, so a low value
@@ -66,21 +58,14 @@ pub enum Commands {
         #[arg(long)]
         no_dedup: bool,
         
-        /// Don't skip already compressed videos
-        #[arg(long)]
-        no_skip_compressed: bool,
-
         /// Disable file-level tracking
         #[arg(long)]
         no_tracking: bool,
 
-        /// BPG internal HEVC encoder speed (1=ultrafast … 8=veryslow). Lower = faster, larger files.
-        #[arg(long, default_value = "4")]
-        bpg_compress_level: i32,
-
         /// Archive media as-is (disable image/video re-encoding)
         #[arg(long)]
         no_reencode: bool,
+
     },
     
     /// Extract an archive
@@ -113,9 +98,13 @@ pub enum Commands {
         #[arg(short, long)]
         output: PathBuf,
         
-        /// Quality (0-51, lower = better)
-        #[arg(short, long, default_value = "25")]
-        quality: u8,
+        /// BPG effort preset (balanced, good, best)
+        #[arg(long, default_value = "good", value_parser = ["balanced", "good", "best"])]
+        effort: String,
+
+        /// Advanced/testing override for BPG QP (0-51, lower = better quality)
+        #[arg(short, long, hide = true)]
+        quality: Option<u8>,
         
         /// Enable lossless compression
         #[arg(long)]
@@ -131,41 +120,19 @@ pub enum Commands {
         #[arg(short, long)]
         output: PathBuf,
         
-        /// Quality (0-51, lower = better)
-        #[arg(short, long, default_value = "25")]
-        quality: u8,
+        /// BPG effort preset (balanced, good, best)
+        #[arg(long, default_value = "good", value_parser = ["balanced", "good", "best"])]
+        effort: String,
+
+        /// Advanced/testing override for BPG QP (0-51, lower = better quality)
+        #[arg(short, long, hide = true)]
+        quality: Option<u8>,
         
         /// Enable lossless compression
         #[arg(long)]
         lossless: bool,
     },
     
-    /// Convert video to H.264/H.265
-    ConvertVideo {
-        /// Input video file
-        input: PathBuf,
-        
-        /// Output video file
-        #[arg(short, long)]
-        output: PathBuf,
-        
-        /// Video codec (h264, h265)
-        #[arg(long, default_value = "h264")]
-        codec: String,
-        
-        /// Speed preset (fast, medium, slow)
-        #[arg(long, default_value = "medium")]
-        preset: String,
-        
-        /// Quality (CRF, lower = better, typical: 18-28)
-        #[arg(long, default_value = "23")]
-        quality: u8,
-        
-        /// Copy audio stream
-        #[arg(long)]
-        copy_audio: bool,
-    },
-
     // === ArcMax Compression Commands ===
 
     /// Compress a file with LZMA2 or Zstd via arcmax

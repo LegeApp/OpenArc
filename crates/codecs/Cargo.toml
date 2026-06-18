@@ -3,17 +3,14 @@ name = "codecs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "BPG, HEIC, and FFmpeg codec implementations for OpenArc"
-
-[features]
-default = ["jctvc"]
-# Compile the JCTVC (HM reference) HEVC encoder into the BPG encoder in
-# addition to x265. Slower than x265 but ~25% better compression; supports
-# up to 14-bit. Selected at runtime via BPGEncoderConfig::encoder_type = 1.
-jctvc = []
+description = "BPG and HEIC codec implementations for OpenArc"
 
 [dependencies]
-jp2lam = { path = "../../native/jp2lam" }
+jp2lam = { path = "../../jp2lam" }
+bpg-decode = { path = "../../../bpg-rs/crates/bpg-decode" }
+bpg-encode = { path = "../../../bpg-rs/crates/bpg-encode" }
+bpg-image = { path = "../../../bpg-rs/crates/bpg-image" }
+still265 = { path = "../../../bpg-rs/crates/still265" }
 anyhow.workspace = true
 thiserror.workspace = true
 lcms2.workspace = true
@@ -21,11 +18,6 @@ infer.workspace = true
 tempfile.workspace = true
 image.workspace = true
 which = "8.0"
-# Pure Rust HEIC decoder - vendored newer implementation with frame-level YUV access
-heic-decoder = { package = "heic_decoder_original", path = "../../native/heic-decoder-rs", features = ["parallel"] }
-
-[build-dependencies]
-cc = "1.2"
 
 [lib]
 name = "codecs"

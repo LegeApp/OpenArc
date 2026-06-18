@@ -1,8 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use arcmax::codec::{LzmaCodec, LzmaOptions};
 use arcmax::codec::traits::Codec;
-use codecs::bpg::{BPGEncoderConfig, NativeBPGEncoder};
-use codecs::ffmpeg::{FfmpegEncodeOptions, FFmpegEncoder, VideoCodec, VideoSpeedPreset};
+use codecs::bpg::{BPGEncoderConfig, NativeBPGEncoder, estimate_encode_peak, safe_encode_concurrency};
 use codecs::video_analyzer::analyze_video_compression;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -19,11 +18,14 @@ use tokio::task::JoinSet;
 
 const CODEC_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
 
-/// Bounded limiter for heavy tasks (videos/very large images)
-struct HeavyLimiter {
-    count: StdMutex<usize>,
+/// Byte-budget limiter for memory-heavy tasks.
+///
+/// Workers reserve an estimated peak budget before entering decode/encode
+/// sections and release it automatically when done.
+struct MemoryBudgetLimiter {
+    available: StdMutex<u64>,
     cvar: Condvar,
-    capacity: usize,
+    capacity: u64,
 }
 
 /// Analyze video compression with a timeout to avoid hangs
@@ -59,40 +61,115 @@ fn safe_analyze_video(path: &Path) -> Option<codecs::video_analyzer::VideoAnalys
     }
 }
 
-impl HeavyLimiter {
-    fn new(capacity: usize) -> Self {
+impl MemoryBudgetLimiter {
+    fn new(capacity: u64) -> Self {
         Self {
-            count: StdMutex::new(capacity),
+            available: StdMutex::new(capacity.max(1)),
             cvar: Condvar::new(),
-            capacity,
+            capacity: capacity.max(1),
         }
     }
 
-    fn acquire(&self) -> HeavyGuard<'_> {
-        let mut guard = self.count.lock().unwrap();
-        while *guard == 0 {
+    fn acquire(&self, requested_bytes: u64) -> MemoryBudgetGuard<'_> {
+        let request = requested_bytes.clamp(1, self.capacity);
+        let mut guard = self.available.lock().unwrap();
+        while *guard < request {
             guard = self.cvar.wait(guard).unwrap();
         }
-        *guard -= 1;
-        HeavyGuard { limiter: self }
+        *guard -= request;
+        MemoryBudgetGuard {
+            limiter: self,
+            reserved: request,
+        }
     }
 }
 
-/// RAII guard that releases a heavy task permit when dropped
-struct HeavyGuard<'a> {
-    limiter: &'a HeavyLimiter,
+/// RAII guard that releases reserved memory budget when dropped.
+struct MemoryBudgetGuard<'a> {
+    limiter: &'a MemoryBudgetLimiter,
+    reserved: u64,
 }
 
-impl<'a> Drop for HeavyGuard<'a> {
+impl<'a> Drop for MemoryBudgetGuard<'a> {
     fn drop(&mut self) {
-        let mut guard = self.limiter.count.lock().unwrap();
-        *guard = (*guard + 1).min(self.limiter.capacity);
+        let mut guard = self.limiter.available.lock().unwrap();
+        *guard = guard.saturating_add(self.reserved).min(self.limiter.capacity);
         self.limiter.cvar.notify_one();
+    }
+}
+
+fn estimate_image_reservation_bytes(
+    input: &Path,
+    original_format: OriginalImageFormat,
+    original_size: u64,
+    settings: &OrchestratorSettings,
+) -> u64 {
+    let dims = image::image_dimensions(input).ok();
+
+    let estimated_bit_depth: u8 = match original_format {
+        OriginalImageFormat::Jpeg => 8,
+        OriginalImageFormat::Heic => 12,
+        OriginalImageFormat::Png | OriginalImageFormat::Tiff => 12,
+        _ => 10,
+    };
+
+    let estimate_from_dims = |w: u32, h: u32| {
+        let encode_peak = estimate_encode_peak(
+            w,
+            h,
+            estimated_bit_depth,
+            settings.bpg_chroma_format,
+            settings.bpg_encoder_type,
+        );
+
+        // Conservative scratch/decode side:
+        // - packed pixels for conversion
+        // - additional image crate temporary buffers
+        let px = u64::from(w) * u64::from(h);
+        let decode_bytes = match original_format {
+            OriginalImageFormat::Jpeg => px.saturating_mul(3),
+            OriginalImageFormat::Heic => px.saturating_mul(3).saturating_mul(2),
+            _ => {
+                if estimated_bit_depth > 8 {
+                    px.saturating_mul(4).saturating_mul(2)
+                } else {
+                    px.saturating_mul(4)
+                }
+            }
+        };
+
+        encode_peak
+            .saturating_add(decode_bytes.saturating_mul(2))
+            .saturating_add(original_size.min(256 * 1024 * 1024))
+            .max(128 * 1024 * 1024)
+    };
+
+    if let Some((w, h)) = dims {
+        return estimate_from_dims(w, h);
+    }
+
+    // Fallback when dimensions cannot be probed from headers.
+    let baseline = estimate_encode_peak(
+        6000,
+        4000,
+        estimated_bit_depth,
+        settings.bpg_chroma_format,
+        settings.bpg_encoder_type,
+    );
+    let fallback = baseline
+        .saturating_add(original_size.saturating_mul(4))
+        .max(256 * 1024 * 1024);
+
+    if original_format == OriginalImageFormat::Heic {
+        fallback.max(1024 * 1024 * 1024)
+    } else {
+        fallback
     }
 }
 
 use crate::archive_tracker::{ArchiveTracker, ArchiveRecord, ArchiveFileMapping};
 use crate::backup_catalog::{normalize_path, BackupCatalog, BackupEntry};
+use crate::bpg_wrapper::BpgEffort;
 use crate::file_tracker::{FileTracker, ProcessedFileRecord};
 use crate::hash;
 
@@ -160,7 +237,7 @@ fn detect_image_bit_depth(
     img: &image::DynamicImage,
     original_format: OriginalImageFormat,
     user_setting: i32,
-    bpg_encoder_type: i32,
+    _bpg_encoder_type: i32,
 ) -> i32 {
     // JPEG only supports 8-bit
     if original_format == OriginalImageFormat::Jpeg {
@@ -177,23 +254,20 @@ fn detect_image_bit_depth(
     );
 
     if has_16bit {
-        // Encoder-dependent cap:
-        // - x265 supports up to 12-bit
-        // - JCTVC supports up to 14-bit
-        let max_depth = if bpg_encoder_type == 1 { 14 } else { 12 };
+        let max_depth = 12;
 
         // The `image` crate maps a source's declared bit depth to either an
         // 8- or 16-bit type, so reaching here means the input is a 16-bit
         // *container* (true source depth is somewhere in 9..=16, not knowable
-        // more precisely). The encoder max (14 JCTVC / 12 x265) is always ≤ 16,
-        // so encoding at it preserves the most fidelity possible while never
-        // exceeding the input's container depth.
+        // more precisely). The Rust BPG encoder currently supports up to 12-bit,
+        // so encoding at that cap preserves the most fidelity possible while never
+        // exceeding the Rust BPG backend's current supported output depth.
         //
         // An explicit `--bpg-bit-depth` in 9..=14 is honored (capped to the
         // encoder max); the default (8) — or anything below 9 — means "auto",
         // in which case we use the encoder ceiling rather than a fixed 12.
         let preferred = match user_setting {
-            9..=14 => user_setting,
+            9..=12 => user_setting,
             _ => max_depth,
         };
 
@@ -203,36 +277,6 @@ fn detect_image_bit_depth(
         // (no point in encoding 8-bit data at higher bit depth)
         8
     }
-}
-
-/// Memory-constrained video encoding with additional safety checks
-fn encode_video_with_memory_constraints(
-    input: &Path,
-    output: &Path,
-    opts: FfmpegEncodeOptions,
-    _settings: &OrchestratorSettings
-) -> Result<()> {
-    // Video encoding is memory-intensive, so we need to be extra careful
-    let memory_usage = check_memory_usage();
-
-    // If memory usage is very high, we should wait or potentially fail gracefully
-    if memory_usage > 0.95 {
-        return Err(anyhow!("Insufficient memory to start video encoding ({}% used)", memory_usage * 100.0));
-    } else if memory_usage > 0.90 {
-        // Wait a bit more before starting video encoding
-        std::thread::sleep(std::time::Duration::from_millis(1000));
-    } else if memory_usage > 0.85 {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-    }
-
-    // Video encoding can be CPU intensive too, so we might want to adjust settings based on system load
-    let enc = FFmpegEncoder::with_options(opts);
-    enc.encode_file(input, output)?;
-
-    // Suggest cleanup after processing
-    std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
-
-    Ok(())
 }
 
 /// Determine optimal number of encoding threads based on memory usage
@@ -515,16 +559,16 @@ impl Default for ArchiveMetadata {
 
 #[derive(Clone, Debug)]
 pub struct OrchestratorSettings {
+    /// Internal effective BPG QP derived from `bpg_effort` unless an advanced caller overrides it.
     pub bpg_quality: i32,
     pub bpg_lossless: bool,
+    pub bpg_effort: BpgEffort,
     pub bpg_bit_depth: i32,
     pub bpg_chroma_format: i32,
     pub bpg_encoder_type: i32,
     pub bpg_compression_level: i32,
-    pub video_preset: i32,
-    pub video_crf: i32,
     /// ZSTD level (1-22) for the final archive container. The container wraps
-    /// already-compressed BPG images, H.264/H.265 video, and LZMA2 bundles, so a
+    /// already-compressed BPG images, x265/AV1/x266 video, and LZMA2 bundles, so a
     /// low level (1-6) is recommended; high levels burn CPU for negligible gain.
     pub compression_level: i32,
     /// LZMA2 level (1-9) for `misc.arc`, the bundle of small/likely-uncompressible
@@ -534,7 +578,6 @@ pub struct OrchestratorSettings {
     /// Optional custom catalog database path. If unset, defaults to <archive>.catalog.sqlite
     pub catalog_db_path: Option<PathBuf>,
     pub enable_dedup: bool,
-    pub skip_already_compressed_videos: bool,
     /// Optional staging directory for temp work (defaults to system temp)
     pub staging_dir: Option<PathBuf>,
     /// Quality for HEIC re-encoding during extraction (1-100)
@@ -550,20 +593,18 @@ pub struct OrchestratorSettings {
 impl Default for OrchestratorSettings {
     fn default() -> Self {
         Self {
-            bpg_quality: 25,
+            bpg_quality: BpgEffort::Good.default_quality() as i32,
             bpg_lossless: false,
+            bpg_effort: BpgEffort::Good,
             bpg_bit_depth: 8,
             bpg_chroma_format: 1,
-            bpg_encoder_type: 1, // JCTVC (HM reference HEVC encoder, best compression)
+            bpg_encoder_type: 0,
             bpg_compression_level: 8,
-            video_preset: 0,
-            video_crf: 23,
             compression_level: 3,
             misc_compression_level: 6,
             enable_catalog: true,
             catalog_db_path: None,
             enable_dedup: true,
-            skip_already_compressed_videos: true,
             staging_dir: None,
             heic_quality: 90,
             jpeg_quality: 92,
@@ -583,6 +624,32 @@ pub enum FileClass {
 
 pub type ProgressFn = dyn Fn(usize, usize, &str) + Send + Sync;
 
+pub fn emit_progress(progress: &Option<Arc<ProgressFn>>, current: usize, total: usize, msg: impl AsRef<str>) {
+    if let Some(cb) = progress {
+        cb(current, total.max(1), msg.as_ref());
+    }
+}
+
+fn apply_bpg_settings(
+    cfg: &mut BPGEncoderConfig,
+    settings: &OrchestratorSettings,
+    bit_depth: i32,
+    chroma_format: i32,
+) {
+    cfg.quality = if settings.bpg_lossless {
+        0
+    } else {
+        settings.bpg_quality
+    };
+    // The current bpg-rs backend uses quality 0 as the near-lossless fallback.
+    cfg.lossless = 0;
+    cfg.bit_depth = bit_depth;
+    cfg.chroma_format = chroma_format;
+    cfg.encoder_type = settings.bpg_effort.encoder_type() as i32;
+    cfg.compress_level = settings.bpg_effort.compression_level() as i32;
+}
+
+
 #[derive(Debug, Clone)]
 pub struct ProcessedFile {
     pub original_path: PathBuf,
@@ -596,19 +663,29 @@ pub struct ProcessedFile {
     pub original_format: Option<OriginalImageFormat>,
 }
 
+#[derive(Debug, Clone)]
+pub struct FailedFile {
+    pub original_path: PathBuf,
+    pub class: FileClass,
+    pub error: String,
+}
+
 #[derive(Debug)]
 pub struct OrchestratorResult {
     pub discovered_files: Vec<PathBuf>,
     pub processed: Vec<ProcessedFile>,
+    pub failed: Vec<FailedFile>,
     pub skipped_by_catalog: Vec<PathBuf>,
     pub dedup_groups: usize,
     pub tracking_report: Option<String>,
+    pub staged_uncompressed_videos: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
 struct WorkItem {
     idx: usize,
     input: PathBuf,
+    source_rel_path: String,
     class: FileClass,
     original_format: Option<OriginalImageFormat>,
 }
@@ -634,7 +711,93 @@ pub fn collect_files(input_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             }
         }
     }
+    files.sort_by(|a, b| {
+        normalize_archive_rel_path(&a.to_string_lossy())
+            .cmp(&normalize_archive_rel_path(&b.to_string_lossy()))
+    });
     Ok(files)
+}
+
+fn append_rel_suffix(rel: &str, idx: usize) -> String {
+    let path = Path::new(rel);
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let file_name = if ext.is_empty() {
+        format!("{}_{}", stem, idx)
+    } else {
+        format!("{}_{}.{}", stem, idx, ext)
+    };
+    if let Some(parent) = path.parent() {
+        let parent_s = normalize_archive_rel_path(&parent.to_string_lossy());
+        if parent_s.is_empty() || parent_s == "." {
+            file_name
+        } else {
+            format!("{}/{}", parent_s, file_name)
+        }
+    } else {
+        file_name
+    }
+}
+
+fn choose_source_rel_path(file: &Path, input_paths: &[PathBuf]) -> String {
+    let mut best: Option<PathBuf> = None;
+
+    for root in input_paths {
+        if root.is_file() {
+            if root == file {
+                let rel = file
+                    .file_name()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("file"));
+                if best.as_ref().map(|b| rel.components().count() > b.components().count()).unwrap_or(true) {
+                    best = Some(rel);
+                }
+            }
+            continue;
+        }
+
+        if root.is_dir() {
+            if let Ok(rel) = file.strip_prefix(root) {
+                let rel_buf = rel.to_path_buf();
+                if best
+                    .as_ref()
+                    .map(|b| rel_buf.components().count() > b.components().count())
+                    .unwrap_or(true)
+                {
+                    best = Some(rel_buf);
+                }
+            }
+        }
+    }
+
+    let rel = best.unwrap_or_else(|| {
+        file.file_name()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("file"))
+    });
+    normalize_archive_rel_path(&rel.to_string_lossy())
+}
+
+fn build_relative_path_map(discovered: &[PathBuf], input_paths: &[PathBuf]) -> HashMap<PathBuf, String> {
+    let mut map = HashMap::new();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+
+    for file in discovered {
+        let base_rel = choose_source_rel_path(file, input_paths);
+        let count = seen.entry(base_rel.clone()).or_insert(0);
+        let unique_rel = if *count == 0 {
+            base_rel.clone()
+        } else {
+            append_rel_suffix(&base_rel, *count)
+        };
+        *count += 1;
+        map.insert(file.clone(), unique_rel);
+    }
+
+    map
 }
 
 /// Classify file and determine original format
@@ -689,22 +852,41 @@ pub fn create_archive(
     settings: OrchestratorSettings,
     progress: Option<Arc<ProgressFn>>,
 ) -> Result<OrchestratorResult> {
+    emit_progress(&progress, 0, 1, "Discovering files...");
     let discovered = collect_files(input_paths)?;
+    emit_progress(
+        &progress,
+        0,
+        discovered.len().max(1),
+        format!("Discovered {} files", discovered.len()),
+    );
     if discovered.is_empty() {
         return Ok(OrchestratorResult {
             discovered_files: Vec::new(),
             processed: Vec::new(),
+            failed: Vec::new(),
             skipped_by_catalog: Vec::new(),
             dedup_groups: 0,
             tracking_report: None,
+            staged_uncompressed_videos: Vec::new(),
         });
     }
+
+    let rel_path_map = build_relative_path_map(&discovered, input_paths);
 
     // Phase 1: Hash all files once — results shared by both tracking and dedup.
     // (Previously each pass read every file from disk independently; now one read each.)
     let mut file_hashes: HashMap<PathBuf, String> = HashMap::new();
     if settings.enable_tracking || settings.enable_dedup {
-        for p in &discovered {
+        for (idx, p) in discovered.iter().enumerate() {
+            if idx == 0 || idx + 1 == discovered.len() || idx % 10 == 0 {
+                emit_progress(
+                    &progress,
+                    idx,
+                    discovered.len(),
+                    format!("Hashing: {}", safe_file_name(p)),
+                );
+            }
             if let Ok(h) = hash::sha256_file_hex(p) {
                 file_hashes.insert(p.clone(), h);
             }
@@ -739,6 +921,7 @@ pub fn create_archive(
         None
     };
 
+    emit_progress(&progress, 0, discovered.len(), "Checking catalog...");
     let (skipped_by_catalog, to_process) = if let Some(ref cat) = catalog {
         cat.filter_files_to_backup(discovered.clone())?
     } else {
@@ -746,9 +929,7 @@ pub fn create_archive(
     };
 
     let total = discovered.len();
-    if let Some(ref cb) = progress {
-        cb(0, total, "Preparing...");
-    }
+    emit_progress(&progress, 0, total, "Preparing work queue...");
 
     let mut dedup_canon: HashMap<String, PathBuf> = HashMap::new();
     let mut duplicates_of: HashMap<PathBuf, PathBuf> = HashMap::new();
@@ -785,6 +966,10 @@ pub fn create_archive(
         work.push(WorkItem {
             idx,
             input: p.clone(),
+            source_rel_path: rel_path_map
+                .get(p)
+                .cloned()
+                .unwrap_or_else(|| safe_file_name(p)),
             class,
             original_format,
         });
@@ -802,28 +987,40 @@ pub fn create_archive(
     let misc_dir = temp_dir.path().join("misc");
     let raw_dir = temp_dir.path().join("raw");
     fs::create_dir_all(&media_dir)?;
-    // Only create misc/ if there are actually misc files to archive.
-    // An empty misc/ directory can cause issues with tar on Windows.
-    let has_misc_files = work.iter().any(|w| w.class == FileClass::Misc);
-    if has_misc_files {
-        fs::create_dir_all(&misc_dir)?;
-    }
+    fs::create_dir_all(&misc_dir)?;
     let has_raw_files = work.iter().any(|w| w.class == FileClass::Raw);
     if has_raw_files {
         fs::create_dir_all(&raw_dir)?;
     }
 
     let processed_mutex = Arc::new(parking_lot::Mutex::new(Vec::<ProcessedFile>::new()));
+    let failed_mutex = Arc::new(parking_lot::Mutex::new(Vec::<FailedFile>::new()));
     let metadata_mutex = Arc::new(parking_lot::Mutex::new(ArchiveMetadata::default()));
+    let staged_video_mutex = Arc::new(parking_lot::Mutex::new(Vec::<PathBuf>::new()));
     let completed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let stage_label = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let video_stage_dir = exe_dir
+        .join("openarc_video_staging")
+        .join(stage_label.to_string());
+    fs::create_dir_all(&video_stage_dir)?;
 
     let (tx, rx) = flume::unbounded::<WorkDone>();
     let progress_clone = progress.clone();
     let work_total = work.len();
+    let progress_total = work_total + 5;
+    emit_progress(&progress, 0, progress_total, "Processing media...");
     let progress_thread = std::thread::spawn(move || {
         if let Some(cb) = progress_clone {
             while let Ok(done) = rx.recv() {
-                cb(done.idx + 1, work_total, &done.file_name);
+                cb(done.idx + 1, progress_total, &done.file_name);
             }
         } else {
             while rx.recv().is_ok() {}
@@ -831,12 +1028,28 @@ pub fn create_archive(
     });
 
     let settings_clone = settings.clone();
-    let heavy_limiter = Arc::new(HeavyLimiter::new(2));
-    let ffmpeg_gate = Arc::new(StdMutex::new(()));
+    // Use bpg-rs memory estimation to size scheduler backpressure.
+    // Assume a "typical" 24 MPix image (6000×4000) for baseline in-flight sizing.
+    let per_image_peak = estimate_encode_peak(6000, 4000, 8, settings.bpg_chroma_format, settings.bpg_encoder_type);
+    let system_info = sysinfo::System::new();
+    let total_ram = system_info.total_memory();
+    // Reserve 25% of RAM for OS + other processes, use up to 75% for encodes.
+    let ram_budget = (total_ram.saturating_mul(3) / 4).max(512 * 1024 * 1024);
     let base_threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
     let optimal_threads = get_optimal_thread_count(base_threads);
+    let image_heavy_capacity = safe_encode_concurrency(6000, 4000, 8, settings.bpg_chroma_format, settings.bpg_encoder_type, ram_budget)
+        .max(1);
+    let typical_image_reservation = per_image_peak
+        .saturating_mul(2)
+        .max(128 * 1024 * 1024);
+    let memory_bounded_in_flight = if per_image_peak > 0 {
+        (ram_budget / typical_image_reservation.max(1)).clamp(1, usize::MAX as u64) as usize
+    } else {
+        optimal_threads.max(1)
+    };
+    let memory_limiter = Arc::new(MemoryBudgetLimiter::new(ram_budget));
     let pipeline_runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(optimal_threads)
         .thread_stack_size(CODEC_THREAD_STACK_SIZE)
@@ -854,7 +1067,10 @@ pub fn create_archive(
     pipeline_runtime.block_on(async {
         let mut tasks = JoinSet::new();
         let mut next_item = 0usize;
-        let max_in_flight = optimal_threads.max(1);
+        let max_in_flight = optimal_threads
+            .max(1)
+            .min(memory_bounded_in_flight.max(1))
+            .min(image_heavy_capacity.saturating_mul(3).max(1));
 
         loop {
             while next_item < work.len() && tasks.len() < max_in_flight {
@@ -862,17 +1078,23 @@ pub fn create_archive(
                 next_item += 1;
 
                 let settings_clone = settings_clone.clone();
-                let heavy_limiter = heavy_limiter.clone();
-                let ffmpeg_gate = ffmpeg_gate.clone();
+                let memory_limiter = memory_limiter.clone();
+                let video_stage_dir = video_stage_dir.clone();
                 let media_dir = media_dir.clone();
                 let misc_dir = misc_dir.clone();
                 let raw_dir = raw_dir.clone();
                 let processed_mutex = processed_mutex.clone();
+                let failed_mutex = failed_mutex.clone();
                 let metadata_mutex = metadata_mutex.clone();
+                let staged_video_mutex = staged_video_mutex.clone();
                 let completed_count = completed_count.clone();
                 let tx = tx.clone();
 
                 tasks.spawn_blocking(move || -> Result<()> {
+        let input = &item.input;
+        let file_name = safe_file_name(input);
+
+        let worker_result: Result<()> = (|| {
         // Check memory usage before processing each item (throttled to 1 Hz per thread)
         let memory_usage = MEM.with(|m| m.borrow_mut().usage());
         if memory_usage > 0.90 { // 90% threshold
@@ -883,45 +1105,55 @@ pub fn create_archive(
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        let input = &item.input;
-        let file_name = safe_file_name(input);
         let original_size = fs::metadata(input)?.len();
+        let source_rel_path = item.source_rel_path.clone();
+        let source_rel = Path::new(&source_rel_path);
 
-        let (out_path, rel_path, skipped_processing, original_format) = match item.class {
+        let stage_at = |base: &Path, rel: &str| -> Result<PathBuf> {
+            let p = base.join(Path::new(rel));
+            if let Some(parent) = p.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            Ok(p)
+        };
+
+        let (out_path, rel_path, skipped_processing, original_format, archived_class) = match item.class {
             FileClass::Image => {
                 let original_format = item.original_format.unwrap_or(OriginalImageFormat::Png);
-                let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
                 let original_ext = input.extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("unknown")
                     .to_lowercase();
+                let encoded_rel = normalize_archive_rel_path(&source_rel.with_extension("bpg").to_string_lossy());
 
                 if !settings_clone.reencode_media {
                     // Archive image bytes as-is (no transcoding).
-                    let out_name = format!("{}_{}.{}", stem, item.idx, original_ext);
-                    let out = media_dir.join(&out_name);
+                    let source_rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
+                    let out = stage_at(&media_dir, &source_rel)?;
                     fs::copy(input, &out)?;
-                    let rel_path = format!("media/{}", out_name);
-                    (out, rel_path, true, Some(original_format))
+                    let rel_path = format!("media/{}", source_rel);
+                    (out, rel_path, true, Some(original_format), FileClass::Image)
                 } else {
-                let out = media_dir.join(format!("{}_{}.bpg", stem, item.idx));
+                let out = stage_at(&media_dir, &encoded_rel)?;
 
-                // Throttle massive images to avoid OOM alongside videos
-                let _heavy_guard = if original_size > 50_000_000 {
-                    Some(heavy_limiter.acquire())
-                } else {
-                    None
-                };
+                // Reserve memory budget per image based on dimensions/format.
+                let image_reservation = estimate_image_reservation_bytes(
+                    input,
+                    original_format,
+                    original_size,
+                    &settings_clone,
+                );
+                let _memory_guard = memory_limiter.acquire(image_reservation);
 
                 // For HEIC files, use direct YCbCr encoding (no RGB conversion, no intermediate PNG)
                 // Pure Rust decoder is always available - provides perfect color accuracy
                 //
                 // For JPEG files, attempt direct YCbCr path too (no colorspace conversion).
                 // If YCbCr decode fails (CMYK JPEG, etc.), falls through to generic RGB path.
-                let jpeg_ycbcr: Option<zune_image::YCbCrImage> =
+                let jpeg_ycbcr: Option<crate::jpeg_decoder::YCbCrImage> =
                     if original_format == OriginalImageFormat::Jpeg {
                         fs::read(input).ok()
-                            .and_then(|data| zune_image::decode_jpeg_ycbcr(&data).ok())
+                            .and_then(|data| crate::jpeg_decoder::decode_jpeg_ycbcr(&data).ok())
                     } else {
                         None
                     };
@@ -945,14 +1177,17 @@ pub fn create_archive(
                     let mut encoder = NativeBPGEncoder::new()
                         .context("Failed to create BPG encoder")?;
                     let mut cfg = NativeBPGEncoder::default_config();
-                    cfg.quality = settings_clone.bpg_quality;
-                    cfg.lossless = if settings_clone.bpg_lossless { 1 } else { 0 };
-                    cfg.bit_depth = decoded.bit_depth as i32;
-                    cfg.chroma_format = decoded.chroma_format.to_bpg_chroma_format();
+                    if settings_clone.bpg_lossless {
+                        warn!("Lossless BPG encoding not yet supported, using quality=0 (near-lossless high quality) instead for: {}", input.display());
+                    }
+                    apply_bpg_settings(
+                        &mut cfg,
+                        &settings_clone,
+                        decoded.bit_depth as i32,
+                        decoded.chroma_format.to_bpg_chroma_format(),
+                    );
                     cfg.color_space = matrix_coeffs_to_bpg_color_space(decoded.matrix_coeffs);
                     cfg.limited_range = if decoded.full_range { 0 } else { 1 };
-                    cfg.encoder_type = settings_clone.bpg_encoder_type;
-                    cfg.compress_level = settings_clone.bpg_compression_level;
                     encoder.set_config(&cfg)
                         .context("Failed to apply BPG config")?;
                     
@@ -978,14 +1213,14 @@ pub fn create_archive(
                             original_filename: file_name.clone(),
                             original_format,
                             original_extension: original_ext.clone(),
-                            bpg_filename: format!("{}_{}.bpg", stem, item.idx),
+                            bpg_filename: encoded_rel.clone(),
                         });
                     }
                     
-                    let rel_path = format!("media/{}_{}.bpg", stem, item.idx);
+                    let rel_path = format!("media/{}", encoded_rel);
                     
                     // HEIC processing complete - return from match arm
-                    (out, rel_path, false, Some(original_format))
+                    (out, rel_path, false, Some(original_format), FileClass::Image)
                 } else if let Some(ycbcr) = jpeg_ycbcr {
                     // JPEG: direct YCbCr 4:2:0 → BPG — no colorspace conversion.
                     use codecs::bpg::NativeBPGEncoder;
@@ -993,14 +1228,12 @@ pub fn create_archive(
                     let mut encoder = NativeBPGEncoder::new()
                         .context("Failed to create BPG encoder")?;
                     let mut cfg = NativeBPGEncoder::default_config();
-                    cfg.quality = settings_clone.bpg_quality;
-                    cfg.lossless = if settings_clone.bpg_lossless { 1 } else { 0 };
-                    cfg.bit_depth = 8; // JPEG is always 8-bit
-                    cfg.chroma_format = 0; // YCbCr 4:2:0
+                    if settings_clone.bpg_lossless {
+                        warn!("Lossless BPG encoding not yet supported, using quality=0 (near-lossless high quality) instead for: {}", input.display());
+                    }
+                    apply_bpg_settings(&mut cfg, &settings_clone, 8, 0); // JPEG is 8-bit YCbCr 4:2:0
                     cfg.color_space = 0;   // YCbCr BT.601 (standard JPEG color space)
                     cfg.limited_range = 0; // JPEG uses full range
-                    cfg.encoder_type = settings_clone.bpg_encoder_type;
-                    cfg.compress_level = settings_clone.bpg_compression_level;
                     encoder.set_config(&cfg)
                         .context("Failed to apply BPG config")?;
 
@@ -1027,13 +1260,13 @@ pub fn create_archive(
                             original_filename: file_name.clone(),
                             original_format,
                             original_extension: original_ext.clone(),
-                            bpg_filename: format!("{}_{}.bpg", stem, item.idx),
+                            bpg_filename: encoded_rel.clone(),
                         });
                     }
 
-                    let rel_path = format!("media/{}_{}.bpg", stem, item.idx);
+                    let rel_path = format!("media/{}", encoded_rel);
 
-                    (out, rel_path, false, Some(original_format))
+                    (out, rel_path, false, Some(original_format), FileClass::Image)
                 } else {
                     // Generic RGB path for all other formats (PNG, TIFF, BMP, WebP, etc.)
                     // Also used as fallback for JPEGs where YCbCr decode failed.
@@ -1044,11 +1277,11 @@ pub fn create_archive(
                 let img = match img_result {
                     Ok(img) => img,
                     Err(_) => {
-                        let copy_name = format!("{}_{}.{}", stem, item.idx, original_ext);
-                        let copy_out = media_dir.join(&copy_name);
+                        let source_rel = normalize_archive_rel_path(&source_rel.with_extension(&original_ext).to_string_lossy());
+                        let copy_out = stage_at(&media_dir, &source_rel)?;
                         fs::copy(input, &copy_out)
                             .with_context(|| format!("Failed to copy unreadable image: {}", input.display()))?;
-                        let rel_path = format!("media/{}", copy_name);
+                        let rel_path = format!("media/{}", source_rel);
                         return Ok({
                             let output_size = fs::metadata(&copy_out)?.len();
                             let sha = hash::sha256_file_hex(&copy_out).ok();
@@ -1066,8 +1299,7 @@ pub fn create_archive(
                                     original_format: Some(original_format),
                                 });
                             }
-                            let seq = completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            let _ = tx.send(WorkDone { idx: seq, file_name });
+                            ()
                         });
                     }
                 };
@@ -1121,15 +1353,17 @@ pub fn create_archive(
                 // Encode to BPG in-memory
                 let mut enc = NativeBPGEncoder::new().context("Failed to create BPG encoder")?;
                 let mut cfg: BPGEncoderConfig = NativeBPGEncoder::default_config();
-                cfg.quality = settings_clone.bpg_quality;
-                cfg.lossless = if settings_clone.bpg_lossless { 1 } else { 0 };
+                if settings_clone.bpg_lossless {
+                    warn!("Lossless BPG encoding not yet supported, using quality=0 (near-lossless high quality) instead for: {}", input.display());
+                }
 
-                // Auto-detect optimal bit depth based on source image
-                cfg.bit_depth = target_bit_depth;
-
-                cfg.chroma_format = settings_clone.bpg_chroma_format;
-                cfg.encoder_type = settings_clone.bpg_encoder_type;
-                cfg.compress_level = settings_clone.bpg_compression_level;
+                // Auto-detect optimal bit depth based on source image.
+                apply_bpg_settings(
+                    &mut cfg,
+                    &settings_clone,
+                    target_bit_depth,
+                    settings_clone.bpg_chroma_format,
+                );
                 enc.set_config(&cfg).context("Failed to apply BPG config")?;
 
                 // Use in-memory encoding
@@ -1154,7 +1388,7 @@ pub fn create_archive(
                         original_filename: file_name.clone(),
                         original_format,
                         original_extension: original_ext,
-                        bpg_filename: format!("{}_{}.bpg", stem, item.idx),
+                        bpg_filename: encoded_rel.clone(),
                     });
                 }
 
@@ -1167,90 +1401,46 @@ pub fn create_archive(
                     std::thread::yield_now();
                 }
 
-                let rel_path = format!("media/{}", out.file_name().unwrap().to_string_lossy());
-                (out, rel_path, false, Some(original_format))
+                let rel_path = format!("media/{}", encoded_rel);
+                (out, rel_path, false, Some(original_format), FileClass::Image)
                 }  // End of else block for non-HEIC image processing
                 }
             }
             FileClass::Video => {
-                if !settings_clone.reencode_media {
-                    // Archive video bytes as-is (no transcoding).
-                    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
-                    let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("bin");
-                    let out_name = format!("{}_{}.{}", stem, item.idx, ext);
-                    let out = media_dir.join(&out_name);
+                let should_archive_as_misc = safe_analyze_video(input)
+                    .map(|a| a.is_efficiently_compressed)
+                    .unwrap_or(false);
+
+                if should_archive_as_misc {
+                    let source_rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
+                    let out = stage_at(&misc_dir, &source_rel)?;
                     fs::copy(input, &out)?;
-                    let rel_path = format!("media/{}", out_name);
-                    (out, rel_path, true, None)
+                    let rel_path = format!("misc/{}", source_rel);
+                    (out, rel_path, true, None, FileClass::Misc)
                 } else {
-                let _ffmpeg_guard = ffmpeg_gate
-                    .lock()
-                    .map_err(|_| anyhow!("FFmpeg gate lock poisoned"))?;
-                let should_skip = if settings_clone.skip_already_compressed_videos {
-                    safe_analyze_video(input)
-                        .map(|a| a.is_efficiently_compressed)
-                        .unwrap_or(false)
-                } else {
-                    false
-                };
-
-                if should_skip {
-                    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
-                    let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("bin");
-                    let out_name = format!("{}_{}.{}", stem, item.idx, ext);
-                    let out = media_dir.join(&out_name);
+                    let source_rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
+                    let out = stage_at(&video_stage_dir, &source_rel)?;
                     fs::copy(input, &out)?;
-                    let rel_path = format!("media/{}", out_name);
-                    (out, rel_path, true, None)
-                } else {
-                    // Limit concurrent heavy video encodes to prevent memory spikes
-                    let _heavy_guard = heavy_limiter.acquire();
-
-                    let (codec, preset) = match settings_clone.video_preset {
-                        1 => (VideoCodec::H265, VideoSpeedPreset::Medium),
-                        2 => (VideoCodec::H264, VideoSpeedPreset::Fast),
-                        3 => (VideoCodec::H265, VideoSpeedPreset::Slow),
-                        _ => (VideoCodec::H264, VideoSpeedPreset::Medium),
-                    };
-
-                    let out = media_dir.join(format!(
-                        "{}_{}.mp4",
-                        input.file_stem().and_then(|s| s.to_str()).unwrap_or("video"),
-                        item.idx
-                    ));
-
-                    let opts = FfmpegEncodeOptions {
-                        codec,
-                        speed: preset,
-                        crf: Some(settings_clone.video_crf as u8),
-                        copy_audio: true,
-                    };
-
-                    // Use memory-constrained video encoding
-                    encode_video_with_memory_constraints(input, &out, opts, &settings_clone)?;
-
-                    let rel_path = format!("media/{}", out.file_name().unwrap().to_string_lossy());
-                    (out, rel_path, false, None)
-                }
+                    {
+                        let mut guard = staged_video_mutex.lock();
+                        guard.push(out.clone());
+                    }
+                    return Ok(());
                 }
             }
             FileClass::Raw => {
-                let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("raw");
-                let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("bin");
-                let out_name = format!("{}_{}.{}", stem, item.idx, ext);
-                let out = raw_dir.join(&out_name);
+                let source_rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
+                let out = stage_at(&raw_dir, &source_rel)?;
                 fs::copy(input, &out)?;
-                let rel_path = format!("raw/{}", out_name);
-                (out, rel_path, true, Some(OriginalImageFormat::Raw))
+                let rel_path = format!("raw/{}", source_rel);
+                (out, rel_path, true, Some(OriginalImageFormat::Raw), FileClass::Raw)
             }
             FileClass::Misc => {
-                let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("misc");
-                let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("bin");
-                let out_name = format!("{}_{}.{}", stem, item.idx, ext);
-                let out = misc_dir.join(&out_name);
+                let source_rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
+                let out = stage_at(&misc_dir, &source_rel)?;
                 fs::copy(input, &out)?;
-                let rel_path = format!("misc/{}", out_name);
-                (out, rel_path, false, None)
+                let rel_path = format!("misc/{}", source_rel);
+                (out, rel_path, false, None, FileClass::Misc)
             }
         };
 
@@ -1261,7 +1451,7 @@ pub fn create_archive(
             let mut guard = processed_mutex.lock();
             guard.push(ProcessedFile {
                 original_path: input.clone(),
-                class: item.class,
+                    class: archived_class,
                 archived_rel_path: rel_path,
                 output_path: out_path,
                 original_size,
@@ -1272,8 +1462,33 @@ pub fn create_archive(
             });
         }
 
-        let seq = completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let _ = tx.send(WorkDone { idx: seq, file_name });
+        Ok(())
+        })();
+
+        match worker_result {
+            Ok(()) => {
+                let seq = completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let _ = tx.send(WorkDone { idx: seq, file_name });
+            }
+            Err(err) => {
+                let err_text = format!("{err:#}");
+                warn!("Failed processing {}: {}", input.display(), err_text);
+                {
+                    let mut guard = failed_mutex.lock();
+                    guard.push(FailedFile {
+                        original_path: input.clone(),
+                        class: item.class,
+                        error: err_text,
+                    });
+                }
+                let seq = completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let _ = tx.send(WorkDone {
+                    idx: seq,
+                    file_name: format!("FAILED: {file_name}"),
+                });
+            }
+        }
+
         Ok(())
                 });
             }
@@ -1283,7 +1498,9 @@ pub fn create_archive(
             }
 
             if let Some(result) = tasks.join_next().await {
-                result.map_err(|e| anyhow!("Archive pipeline worker failed: {}", e))??;
+                if let Err(e) = result {
+                    warn!("Archive pipeline worker join failure: {}", e);
+                }
             }
         }
 
@@ -1293,25 +1510,40 @@ pub fn create_archive(
     drop(tx);
     let _ = progress_thread.join();
 
-    let processed = Arc::try_unwrap(processed_mutex)
+    let mut processed = Arc::try_unwrap(processed_mutex)
         .map_err(|_| anyhow!("Failed to unwrap processed results"))?
         .into_inner();
+    processed.sort_by(|a, b| a.archived_rel_path.cmp(&b.archived_rel_path));
+
+    let mut failed = Arc::try_unwrap(failed_mutex)
+        .map_err(|_| anyhow!("Failed to unwrap failed results"))?
+        .into_inner();
+    failed.sort_by(|a, b| a.original_path.cmp(&b.original_path));
+
+    let mut staged_uncompressed_videos = Arc::try_unwrap(staged_video_mutex)
+        .map_err(|_| anyhow!("Failed to unwrap staged video results"))?
+        .into_inner();
+    staged_uncompressed_videos.sort();
 
     let metadata = Arc::try_unwrap(metadata_mutex)
         .map_err(|_| anyhow!("Failed to unwrap metadata"))?
         .into_inner();
 
     // Write metadata JSON
+    emit_progress(&progress, work_total, progress_total, "Writing metadata...");
     let metadata_path = temp_dir.path().join("OPENARC_METADATA.json");
     let metadata_json = serde_json::to_string_pretty(&metadata)?;
     fs::write(&metadata_path, &metadata_json)?;
 
+    emit_progress(&progress, work_total + 1, progress_total, "Bundling misc files...");
     let misc_arc_path = temp_dir.path().join("misc.arc");
     create_lzma2_bundle(&processed.iter().filter(|p| p.class == FileClass::Misc).collect::<Vec<_>>(), &misc_arc_path, settings.misc_compression_level)?;
 
+    emit_progress(&progress, work_total + 2, progress_total, "Bundling RAW files...");
     let raw_arc_path = temp_dir.path().join("raw.arc");
     create_lzma2_bundle(&processed.iter().filter(|p| p.class == FileClass::Raw).collect::<Vec<_>>(), &raw_arc_path, 9)?;
 
+    emit_progress(&progress, work_total + 3, progress_total, "Writing manifest...");
     let manifest_path = temp_dir.path().join("MANIFEST.txt");
     write_manifest(&processed, &skipped_by_catalog, &manifest_path)?;
 
@@ -1327,9 +1559,28 @@ pub fn create_archive(
             .with_context(|| format!("Failed to remove staged raw directory {}", raw_dir.display()))?;
     }
 
-    arcmax::tar_zst::archive_dir_tar_zst(temp_dir.path(), output_archive, settings.compression_level)
+    emit_progress(&progress, work_total + 4, progress_total, "Compressing final archive...");
+    let output_parent = output_archive.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(output_parent)?;
+    let temp_output = tempfile::Builder::new()
+        .prefix("openarc-")
+        .suffix(".tmp")
+        .tempfile_in(output_parent)
+        .with_context(|| format!("Failed to create temp archive in {}", output_parent.display()))?;
+    let temp_output_path = temp_output.path().to_path_buf();
+    drop(temp_output);
+
+    arcmax::tar_zst::archive_dir_tar_zst(temp_dir.path(), &temp_output_path, settings.compression_level)
         .with_context(|| format!("Failed to create archive at {}", output_archive.display()))?;
 
+    if output_archive.exists() {
+        fs::remove_file(output_archive)
+            .with_context(|| format!("Failed to replace existing archive {}", output_archive.display()))?;
+    }
+    fs::rename(&temp_output_path, output_archive)
+        .with_context(|| format!("Failed to finalize archive {}", output_archive.display()))?;
+
+    emit_progress(&progress, work_total + 5, progress_total, "Updating catalog/tracking...");
     // Record archive information in the database
     if let Some(ref mut cat) = catalog {
         record_catalog_entries(cat, &processed, output_archive)?;
@@ -1438,12 +1689,16 @@ pub fn create_archive(
         None
     };
 
+    emit_progress(&progress, progress_total, progress_total, "Complete");
+
     Ok(OrchestratorResult {
         discovered_files: discovered,
         processed,
+        failed,
         skipped_by_catalog,
         dedup_groups,
         tracking_report,
+        staged_uncompressed_videos,
     })
 }
 
@@ -1457,34 +1712,22 @@ fn create_lzma2_bundle(files: &[&ProcessedFile], output_arc: &Path, level: i32) 
         return Ok(());
     }
 
-    // Build an in-memory tar stream.
-    let mut tar_data: Vec<u8> = Vec::new();
+    let output_parent = output_arc.parent().unwrap_or_else(|| Path::new("."));
+    let tar_tmp = tempfile::Builder::new()
+        .prefix("openarc-bundle-")
+        .suffix(".tar")
+        .tempfile_in(output_parent)
+        .with_context(|| format!("Failed to create temp tar beside {}", output_arc.display()))?;
     {
-        let mut name_counts: HashMap<String, usize> = HashMap::new();
-        let mut ar = tar::Builder::new(&mut tar_data);
-
+        let mut ar = tar::Builder::new(std::io::BufWriter::new(tar_tmp.reopen()?));
         for item in files {
-            let data = fs::read(&item.output_path)
-                .with_context(|| format!("Failed to read {}", item.output_path.display()))?;
-
-            let mut name = item
-                .output_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("file")
-                .to_string();
-            let c = name_counts.entry(name.clone()).or_insert(0);
-            if *c > 0 {
-                name = format!("{}_{}", *c, name);
-            }
-            *c += 1;
-
-            let mut header = tar::Header::new_gnu();
-            header.set_size(data.len() as u64);
-            header.set_mode(0o644);
-            header.set_cksum();
-            ar.append_data(&mut header, &name, data.as_slice())
-                .with_context(|| format!("Failed to append {} to tar", name))?;
+            let bundle_rel = item
+                .archived_rel_path
+                .split_once('/')
+                .map(|(_, rest)| rest.to_string())
+                .unwrap_or_else(|| item.archived_rel_path.clone());
+            ar.append_path_with_name(&item.output_path, Path::new(&bundle_rel))
+                .with_context(|| format!("Failed to append {} to tar", bundle_rel))?;
         }
         ar.finish()?;
     }
@@ -1500,7 +1743,8 @@ fn create_lzma2_bundle(files: &[&ProcessedFile], output_arc: &Path, level: i32) 
     let f = fs::File::create(output_arc)
         .with_context(|| format!("Failed to create {}", output_arc.display()))?;
     let mut writer = std::io::BufWriter::new(f);
-    codec.compress(&mut tar_data.as_slice(), &mut writer)
+    let mut tar_reader = std::io::BufReader::new(tar_tmp.reopen()?);
+    codec.compress(&mut tar_reader, &mut writer)
         .with_context(|| format!("LZMA2 compression failed for {}", output_arc.display()))?;
 
     Ok(())
@@ -1671,10 +1915,17 @@ pub fn extract_archive_with_decoding(
     arcmax::tar_zst::extract_tar_zst(archive_path, output_dir)
         .with_context(|| format!("Failed to extract archive: {}", archive_path.display()))?;
 
+    let hashes_file = output_dir.join("HASHES.sha256");
+    if hashes_file.exists() {
+        hash::verify_dir_against_hashes(output_dir, &hashes_file)
+            .with_context(|| format!("Archive checksum verification failed for {}", archive_path.display()))?;
+    }
+
     let mut decoded_count = 0usize;
 
     extract_lzma2_bundle(&output_dir.join("misc.arc"), &output_dir.join("misc"))?;
     extract_lzma2_bundle(&output_dir.join("raw.arc"), &output_dir.join("raw"))?;
+    extract_lzma2_bundle(&output_dir.join("videos.arc"), &output_dir.join("videos"))?;
 
     // Load metadata if available
     let metadata_path = output_dir.join("OPENARC_METADATA.json");
@@ -1784,18 +2035,139 @@ fn extract_lzma2_bundle(archive_path: &Path, output_dir: &Path) -> Result<()> {
         .with_context(|| format!("Failed to open {}", archive_path.display()))?;
     let mut reader = std::io::BufReader::new(f);
 
-    let mut tar_data = Vec::new();
     let opts = LzmaOptions { lzma2: true, dict_size: 128 * 1024 * 1024, ..Default::default() };
     let mut codec = LzmaCodec::new(opts);
-    codec.decompress(&mut reader, &mut tar_data)
+    let tar_tmp = tempfile::Builder::new()
+        .prefix("openarc-extract-")
+        .suffix(".tar")
+        .tempfile_in(output_dir)
+        .with_context(|| format!("Failed to create temp tar in {}", output_dir.display()))?;
+    let mut tar_writer = std::io::BufWriter::new(tar_tmp.reopen()?);
+    codec.decompress(&mut reader, &mut tar_writer)
         .with_context(|| format!("LZMA2 decompression failed for {}", archive_path.display()))?;
+    tar_writer.flush()?;
 
-    let mut archive = tar::Archive::new(tar_data.as_slice());
+    let tar_reader = std::io::BufReader::new(tar_tmp.reopen()?);
+    let mut archive = tar::Archive::new(tar_reader);
     archive.unpack(output_dir)
         .with_context(|| format!("Failed to unpack {}", archive_path.display()))?;
 
     let _ = fs::remove_file(archive_path);
     Ok(())
+}
+
+/// Append a `videos.arc` bundle to an existing OpenArc archive.
+///
+/// `encoded_video_root` should contain the externally re-encoded video files.
+pub fn append_external_video_bundle(
+    archive_path: &Path,
+    encoded_video_root: &Path,
+    misc_compression_level: i32,
+    compression_level: i32,
+) -> Result<usize> {
+    if !encoded_video_root.exists() {
+        return Err(anyhow!(
+            "Encoded video path not found: {}",
+            encoded_video_root.display()
+        ));
+    }
+
+    let mut video_files: Vec<PathBuf> = Vec::new();
+    for entry in walkdir::WalkDir::new(encoded_video_root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let p = entry.path().to_path_buf();
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if matches!(
+            ext.as_str(),
+            "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" | "mts" | "m2ts"
+        ) {
+            video_files.push(p);
+        }
+    }
+
+    if video_files.is_empty() {
+        return Ok(0);
+    }
+
+    video_files.sort();
+
+    let work_dir = tempfile::Builder::new()
+        .prefix("openarc-append-videos-")
+        .tempdir()
+        .context("Failed to create temp work directory")?;
+    let extracted_dir = work_dir.path().join("base");
+    fs::create_dir_all(&extracted_dir)?;
+    arcmax::tar_zst::extract_tar_zst(archive_path, &extracted_dir)
+        .with_context(|| format!("Failed to extract {}", archive_path.display()))?;
+
+    let mut synthetic: Vec<ProcessedFile> = Vec::with_capacity(video_files.len());
+    for p in &video_files {
+        let rel = p
+            .strip_prefix(encoded_video_root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let rel = normalize_archive_rel_path(&rel);
+        let size = fs::metadata(p)?.len();
+        synthetic.push(ProcessedFile {
+            original_path: p.clone(),
+            class: FileClass::Misc,
+            archived_rel_path: format!("videos/{}", rel),
+            output_path: p.clone(),
+            original_size: size,
+            output_size: size,
+            sha256: None,
+            skipped_processing: true,
+            original_format: None,
+        });
+    }
+
+    let videos_arc = extracted_dir.join("videos.arc");
+    let refs: Vec<&ProcessedFile> = synthetic.iter().collect();
+    create_lzma2_bundle(&refs, &videos_arc, misc_compression_level)?;
+
+    let hashes_path = extracted_dir.join("HASHES.sha256");
+    if hashes_path.exists() {
+        let mut hashes = hash::read_hashes_file(&hashes_path)?;
+        let h = hash::sha256_file_hex(&videos_arc)?;
+        hashes.retain(|(_, name)| name != "videos.arc");
+        hashes.push((h, "videos.arc".to_string()));
+        hash::write_hashes_file(&hashes, &hashes_path)?;
+    }
+
+    let manifest_path = extracted_dir.join("MANIFEST.txt");
+    if manifest_path.exists() {
+        let mut f = fs::OpenOptions::new().append(true).open(&manifest_path)?;
+        writeln!(f, "")?;
+        writeln!(f, "Externally encoded videos bundled: {}", video_files.len())?;
+        writeln!(f, "Bundle: videos.arc")?;
+    }
+
+    let out_parent = archive_path.parent().unwrap_or_else(|| Path::new("."));
+    let tmp_out = tempfile::Builder::new()
+        .prefix("openarc-merged-")
+        .suffix(".tmp")
+        .tempfile_in(out_parent)
+        .with_context(|| format!("Failed to create temp archive in {}", out_parent.display()))?;
+    let tmp_out_path = tmp_out.path().to_path_buf();
+    drop(tmp_out);
+
+    arcmax::tar_zst::archive_dir_tar_zst(&extracted_dir, &tmp_out_path, compression_level)
+        .with_context(|| format!("Failed to re-pack {}", archive_path.display()))?;
+
+    if archive_path.exists() {
+        fs::remove_file(archive_path)?;
+    }
+    fs::rename(&tmp_out_path, archive_path)?;
+
+    Ok(video_files.len())
 }
 
 /// Decode a BPG file back to its original format
