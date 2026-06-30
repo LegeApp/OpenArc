@@ -1,7 +1,8 @@
 /*****************************************************************************
-* Copyright (C) 2013 x265 project
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Authors: Steve Borho <steve@borho.org>
+*          Min Chen <chenm003@163.com>
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -56,7 +57,7 @@ void NALList::takeContents(NALList& other)
     other.m_buffer = X265_MALLOC(uint8_t, m_allocSize);
 }
 
-void NALList::serialize(NalUnitType nalUnitType, const Bitstream& bs)
+void NALList::serialize(NalUnitType nalUnitType, const Bitstream& bs, int layerId, uint8_t temporalID)
 {
     static const char startCodePrefix[] = { 0, 0, 0, 1 };
 
@@ -96,7 +97,7 @@ void NALList::serialize(NalUnitType nalUnitType, const Bitstream& bs)
         /* Will write size later */
         bytes += 4;
     }
-    else if (!m_numNal || nalUnitType == NAL_UNIT_VPS || nalUnitType == NAL_UNIT_SPS || nalUnitType == NAL_UNIT_PPS)
+    else if (!m_numNal || nalUnitType == NAL_UNIT_VPS || nalUnitType == NAL_UNIT_SPS || nalUnitType == NAL_UNIT_PPS || nalUnitType == NAL_UNIT_UNSPECIFIED)
     {
         memcpy(out, startCodePrefix, 4);
         bytes += 4;
@@ -113,7 +114,7 @@ void NALList::serialize(NalUnitType nalUnitType, const Bitstream& bs)
      * nuh_reserved_zero_6bits  6-bits
      * nuh_temporal_id_plus1    3-bits */
     out[bytes++] = (uint8_t)nalUnitType << 1;
-    out[bytes++] = 1 + (nalUnitType == NAL_UNIT_CODED_SLICE_TSA_N);
+    out[bytes++] = (uint8_t)((layerId << 3) | (temporalID));
 
     /* 7.4.1 ...
      * Within the NAL unit, the following three-byte sequences shall not occur at
@@ -123,7 +124,7 @@ void NALList::serialize(NalUnitType nalUnitType, const Bitstream& bs)
      *  - 0x000002 */
     for (uint32_t i = 0; i < payloadSize; i++)
     {
-        if (i > 2 && !out[bytes - 2] && !out[bytes - 3] && out[bytes - 1] <= 0x03)
+        if (i > 2 && !out[bytes - 2] && !out[bytes - 3] && out[bytes - 1] <= 0x03 && nalUnitType != NAL_UNIT_UNSPECIFIED)
         {
             /* inject 0x03 to prevent emulating a start code */
             out[bytes] = out[bytes - 1];

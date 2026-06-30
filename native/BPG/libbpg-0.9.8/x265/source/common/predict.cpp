@@ -1,7 +1,8 @@
 /*****************************************************************************
-* Copyright (C) 2013 x265 project
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Authors: Deepthi Nandakumar <deepthi@multicorewareinc.com>
+*          Min Chen <chenm003@163.com>
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -56,12 +57,10 @@ inline pixel weightBidir(int w0, int16_t P0, int w1, int16_t P1, int round, int 
 
 Predict::Predict()
 {
-    m_immedVals = NULL;
 }
 
 Predict::~Predict()
 {
-    X265_FREE(m_immedVals);
     m_predShortYuv[0].destroy();
     m_predShortYuv[1].destroy();
 }
@@ -71,12 +70,8 @@ bool Predict::allocBuffers(int csp)
     m_csp = csp;
     m_hChromaShift = CHROMA_H_SHIFT(csp);
     m_vChromaShift = CHROMA_V_SHIFT(csp);
-    CHECKED_MALLOC(m_immedVals, int16_t, 64 * (64 + NTAPS_LUMA - 1));
 
     return m_predShortYuv[0].create(MAX_CU_SIZE, csp) && m_predShortYuv[1].create(MAX_CU_SIZE, csp);
-
-fail:
-    return false;
 }
 
 void Predict::motionCompensation(const CUData& cu, const PredictionUnit& pu, Yuv& predYuv, bool bLuma, bool bChroma)
@@ -84,10 +79,6 @@ void Predict::motionCompensation(const CUData& cu, const PredictionUnit& pu, Yuv
     int refIdx0 = cu.m_refIdx[0][pu.puAbsPartIdx];
     int refIdx1 = cu.m_refIdx[1][pu.puAbsPartIdx];
 
-    /* XXX: disable chroma at a higher level ? */
-    if (cu.m_chromaFormat == X265_CSP_I400)
-        bChroma = false;
-    
     if (cu.m_slice->isInterP())
     {
         /* P Slice */
@@ -100,14 +91,9 @@ void Predict::motionCompensation(const CUData& cu, const PredictionUnit& pu, Yuv
         MV mv0 = cu.m_mv[0][pu.puAbsPartIdx];
         cu.clipMv(mv0);
 
-        if (cu.m_slice->m_pps->bUseWeightPred && wp0->bPresentFlag)
+        if (cu.m_slice->m_pps->bUseWeightPred && wp0->wtPresent)
         {
-            int num_planes;
-            if (cu.m_chromaFormat != X265_CSP_I400)
-                num_planes = 3;
-            else
-                num_planes = 1;
-            for (int plane = 0; plane < num_planes; plane++)
+            for (int plane = 0; plane < (bChroma ? 3 : 1); plane++)
             {
                 wv0[plane].w      = wp0[plane].inputWeight;
                 wv0[plane].offset = wp0[plane].inputOffset * (1 << (X265_DEPTH - 8));
@@ -126,10 +112,22 @@ void Predict::motionCompensation(const CUData& cu, const PredictionUnit& pu, Yuv
         }
         else
         {
-            if (bLuma)
-                predInterLumaPixel(pu, predYuv, *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
-            if (bChroma)
-                predInterChromaPixel(pu, predYuv, *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
+#if ENABLE_SCC_EXT
+            if (cu.m_slice->m_param->bEnableSCC && refIdx0 == (cu.m_slice->m_numRefIdx[0] - 1))
+            {
+                if (bLuma)
+                    predInterLumaPixel(pu, predYuv, *cu.m_slice->m_refFrameList[0][refIdx0]->m_reconPic[1], mv0);
+                if (bChroma)
+                    predInterChromaPixel(pu, predYuv, *cu.m_slice->m_refFrameList[0][refIdx0]->m_reconPic[1], mv0);
+            }
+            else
+#endif
+            {
+                if (bLuma)
+                    predInterLumaPixel(pu, predYuv, *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
+                if (bChroma)
+                    predInterChromaPixel(pu, predYuv, *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
+            }
         }
     }
     else
@@ -144,18 +142,13 @@ void Predict::motionCompensation(const CUData& cu, const PredictionUnit& pu, Yuv
 
         if (cu.m_slice->m_pps->bUseWeightedBiPred)
         {
-            int num_planes;
-            
             pwp0 = refIdx0 >= 0 ? cu.m_slice->m_weightPredTable[0][refIdx0] : NULL;
             pwp1 = refIdx1 >= 0 ? cu.m_slice->m_weightPredTable[1][refIdx1] : NULL;
-            if (cu.m_chromaFormat != X265_CSP_I400)
-                num_planes = 3;
-            else
-                num_planes = 1;
-            if (pwp0 && pwp1 && (pwp0->bPresentFlag || pwp1->bPresentFlag))
+
+            if (pwp0 && pwp1 && (pwp0->wtPresent || pwp1->wtPresent))
             {
                 /* biprediction weighting */
-                for (int plane = 0; plane < num_planes; plane++)
+                for (int plane = 0; plane < (bChroma ? 3 : 1); plane++)
                 {
                     wv0[plane].w = pwp0[plane].inputWeight;
                     wv0[plane].o = pwp0[plane].inputOffset * (1 << (X265_DEPTH - 8));
@@ -172,7 +165,7 @@ void Predict::motionCompensation(const CUData& cu, const PredictionUnit& pu, Yuv
             {
                 /* uniprediction weighting, always outputs to wv0 */
                 const WeightParam* pwp = (refIdx0 >= 0) ? pwp0 : pwp1;
-                for (int plane = 0; plane < num_planes; plane++)
+                for (int plane = 0; plane < (bChroma ? 3 : 1); plane++)
                 {
                     wv0[plane].w = pwp[plane].inputWeight;
                     wv0[plane].offset = pwp[plane].inputOffset * (1 << (X265_DEPTH - 8));
@@ -193,16 +186,26 @@ void Predict::motionCompensation(const CUData& cu, const PredictionUnit& pu, Yuv
 
             if (bLuma)
             {
-                predInterLumaShort(pu, m_predShortYuv[0], *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
+#if ENABLE_SCC_EXT
+                if (cu.m_slice->m_param->bEnableSCC && refIdx0 == (cu.m_slice->m_numRefIdx[0] - 1))
+                    predInterLumaShort(pu, m_predShortYuv[0], *cu.m_slice->m_refFrameList[0][refIdx0]->m_reconPic[1], mv0);
+                else
+#endif
+                    predInterLumaShort(pu, m_predShortYuv[0], *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
                 predInterLumaShort(pu, m_predShortYuv[1], *cu.m_slice->m_refReconPicList[1][refIdx1], mv1);
             }
             if (bChroma)
             {
-                predInterChromaShort(pu, m_predShortYuv[0], *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
+#if ENABLE_SCC_EXT
+                if (cu.m_slice->m_param->bEnableSCC && refIdx0 == (cu.m_slice->m_numRefIdx[0] - 1))
+                    predInterChromaShort(pu, m_predShortYuv[0], *cu.m_slice->m_refFrameList[0][refIdx0]->m_reconPic[1], mv0);
+                else
+#endif
+                    predInterChromaShort(pu, m_predShortYuv[0], *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
                 predInterChromaShort(pu, m_predShortYuv[1], *cu.m_slice->m_refReconPicList[1][refIdx1], mv1);
             }
 
-            if (pwp0 && pwp1 && (pwp0->bPresentFlag || pwp1->bPresentFlag))
+            if (pwp0 && pwp1 && (pwp0->wtPresent || pwp1->wtPresent))
                 addWeightBi(pu, predYuv, m_predShortYuv[0], m_predShortYuv[1], wv0, wv1, bLuma, bChroma);
             else
                 predYuv.addAvg(m_predShortYuv[0], m_predShortYuv[1], pu.puAbsPartIdx, pu.width, pu.height, bLuma, bChroma);
@@ -212,7 +215,7 @@ void Predict::motionCompensation(const CUData& cu, const PredictionUnit& pu, Yuv
             MV mv0 = cu.m_mv[0][pu.puAbsPartIdx];
             cu.clipMv(mv0);
 
-            if (pwp0 && pwp0->bPresentFlag)
+            if (pwp0 && pwp0->wtPresent)
             {
                 ShortYuv& shortYuv = m_predShortYuv[0];
 
@@ -225,10 +228,22 @@ void Predict::motionCompensation(const CUData& cu, const PredictionUnit& pu, Yuv
             }
             else
             {
-                if (bLuma)
-                    predInterLumaPixel(pu, predYuv, *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
-                if (bChroma)
-                    predInterChromaPixel(pu, predYuv, *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
+#if ENABLE_SCC_EXT
+                if (cu.m_slice->m_param->bEnableSCC && refIdx0 == (cu.m_slice->m_numRefIdx[0] - 1))
+                {
+                    if (bLuma)
+                        predInterLumaPixel(pu, predYuv, *cu.m_slice->m_refFrameList[0][refIdx0]->m_reconPic[1], mv0);
+                    if (bChroma)
+                        predInterChromaPixel(pu, predYuv, *cu.m_slice->m_refFrameList[0][refIdx0]->m_reconPic[1], mv0);
+                }
+                else
+#endif
+                {
+                    if (bLuma)
+                        predInterLumaPixel(pu, predYuv, *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
+                    if (bChroma)
+                        predInterChromaPixel(pu, predYuv, *cu.m_slice->m_refReconPicList[0][refIdx0], mv0);
+                }
             }
         }
         else
@@ -239,7 +254,7 @@ void Predict::motionCompensation(const CUData& cu, const PredictionUnit& pu, Yuv
             /* uniprediction to L1 */
             X265_CHECK(refIdx1 >= 0, "refidx1 was not positive\n");
 
-            if (pwp1 && pwp1->bPresentFlag)
+            if (pwp1 && pwp1->wtPresent)
             {
                 ShortYuv& shortYuv = m_predShortYuv[0];
 
@@ -271,8 +286,8 @@ void Predict::predInterLumaPixel(const PredictionUnit& pu, Yuv& dstYuv, const Pi
     int partEnum = partitionFromSizes(pu.width, pu.height);
     const pixel* src = refPic.getLumaAddr(pu.ctuAddr, pu.cuAbsPartIdx + pu.puAbsPartIdx) + srcOffset;
 
-    int xFrac = mv.x & 0x3;
-    int yFrac = mv.y & 0x3;
+    int xFrac = mv.x & 3;
+    int yFrac = mv.y & 3;
 
     if (!(yFrac | xFrac))
         primitives.pu[partEnum].copy_pp(dst, dstStride, src, srcStride);
@@ -293,27 +308,32 @@ void Predict::predInterLumaShort(const PredictionUnit& pu, ShortYuv& dstSYuv, co
     intptr_t srcOffset = (mv.x >> 2) + (mv.y >> 2) * srcStride;
     const pixel* src = refPic.getLumaAddr(pu.ctuAddr, pu.cuAbsPartIdx + pu.puAbsPartIdx) + srcOffset;
 
-    int xFrac = mv.x & 0x3;
-    int yFrac = mv.y & 0x3;
-
     int partEnum = partitionFromSizes(pu.width, pu.height);
 
     X265_CHECK((pu.width % 4) + (pu.height % 4) == 0, "width or height not divisible by 4\n");
     X265_CHECK(dstStride == MAX_CU_SIZE, "stride expected to be max cu size\n");
 
+    int xFrac = mv.x & 3;
+    int yFrac = mv.y & 3;
+
     if (!(yFrac | xFrac))
-        primitives.pu[partEnum].convert_p2s(src, srcStride, dst, dstStride);
+    {
+        bool srcbufferAlignCheck = (refPic.m_cuOffsetY[pu.ctuAddr] + refPic.m_buOffsetY[pu.cuAbsPartIdx + pu.puAbsPartIdx] + srcOffset) % 64 == 0;
+        bool dstbufferAlignCheck = (dstSYuv.getAddrOffset(pu.puAbsPartIdx, dstSYuv.m_size) % 64) == 0;
+        primitives.pu[partEnum].convert_p2s[srcStride % 64 == 0 && dstStride % 64 == 0 && srcbufferAlignCheck && dstbufferAlignCheck](src, srcStride, dst, dstStride);
+    }
     else if (!yFrac)
         primitives.pu[partEnum].luma_hps(src, srcStride, dst, dstStride, xFrac, 0);
     else if (!xFrac)
         primitives.pu[partEnum].luma_vps(src, srcStride, dst, dstStride, yFrac);
     else
     {
-        int tmpStride = pu.width;
-        int filterSize = NTAPS_LUMA;
-        int halfFilterSize = (filterSize >> 1);
-        primitives.pu[partEnum].luma_hps(src, srcStride, m_immedVals, tmpStride, xFrac, 1);
-        primitives.pu[partEnum].luma_vss(m_immedVals + (halfFilterSize - 1) * tmpStride, tmpStride, dst, dstStride, yFrac);
+        ALIGN_VAR_32(int16_t, immed[MAX_CU_SIZE * (MAX_CU_SIZE + NTAPS_LUMA - 1)]);
+        int immedStride = pu.width;
+        int halfFilterSize = NTAPS_LUMA >> 1;
+
+        primitives.pu[partEnum].luma_hps(src, srcStride, immed, immedStride, xFrac, 1);
+        primitives.pu[partEnum].luma_vss(immed + (halfFilterSize - 1) * immedStride, immedStride, dst, dstStride, yFrac);
     }
 }
 
@@ -322,10 +342,10 @@ void Predict::predInterChromaPixel(const PredictionUnit& pu, Yuv& dstYuv, const 
     intptr_t dstStride = dstYuv.m_csize;
     intptr_t refStride = refPic.m_strideC;
 
-    int shiftHor = (2 + m_hChromaShift);
-    int shiftVer = (2 + m_vChromaShift);
+    int mvx = mv.x << (1 - m_hChromaShift);
+    int mvy = mv.y << (1 - m_vChromaShift);
 
-    intptr_t refOffset = (mv.x >> shiftHor) + (mv.y >> shiftVer) * refStride;
+    intptr_t refOffset = (mvx >> 3) + (mvy >> 3) * refStride;
 
     const pixel* refCb = refPic.getCbAddr(pu.ctuAddr, pu.cuAbsPartIdx + pu.puAbsPartIdx) + refOffset;
     const pixel* refCr = refPic.getCrAddr(pu.ctuAddr, pu.cuAbsPartIdx + pu.puAbsPartIdx) + refOffset;
@@ -333,11 +353,11 @@ void Predict::predInterChromaPixel(const PredictionUnit& pu, Yuv& dstYuv, const 
     pixel* dstCb = dstYuv.getCbAddr(pu.puAbsPartIdx);
     pixel* dstCr = dstYuv.getCrAddr(pu.puAbsPartIdx);
 
-    int xFrac = mv.x & ((1 << shiftHor) - 1);
-    int yFrac = mv.y & ((1 << shiftVer) - 1);
-
     int partEnum = partitionFromSizes(pu.width, pu.height);
-    
+
+    int xFrac = mvx & 7;
+    int yFrac = mvy & 7;
+
     if (!(yFrac | xFrac))
     {
         primitives.chroma[m_csp].pu[partEnum].copy_pp(dstCb, dstStride, refCb, refStride);
@@ -345,37 +365,36 @@ void Predict::predInterChromaPixel(const PredictionUnit& pu, Yuv& dstYuv, const 
     }
     else if (!yFrac)
     {
-        primitives.chroma[m_csp].pu[partEnum].filter_hpp(refCb, refStride, dstCb, dstStride, xFrac << (1 - m_hChromaShift));
-        primitives.chroma[m_csp].pu[partEnum].filter_hpp(refCr, refStride, dstCr, dstStride, xFrac << (1 - m_hChromaShift));
+        primitives.chroma[m_csp].pu[partEnum].filter_hpp(refCb, refStride, dstCb, dstStride, xFrac);
+        primitives.chroma[m_csp].pu[partEnum].filter_hpp(refCr, refStride, dstCr, dstStride, xFrac);
     }
     else if (!xFrac)
     {
-        primitives.chroma[m_csp].pu[partEnum].filter_vpp(refCb, refStride, dstCb, dstStride, yFrac << (1 - m_vChromaShift));
-        primitives.chroma[m_csp].pu[partEnum].filter_vpp(refCr, refStride, dstCr, dstStride, yFrac << (1 - m_vChromaShift));
+        primitives.chroma[m_csp].pu[partEnum].filter_vpp(refCb, refStride, dstCb, dstStride, yFrac);
+        primitives.chroma[m_csp].pu[partEnum].filter_vpp(refCr, refStride, dstCr, dstStride, yFrac);
     }
     else
     {
-        int extStride = pu.width >> m_hChromaShift;
-        int filterSize = NTAPS_CHROMA;
-        int halfFilterSize = (filterSize >> 1);
+        ALIGN_VAR_32(int16_t, immed[MAX_CU_SIZE * (MAX_CU_SIZE + NTAPS_CHROMA - 1)]);
+        int immedStride = pu.width >> m_hChromaShift;
+        int halfFilterSize = NTAPS_CHROMA >> 1;
 
-        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCb, refStride, m_immedVals, extStride, xFrac << (1 - m_hChromaShift), 1);
-        primitives.chroma[m_csp].pu[partEnum].filter_vsp(m_immedVals + (halfFilterSize - 1) * extStride, extStride, dstCb, dstStride, yFrac << (1 - m_vChromaShift));
-
-        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCr, refStride, m_immedVals, extStride, xFrac << (1 - m_hChromaShift), 1);
-        primitives.chroma[m_csp].pu[partEnum].filter_vsp(m_immedVals + (halfFilterSize - 1) * extStride, extStride, dstCr, dstStride, yFrac << (1 - m_vChromaShift));
+        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCb, refStride, immed, immedStride, xFrac, 1);
+        primitives.chroma[m_csp].pu[partEnum].filter_vsp(immed + (halfFilterSize - 1) * immedStride, immedStride, dstCb, dstStride, yFrac);
+        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCr, refStride, immed, immedStride, xFrac, 1);
+        primitives.chroma[m_csp].pu[partEnum].filter_vsp(immed + (halfFilterSize - 1) * immedStride, immedStride, dstCr, dstStride, yFrac);
     }
 }
 
 void Predict::predInterChromaShort(const PredictionUnit& pu, ShortYuv& dstSYuv, const PicYuv& refPic, const MV& mv) const
 {
-    intptr_t refStride = refPic.m_strideC;
     intptr_t dstStride = dstSYuv.m_csize;
+    intptr_t refStride = refPic.m_strideC;
 
-    int shiftHor = (2 + m_hChromaShift);
-    int shiftVer = (2 + m_vChromaShift);
+    int mvx = mv.x << (1 - m_hChromaShift);
+    int mvy = mv.y << (1 - m_vChromaShift);
 
-    intptr_t refOffset = (mv.x >> shiftHor) + (mv.y >> shiftVer) * refStride;
+    intptr_t refOffset = (mvx >> 3) + (mvy >> 3) * refStride;
 
     const pixel* refCb = refPic.getCbAddr(pu.ctuAddr, pu.cuAbsPartIdx + pu.puAbsPartIdx) + refOffset;
     const pixel* refCr = refPic.getCrAddr(pu.ctuAddr, pu.cuAbsPartIdx + pu.puAbsPartIdx) + refOffset;
@@ -383,39 +402,42 @@ void Predict::predInterChromaShort(const PredictionUnit& pu, ShortYuv& dstSYuv, 
     int16_t* dstCb = dstSYuv.getCbAddr(pu.puAbsPartIdx);
     int16_t* dstCr = dstSYuv.getCrAddr(pu.puAbsPartIdx);
 
-    int xFrac = mv.x & ((1 << shiftHor) - 1);
-    int yFrac = mv.y & ((1 << shiftVer) - 1);
-
     int partEnum = partitionFromSizes(pu.width, pu.height);
     
     uint32_t cxWidth  = pu.width >> m_hChromaShift;
 
     X265_CHECK(((cxWidth | (pu.height >> m_vChromaShift)) % 2) == 0, "chroma block size expected to be multiple of 2\n");
 
+    int xFrac = mvx & 7;
+    int yFrac = mvy & 7;
+
     if (!(yFrac | xFrac))
     {
-        primitives.chroma[m_csp].pu[partEnum].p2s(refCb, refStride, dstCb, dstStride);
-        primitives.chroma[m_csp].pu[partEnum].p2s(refCr, refStride, dstCr, dstStride);
+        bool srcbufferAlignCheckC = (refPic.m_cuOffsetC[pu.ctuAddr] + refPic.m_buOffsetC[pu.cuAbsPartIdx + pu.puAbsPartIdx] + refOffset) % 64 == 0;
+        bool dstbufferAlignCheckC = dstSYuv.getChromaAddrOffset(pu.puAbsPartIdx) % 64 == 0;
+        primitives.chroma[m_csp].pu[partEnum].p2s[refStride % 64 == 0 && dstStride % 64 == 0 && srcbufferAlignCheckC && dstbufferAlignCheckC](refCb, refStride, dstCb, dstStride);
+        primitives.chroma[m_csp].pu[partEnum].p2s[refStride % 64 == 0 && dstStride % 64 == 0 && srcbufferAlignCheckC && dstbufferAlignCheckC](refCr, refStride, dstCr, dstStride);
     }
     else if (!yFrac)
     {
-        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCb, refStride, dstCb, dstStride, xFrac << (1 - m_hChromaShift), 0);
-        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCr, refStride, dstCr, dstStride, xFrac << (1 - m_hChromaShift), 0);
+        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCb, refStride, dstCb, dstStride, xFrac, 0);
+        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCr, refStride, dstCr, dstStride, xFrac, 0);
     }
     else if (!xFrac)
     {
-        primitives.chroma[m_csp].pu[partEnum].filter_vps(refCb, refStride, dstCb, dstStride, yFrac << (1 - m_vChromaShift));
-        primitives.chroma[m_csp].pu[partEnum].filter_vps(refCr, refStride, dstCr, dstStride, yFrac << (1 - m_vChromaShift));
+        primitives.chroma[m_csp].pu[partEnum].filter_vps(refCb, refStride, dstCb, dstStride, yFrac);
+        primitives.chroma[m_csp].pu[partEnum].filter_vps(refCr, refStride, dstCr, dstStride, yFrac);
     }
     else
     {
-        int extStride = cxWidth;
-        int filterSize = NTAPS_CHROMA;
-        int halfFilterSize = (filterSize >> 1);
-        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCb, refStride, m_immedVals, extStride, xFrac << (1 - m_hChromaShift), 1);
-        primitives.chroma[m_csp].pu[partEnum].filter_vss(m_immedVals + (halfFilterSize - 1) * extStride, extStride, dstCb, dstStride, yFrac << (1 - m_vChromaShift));
-        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCr, refStride, m_immedVals, extStride, xFrac << (1 - m_hChromaShift), 1);
-        primitives.chroma[m_csp].pu[partEnum].filter_vss(m_immedVals + (halfFilterSize - 1) * extStride, extStride, dstCr, dstStride, yFrac << (1 - m_vChromaShift));
+        ALIGN_VAR_32(int16_t, immed[MAX_CU_SIZE * (MAX_CU_SIZE + NTAPS_CHROMA - 1)]);
+        int immedStride = cxWidth;
+        int halfFilterSize = NTAPS_CHROMA >> 1;
+
+        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCb, refStride, immed, immedStride, xFrac, 1);
+        primitives.chroma[m_csp].pu[partEnum].filter_vss(immed + (halfFilterSize - 1) * immedStride, immedStride, dstCb, dstStride, yFrac);
+        primitives.chroma[m_csp].pu[partEnum].filter_hps(refCr, refStride, immed, immedStride, xFrac, 1);
+        primitives.chroma[m_csp].pu[partEnum].filter_vss(immed + (halfFilterSize - 1) * immedStride, immedStride, dstCr, dstStride, yFrac);
     }
 }
 
@@ -614,7 +636,7 @@ void Predict::initAdiPattern(const CUData& cu, const CUGeom& cuGeom, uint32_t pu
     int tuSize = 1 << intraNeighbors.log2TrSize;
     int tuSize2 = tuSize << 1;
 
-    PicYuv* reconPic = cu.m_encData->m_reconPic;
+    PicYuv* reconPic = cu.m_encData->m_reconPic[0];
     pixel* adiOrigin = reconPic->getLumaAddr(cu.m_cuAddr, cuGeom.absPartIdx + puAbsPartIdx);
     intptr_t picStride = reconPic->m_stride;
 
@@ -663,7 +685,7 @@ void Predict::initAdiPattern(const CUData& cu, const CUGeom& cuGeom, uint32_t pu
 
 void Predict::initAdiPatternChroma(const CUData& cu, const CUGeom& cuGeom, uint32_t puAbsPartIdx, const IntraNeighbors& intraNeighbors, uint32_t chromaId)
 {
-    PicYuv* reconPic = cu.m_encData->m_reconPic;
+    PicYuv* reconPic = cu.m_encData->m_reconPic[0];
     const pixel* adiOrigin = reconPic->getChromaAddr(chromaId, cu.m_cuAddr, cuGeom.absPartIdx + puAbsPartIdx);
     intptr_t picStride = reconPic->m_strideC;
 
@@ -689,17 +711,14 @@ void Predict::initIntraNeighbors(const CUData& cu, uint32_t absPartIdx, uint32_t
     int numIntraNeighbor;
     bool* bNeighborFlags = intraNeighbors->bNeighborFlags;
 
-    uint32_t numPartInWidth = 1 << (cu.m_log2CUSize[0] - LOG2_UNIT_SIZE - tuDepth);
-    uint32_t partIdxLT = cu.m_absIdxInCTU + absPartIdx;
-    uint32_t partIdxRT = g_rasterToZscan[g_zscanToRaster[partIdxLT] + numPartInWidth - 1];
-
     uint32_t tuSize = 1 << log2TrSize;
     int  tuWidthInUnits = tuSize >> log2UnitWidth;
     int  tuHeightInUnits = tuSize >> log2UnitHeight;
     int  aboveUnits = tuWidthInUnits << 1;
     int  leftUnits = tuHeightInUnits << 1;
-    int  partIdxStride = cu.m_slice->m_sps->numPartInCUSize;
-    uint32_t partIdxLB = g_rasterToZscan[g_zscanToRaster[partIdxLT] + ((tuHeightInUnits - 1) * partIdxStride)];
+    uint32_t partIdxLT = cu.m_absIdxInCTU + absPartIdx;
+    uint32_t partIdxRT = g_rasterToZscan[g_zscanToRaster[partIdxLT] + tuWidthInUnits - 1];
+    uint32_t partIdxLB = g_rasterToZscan[g_zscanToRaster[partIdxLT] + ((tuHeightInUnits - 1) << LOG2_RASTER_SIZE)];
 
     if (cu.m_slice->isIntra() || !cu.m_slice->m_pps->bConstrainedIntraPred)
     {
@@ -928,7 +947,7 @@ int Predict::isLeftAvailable(const CUData& cu, uint32_t partIdxLT, uint32_t part
 {
     const uint32_t rasterPartBegin = g_zscanToRaster[partIdxLT];
     const uint32_t rasterPartEnd = g_zscanToRaster[partIdxLB];
-    const uint32_t idxStep = cu.m_slice->m_sps->numPartInCUSize;
+    const uint32_t idxStep = RASTER_SIZE;
     int numIntra = 0;
 
     for (uint32_t rasterPart = rasterPartBegin; rasterPart <= rasterPartEnd; rasterPart += idxStep, bValidFlags--) // opposite direction

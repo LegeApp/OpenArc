@@ -22,7 +22,8 @@ pub enum ItemByPathError {
 pub enum OpenStreamError {
     #[error("Windows API error ({0})")]
     Windows(#[from] crate::WindowsError),
-    #[error("MTP API did not return any stream")] // Will probably never happen, as a Windows error would be raised before. But we never know
+    #[error("MTP API did not return any stream")]
+    // Will probably never happen, as a Windows error would be raised before. But we never know
     UnableToCreate,
 }
 
@@ -46,6 +47,7 @@ pub enum AddFileError {
     InvalidLocalFile,
     #[error("A file already exists at this path")]
     AlreadyExists,
-    #[error("MTP API did not return any stream")] // Will probably never happen, as a Windows error would be raised before. But we never know
+    #[error("MTP API did not return any stream")]
+    // Will probably never happen, as a Windows error would be raised before. But we never know
     UnableToCreate,
 }

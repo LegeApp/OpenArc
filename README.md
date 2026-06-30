@@ -19,7 +19,7 @@ cd OpenArc
 cargo dist
 ```
 
-That builds the Rust workspace plus remaining native codec wrappers and produces a self-contained binary at `dist/openarc.exe` (Windows) or `dist/openarc` (Linux). See [`BUILDING.md`](BUILDING.md) for prerequisites (MSYS2 packages on Windows, `-dev` packages on Linux).
+That builds the Rust workspace and stages a binary at `dist/openarc.exe` (Windows) or `dist/openarc` (Linux/macOS). See [`BUILDING.md`](BUILDING.md) for the short prerequisite list.
 
 ```bash
 ./dist/openarc create -o archive.oarc ~/Pictures ~/Videos
@@ -41,7 +41,13 @@ At the end of archive creation, the CLI prints how many RAW files were preserved
 
 ## Build
 
-Single command: `cargo dist`. See [`BUILDING.md`](BUILDING.md) for prerequisites.
+OpenArc uses the normal stable Rust host toolchain:
+
+```bash
+cargo build --release
+```
+
+Use `cargo dist` when you also want the binary copied into `dist/`.
 
 ## Repository shape
 
@@ -50,11 +56,10 @@ OpenArc/
 ├── src/                    # CLI and archive orchestration
 ├── crates/
 │   ├── arcmax/             # FreeArc implementation (C++ compiled by build.rs)
-│   ├── codecs/             # BPG-rs facade + FFmpeg wrappers
+│   ├── codecs/             # BPG-rs facade, HEIC/JP2 handling, and video analysis
 │   ├── zune-image/         # vendored image workspace
 │   └── winmtp/             # Windows MTP helper
-├── native/                 # bundled native components such as jp2lam
-├── zenzstd/                # Rust Zstandard implementation
+├── jp2lam/                 # vendored JPEG 2000 crate
 ├── xtask/                  # `cargo dist` helper
-└── dist/                   # build output: openarc.exe
+└── dist/                   # staged build output
 ```

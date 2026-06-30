@@ -5,12 +5,22 @@ edition.workspace = true
 license.workspace = true
 description = "BPG and HEIC codec implementations for OpenArc"
 
+[features]
+default = ["bpg-c"]
+# Default production path: libbpg C glue plus vendored x265 4.1.
+bpg-c = []
+# Development path: pure-Rust BPG encoder/decoder from the sibling bpg-rs repo.
+# Because Cargo features are additive, enabling `bpg-rs` selects the Rust BPG
+# implementation and suppresses the C build even if the default `bpg-c` feature
+# is still enabled.
+bpg-rs = ["dep:bpg-encode", "dep:bpg-image", "dep:still265"]
+
 [dependencies]
 jp2lam = { path = "../../jp2lam" }
 bpg-decode = { path = "../../../bpg-rs/crates/bpg-decode" }
-bpg-encode = { path = "../../../bpg-rs/crates/bpg-encode" }
-bpg-image = { path = "../../../bpg-rs/crates/bpg-image" }
-still265 = { path = "../../../bpg-rs/crates/still265" }
+bpg-encode = { path = "../../../bpg-rs/crates/bpg-encode", optional = true }
+bpg-image = { path = "../../../bpg-rs/crates/bpg-image", optional = true }
+still265 = { path = "../../../bpg-rs/crates/still265", optional = true }
 anyhow.workspace = true
 thiserror.workspace = true
 lcms2.workspace = true
@@ -18,6 +28,9 @@ infer.workspace = true
 tempfile.workspace = true
 image.workspace = true
 which = "8.0"
+
+[build-dependencies]
+cc = "1.2"
 
 [lib]
 name = "codecs"

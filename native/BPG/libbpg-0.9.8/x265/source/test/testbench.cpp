@@ -1,9 +1,11 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Gopu Govindaswamy <gopu@govindaswamy.org>
  *          Mandar Gurav <mandar@multicorewareinc.com>
  *          Mahesh Pittala <mahesh@multicorewareinc.com>
+ *          Min Chen <chenm003@163.com>
+ *          Yimeng Su <yimeng.su@huawei.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -81,9 +83,10 @@ const char* const* chromaPartStr[X265_CSP_COUNT] =
 void do_help()
 {
     printf("x265 optimized primitive testbench\n\n");
-    printf("usage: TestBench [--cpuid CPU] [--testbench BENCH] [--help]\n\n");
+    printf("usage: TestBench [--cpuid CPU] [--testbench BENCH] [--nobench] [--help]\n\n");
     printf("       CPU is comma separated SIMD arch list, example: SSE4,AVX\n");
     printf("       BENCH is one of (pixel,transforms,interp,intrapred)\n\n");
+    printf("       --nobench disables running benchmarks, only run correctness tests\n\n");
     printf("By default, the test bench will test all benches on detected CPU architectures\n");
     printf("Options and testbench name may be truncated.\n");
 }
@@ -95,15 +98,12 @@ IntraPredHarness HIPred;
 
 int main(int argc, char *argv[])
 {
-    int cpuid = X265_NS::cpu_detect();
+    bool enableavx512 = true;
+    int cpuid = X265_NS::cpu_detect(enableavx512);
     const char *testname = 0;
+    bool run_benchmarks = true;
 
-    if (!(argc & 1))
-    {
-        do_help();
-        return 0;
-    }
-    for (int i = 1; i < argc - 1; i += 2)
+    for (int i = 1; i < argc; )
     {
         if (strncmp(argv[i], "--", 2))
         {
@@ -112,21 +112,40 @@ int main(int argc, char *argv[])
             return 1;
         }
         const char *name = argv[i] + 2;
-        const char *value = argv[i + 1];
-        if (!strncmp(name, "cpuid", strlen(name)))
+        const char *value = i + 1 < argc ? argv[i + 1] : "";
+        if (!strncmp(name, "help", strlen(name)))
         {
+          do_help();
+          return 0;
+        }
+        else if (!strncmp(name, "cpuid", strlen(name)))
+        {
+            int cpu_detect_cpuid = cpuid;
             bool bError = false;
-            cpuid = parseCpuName(value, bError);
+            cpuid = parseCpuName(value, bError, enableavx512);
             if (bError)
             {
                 printf("Invalid CPU name: %s\n", value);
                 return 1;
             }
+            else if ((cpuid & cpu_detect_cpuid) != cpuid)
+            {
+                printf("Feature detection conflicts with provided --cpuid: %s\n", value);
+                return 1;
+            }
+            i += 2;
         }
         else if (!strncmp(name, "testbench", strlen(name)))
         {
             testname = value;
             printf("Testing only harnesses that match name <%s>\n", testname);
+            i += 2;
+        }
+        else if (!strncmp(name, "nobench", strlen(name)))
+        {
+            printf("Disabling performance benchmarking\n");
+            run_benchmarks = false;
+            i += 1;
         }
         else
         {
@@ -156,10 +175,11 @@ int main(int argc, char *argv[])
 
     struct test_arch_t
     {
-        char name[12];
+        char name[13];
         int flag;
     } test_arch[] =
     {
+#if X265_ARCH_X86
         { "SSE2", X265_CPU_SSE2 },
         { "SSE3", X265_CPU_SSE3 },
         { "SSSE3", X265_CPU_SSSE3 },
@@ -168,6 +188,16 @@ int main(int argc, char *argv[])
         { "XOP", X265_CPU_XOP },
         { "AVX2", X265_CPU_AVX2 },
         { "BMI2", X265_CPU_AVX2 | X265_CPU_BMI1 | X265_CPU_BMI2 },
+        { "AVX512", X265_CPU_AVX512 },
+#else
+        { "ARMv6", X265_CPU_ARMV6 },
+        { "NEON", X265_CPU_NEON },
+        { "SVE2", X265_CPU_SVE2 },
+        { "SVE", X265_CPU_SVE },
+        { "Neon_DotProd", X265_CPU_NEON_DOTPROD },
+        { "Neon_I8MM", X265_CPU_NEON_I8MM },
+        { "FastNeonMRC", X265_CPU_FAST_NEON_MRC },
+#endif
         { "", 0 },
     };
 
@@ -181,9 +211,10 @@ int main(int argc, char *argv[])
         else
             continue;
 
+#if defined(X265_ARCH_X86) || defined(X265_ARCH_ARM64)
         EncoderPrimitives vecprim;
         memset(&vecprim, 0, sizeof(vecprim));
-        setupInstrinsicPrimitives(vecprim, test_arch[i].flag);
+        setupIntrinsicPrimitives(vecprim, test_arch[i].flag);
         setupAliasPrimitives(vecprim);
         for (size_t h = 0; h < sizeof(harness) / sizeof(TestHarness*); h++)
         {
@@ -196,9 +227,11 @@ int main(int argc, char *argv[])
                 return -1;
             }
         }
+#endif
 
         EncoderPrimitives asmprim;
         memset(&asmprim, 0, sizeof(asmprim));
+
         setupAssemblyPrimitives(asmprim, test_arch[i].flag);
         setupAliasPrimitives(asmprim);
         memcpy(&primitives, &asmprim, sizeof(EncoderPrimitives));
@@ -216,31 +249,36 @@ int main(int argc, char *argv[])
     }
 
     /******************* Cycle count for all primitives **********************/
-
-    EncoderPrimitives optprim;
-    memset(&optprim, 0, sizeof(optprim));
-    setupInstrinsicPrimitives(optprim, cpuid);
-    setupAssemblyPrimitives(optprim, cpuid);
-
-    /* Note that we do not setup aliases for performance tests, that would be
-     * redundant. The testbench only verifies they are correctly aliased */
-
-    /* some hybrid primitives may rely on other primitives in the
-     * global primitive table, so set up those pointers. This is a
-     * bit ugly, but I don't see a better solution */
-    memcpy(&primitives, &optprim, sizeof(EncoderPrimitives));
-
-    printf("\nTest performance improvement with full optimizations\n");
-    fflush(stdout);
-
-    for (size_t h = 0; h < sizeof(harness) / sizeof(TestHarness*); h++)
+    if (run_benchmarks)
     {
-        if (testname && strncmp(testname, harness[h]->getName(), strlen(testname)))
-            continue;
-        printf("== %s primitives ==\n", harness[h]->getName());
-        harness[h]->measureSpeed(cprim, optprim);
-    }
+        EncoderPrimitives optprim;
+        memset(&optprim, 0, sizeof(optprim));
+#if defined(X265_ARCH_X86) || defined(X265_ARCH_ARM64)
+        setupIntrinsicPrimitives(optprim, cpuid);
+#endif
 
-    printf("\n");
+        setupAssemblyPrimitives(optprim, cpuid);
+
+        /* Note that we do not setup aliases for performance tests, that would be
+         * redundant. The testbench only verifies they are correctly aliased */
+
+        /* some hybrid primitives may rely on other primitives in the
+         * global primitive table, so set up those pointers. This is a
+         * bit ugly, but I don't see a better solution */
+        memcpy(&primitives, &optprim, sizeof(EncoderPrimitives));
+
+        printf("\nTest performance improvement with full optimizations\n");
+        fflush(stdout);
+
+        for (size_t h = 0; h < sizeof(harness) / sizeof(TestHarness*); h++)
+        {
+            if (testname && strncmp(testname, harness[h]->getName(), strlen(testname)))
+                continue;
+            printf("== %s primitives ==\n", harness[h]->getName());
+            harness[h]->measureSpeed(cprim, optprim);
+        }
+
+        printf("\n");
+    }
     return 0;
 }

@@ -1,7 +1,8 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
+ *          Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,6 +44,8 @@ protected:
     int absPartIdx;  // part index of PU, including CU offset within CTU
 
     int searchMethod;
+    int searchMethodL0;
+    int searchMethodL1;
     int subpelRefine;
 
     int blockwidth;
@@ -51,6 +54,7 @@ protected:
     pixelcmp_t sad;
     pixelcmp_x3_t sad_x3;
     pixelcmp_x4_t sad_x4;
+    pixelcmp_ads_t ads;
     pixelcmp_t satd;
     pixelcmp_t chromaSatd;
 
@@ -60,6 +64,7 @@ public:
 
     static const int COST_MAX = 1 << 28;
 
+    uint32_t* integral[INTEGRAL_PLANE_NUM];
     Yuv fencPUYuv;
     int partEnum;
     bool bChromaSATD;
@@ -69,12 +74,12 @@ public:
 
     static void initScales();
     static int hpelIterationCount(int subme);
-    void init(int method, int refine, int csp);
+    void init(int csp);
 
     /* Methods called at slice setup */
-
-    void setSourcePU(pixel *fencY, intptr_t stride, intptr_t offset, int pwidth, int pheight);
-    void setSourcePU(const Yuv& srcFencYuv, int ctuAddr, int cuPartIdx, int puPartIdx, int pwidth, int pheight);
+    void setSourcePU(pixel *fencY, intptr_t stride, intptr_t offset, int pwidth, int pheight, const int searchMethod, const int subpelRefine);
+    void setSourcePU(pixel *fencY, intptr_t stride, intptr_t offset, int pwidth, int pheight, const int searchMethod, const int searchL0, const int searchL1, const int subpelRefine);
+    void setSourcePU(const Yuv& srcFencYuv, int ctuAddr, int cuPartIdx, int puPartIdx, int pwidth, int pheight, const int searchMethod, const int subpelRefine, bool bChroma);
 
     /* buf*() and motionEstimate() methods all use cached fenc pixels and thus
      * require setSourcePU() to be called prior. */
@@ -89,7 +94,8 @@ public:
                chromaSatd(refYuv.getCrAddr(puPartIdx), refYuv.m_csize, fencPUYuv.m_buf[2], fencPUYuv.m_csize);
     }
 
-    int motionEstimate(ReferencePlanes* ref, const MV & mvmin, const MV & mvmax, const MV & qmvp, int numCandidates, const MV * mvc, int merange, MV & outQMv);
+    void refineMV(ReferencePlanes* ref, const MV& mvmin, const MV& mvmax, const MV& qmvp, MV& outQMv);
+    int motionEstimate(ReferencePlanes* ref, const MV & mvmin, const MV & mvmax, const MV & qmvp, int numCandidates, const MV * mvc, int merange, MV & outQMv, uint32_t maxSlices, bool m_vertRestriction, pixel *srcReferencePlane = 0);
 
     int subpelCompare(ReferencePlanes* ref, const MV &qmv, pixelcmp_t);
 
@@ -103,7 +109,8 @@ protected:
                                   int &            bPointNr,
                                   int &            bDistance,
                                   int              earlyExitIters,
-                                  int              merange);
+                                  int              merange,
+                                  int              hme);
 };
 }
 

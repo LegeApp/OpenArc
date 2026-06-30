@@ -1,22 +1,27 @@
-use anyhow::{anyhow, Context, Result};
-use arcmax::codec::{LzmaCodec, LzmaOptions};
+use anyhow::{Context, Result, anyhow};
 use arcmax::codec::traits::Codec;
-use codecs::bpg::{BPGEncoderConfig, NativeBPGEncoder, estimate_encode_peak, safe_encode_concurrency};
+use arcmax::codec::{LzmaCodec, LzmaOptions};
+use bytemuck::cast_vec;
+use codecs::bpg::{
+    BPGEncoderConfig, NativeBPGEncoder, estimate_encode_peak, safe_encode_concurrency,
+};
 use codecs::video_analyzer::analyze_video_compression;
+use image;
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc, Condvar, Mutex as StdMutex};
+use std::sync::{Arc, Condvar, Mutex as StdMutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
-use bytemuck::cast_vec;
-use log::warn;
-use image;
 use tokio::task::JoinSet;
 
 const CODEC_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
+const JPEG2000_FALLBACK_QUALITY: u8 = 85;
+const BPG_JPEG2000_FALLBACK_MIN_BYTES: u64 = 5_000_000;
+const BPG_JPEG2000_FALLBACK_MIN_BYTES_PER_PIXEL: f64 = 0.18;
 
 /// Byte-budget limiter for memory-heavy tasks.
 ///
@@ -35,7 +40,9 @@ fn safe_analyze_video(path: &Path) -> Option<codecs::video_analyzer::VideoAnalys
     let (tx, rx) = mpsc::channel();
 
     let handle = thread::spawn(move || {
-        let _ = tx.send(std::panic::catch_unwind(|| analyze_video_compression(&thread_path)));
+        let _ = tx.send(std::panic::catch_unwind(|| {
+            analyze_video_compression(&thread_path)
+        }));
     });
 
     match rx.recv_timeout(Duration::from_secs(5)) {
@@ -93,9 +100,30 @@ struct MemoryBudgetGuard<'a> {
 impl<'a> Drop for MemoryBudgetGuard<'a> {
     fn drop(&mut self) {
         let mut guard = self.limiter.available.lock().unwrap();
-        *guard = guard.saturating_add(self.reserved).min(self.limiter.capacity);
+        *guard = guard
+            .saturating_add(self.reserved)
+            .min(self.limiter.capacity);
         self.limiter.cvar.notify_one();
     }
+}
+
+/// Map the x265 preset (`compress_level`, 0..=9) onto the closest peak-memory
+/// factor bucket understood by [`estimate_encode_peak`], which selects a
+/// 10×/14×/18× planar-bytes multiplier from an `encoder_type` of 0/1/2.
+///
+/// The encoder *preset* — not `encoder_type` — is what actually drives x265's
+/// memory use. The "best" effort runs the placebo preset (`compress_level` 9)
+/// yet reports `encoder_type` 1, so keying the estimate off `encoder_type`
+/// under-counts the true peak and lets too many encodes run at once. That
+/// under-count is what drove the OOM kill on large HEIC batches. Bias the
+/// bucket up to match the preset.
+fn preset_peak_encoder_type(compress_level: i32, encoder_type: i32) -> i32 {
+    let by_preset = match compress_level {
+        9 => 2,     // placebo
+        7 | 8 => 1, // slower / veryslow
+        _ => 0,
+    };
+    by_preset.max(encoder_type)
 }
 
 fn estimate_image_reservation_bytes(
@@ -104,14 +132,31 @@ fn estimate_image_reservation_bytes(
     original_size: u64,
     settings: &OrchestratorSettings,
 ) -> u64 {
-    let dims = image::image_dimensions(input).ok();
-
-    let estimated_bit_depth: u8 = match original_format {
-        OriginalImageFormat::Jpeg => 8,
-        OriginalImageFormat::Heic => 12,
-        OriginalImageFormat::Png | OriginalImageFormat::Tiff => 12,
-        _ => 10,
+    // The `image` crate cannot read HEIC, so probing it there always fails and
+    // forces the worst-case fallback below. The same bpg-decode HEIF parser we
+    // use to decode reads real dimensions/bit depth from the container headers
+    // (no full decode), so consult it up front for an accurate reservation.
+    let heic_info = if original_format == OriginalImageFormat::Heic {
+        codecs::heic::HeicCodec::read_info(input).ok()
+    } else {
+        None
     };
+
+    let dims = heic_info
+        .map(|i| (i.width, i.height))
+        .filter(|&(w, h)| w > 0 && h > 0)
+        .or_else(|| image::image_dimensions(input).ok());
+
+    let estimated_bit_depth: u8 = match (heic_info, original_format) {
+        (Some(info), _) => info.bit_depth.max(8),
+        (None, OriginalImageFormat::Jpeg) => 8,
+        (None, OriginalImageFormat::Heic) => 12,
+        (None, OriginalImageFormat::Png | OriginalImageFormat::Tiff) => 12,
+        (None, _) => 10,
+    };
+
+    let peak_encoder_type =
+        preset_peak_encoder_type(settings.bpg_compression_level, settings.bpg_encoder_type);
 
     let estimate_from_dims = |w: u32, h: u32| {
         let encode_peak = estimate_encode_peak(
@@ -119,7 +164,7 @@ fn estimate_image_reservation_bytes(
             h,
             estimated_bit_depth,
             settings.bpg_chroma_format,
-            settings.bpg_encoder_type,
+            peak_encoder_type,
         );
 
         // Conservative scratch/decode side:
@@ -154,7 +199,7 @@ fn estimate_image_reservation_bytes(
         4000,
         estimated_bit_depth,
         settings.bpg_chroma_format,
-        settings.bpg_encoder_type,
+        peak_encoder_type,
     );
     let fallback = baseline
         .saturating_add(original_size.saturating_mul(4))
@@ -167,9 +212,9 @@ fn estimate_image_reservation_bytes(
     }
 }
 
-use crate::archive_tracker::{ArchiveTracker, ArchiveRecord, ArchiveFileMapping};
-use crate::backup_catalog::{normalize_path, BackupCatalog, BackupEntry};
-use crate::bpg_wrapper::BpgEffort;
+use crate::archive_tracker::{ArchiveFileMapping, ArchiveRecord, ArchiveTracker};
+use crate::backup_catalog::{BackupCatalog, BackupEntry, normalize_path};
+use crate::bpg_wrapper::{BpgAq, BpgEffort};
 use crate::file_tracker::{FileTracker, ProcessedFileRecord};
 use crate::hash;
 
@@ -204,7 +249,8 @@ impl MemoryCache {
 
     /// Returns cached memory usage, refreshing at most once per second.
     fn usage(&mut self) -> f64 {
-        let stale = self.last_refresh
+        let stale = self
+            .last_refresh
             .map(|t| t.elapsed() >= Duration::from_secs(1))
             .unwrap_or(true);
         if stale {
@@ -336,8 +382,8 @@ impl OriginalImageFormat {
     /// Should this format be encoded via PNG intermediate for quality preservation?
     pub fn needs_png_intermediate(&self) -> bool {
         match self {
-            Self::Jpeg => false,  // JPEG goes directly to BPG
-            _ => true,            // All others go through PNG to preserve quality
+            Self::Jpeg => false, // JPEG goes directly to BPG
+            _ => true,           // All others go through PNG to preserve quality
         }
     }
 }
@@ -369,8 +415,7 @@ pub struct ListedArchiveFile {
 
 fn normalize_archive_rel_path(p: &str) -> String {
     let p = p.trim_start_matches("./");
-    p.trim_start_matches('/')
-        .replace('\\', "/")
+    p.trim_start_matches('/').replace('\\', "/")
 }
 
 fn detect_file_type_from_name(name: &str) -> i32 {
@@ -381,9 +426,9 @@ fn detect_file_type_from_name(name: &str) -> i32 {
         .unwrap_or("");
 
     match ext {
-        "bpg" | "jpg" | "jpeg" | "png" | "bmp" | "tif" | "tiff" | "webp" | "heic" | "heif" | "ico" |
-        "jp2" | "j2k" | "j2c" | "jpc" | "jpt" | "jph" | "jhc" |
-        "dng" | "cr2" | "nef" | "arw" | "orf" | "rw2" | "raf" => 1,
+        "bpg" | "jpg" | "jpeg" | "png" | "bmp" | "tif" | "tiff" | "webp" | "heic" | "heif"
+        | "ico" | "jp2" | "j2k" | "j2c" | "jpc" | "jpt" | "jph" | "jhc" | "dng" | "cr2" | "nef"
+        | "arw" | "orf" | "rw2" | "raf" => 1,
         "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" => 2,
         _ => 3,
     }
@@ -451,7 +496,8 @@ pub fn list_archive_contents(archive_path: &Path) -> Result<Vec<ListedArchiveFil
 
         if rel.eq_ignore_ascii_case("MANIFEST.txt") {
             let mut buf = String::new();
-            entry.read_to_string(&mut buf)
+            entry
+                .read_to_string(&mut buf)
                 .context("Failed to read MANIFEST.txt")?;
             manifest_text = Some(buf);
             continue;
@@ -505,7 +551,11 @@ pub fn list_archive_contents(archive_path: &Path) -> Result<Vec<ListedArchiveFil
     Ok(out)
 }
 
-pub fn extract_archive_entry(archive_path: &Path, entry_name: &str, output_path: &Path) -> Result<()> {
+pub fn extract_archive_entry(
+    archive_path: &Path,
+    entry_name: &str,
+    output_path: &Path,
+) -> Result<()> {
     let entry_name = normalize_archive_rel_path(entry_name);
 
     let decoder = arcmax::tar_zst::open_zst_reader(archive_path)
@@ -529,8 +579,9 @@ pub fn extract_archive_entry(archive_path: &Path, entry_name: &str, output_path:
         }
 
         if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create output directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create output directory: {}", parent.display())
+            })?;
         }
 
         let mut out = std::fs::File::create(output_path)
@@ -563,6 +614,7 @@ pub struct OrchestratorSettings {
     pub bpg_quality: i32,
     pub bpg_lossless: bool,
     pub bpg_effort: BpgEffort,
+    pub bpg_aq: BpgAq,
     pub bpg_bit_depth: i32,
     pub bpg_chroma_format: i32,
     pub bpg_encoder_type: i32,
@@ -588,6 +640,8 @@ pub struct OrchestratorSettings {
     pub enable_tracking: bool,
     /// If false, archive files as-is without image/video transcoding
     pub reencode_media: bool,
+    /// If true, write the prepared OpenArc folder layout instead of tar.zst/oarc.
+    pub output_folder_without_archive: bool,
 }
 
 impl Default for OrchestratorSettings {
@@ -596,6 +650,7 @@ impl Default for OrchestratorSettings {
             bpg_quality: BpgEffort::Good.default_quality() as i32,
             bpg_lossless: false,
             bpg_effort: BpgEffort::Good,
+            bpg_aq: BpgAq::default(),
             bpg_bit_depth: 8,
             bpg_chroma_format: 1,
             bpg_encoder_type: 0,
@@ -610,6 +665,7 @@ impl Default for OrchestratorSettings {
             jpeg_quality: 92,
             enable_tracking: true,
             reencode_media: true,
+            output_folder_without_archive: false,
         }
     }
 }
@@ -624,9 +680,107 @@ pub enum FileClass {
 
 pub type ProgressFn = dyn Fn(usize, usize, &str) + Send + Sync;
 
-pub fn emit_progress(progress: &Option<Arc<ProgressFn>>, current: usize, total: usize, msg: impl AsRef<str>) {
+pub fn emit_progress(
+    progress: &Option<Arc<ProgressFn>>,
+    current: usize,
+    total: usize,
+    msg: impl AsRef<str>,
+) {
     if let Some(cb) = progress {
         cb(current, total.max(1), msg.as_ref());
+    }
+}
+
+fn jpeg2000_fallback_reason(width: u32, height: u32, bpg_size: u64) -> Option<&'static str> {
+    let pixels = u64::from(width).saturating_mul(u64::from(height));
+    if bpg_size >= BPG_JPEG2000_FALLBACK_MIN_BYTES {
+        return Some("BPG output size threshold");
+    }
+    if pixels > 0 && (bpg_size as f64 / pixels as f64) >= BPG_JPEG2000_FALLBACK_MIN_BYTES_PER_PIXEL
+    {
+        return Some("BPG bytes-per-pixel threshold");
+    }
+    None
+}
+
+fn encode_jpeg2000_fallback(
+    input_path: &Path,
+    original_format: OriginalImageFormat,
+    output_path: &Path,
+) -> Result<u64> {
+    let image = if original_format == OriginalImageFormat::Heic {
+        let mut codec = codecs::heic::HeicCodec::new()?;
+        let decoded = codec.decode_file(input_path)?;
+        if decoded.has_alpha {
+            let buffer = image::RgbaImage::from_raw(decoded.width, decoded.height, decoded.data)
+                .ok_or_else(|| {
+                    anyhow!("failed to build HEIC RGBA buffer for JPEG 2000 fallback")
+                })?;
+            image::DynamicImage::ImageRgba8(buffer)
+        } else {
+            let buffer = image::RgbImage::from_raw(decoded.width, decoded.height, decoded.data)
+                .ok_or_else(|| anyhow!("failed to build HEIC RGB buffer for JPEG 2000 fallback"))?;
+            image::DynamicImage::ImageRgb8(buffer)
+        }
+    } else {
+        image::open(input_path).with_context(|| {
+            format!(
+                "failed to load image for JPEG 2000 fallback: {}",
+                input_path.display()
+            )
+        })?
+    };
+    let encoded =
+        codecs::jpeg2000::encode_dynamic_image_to_jpeg2000(&image, JPEG2000_FALLBACK_QUALITY)?;
+    let size = encoded.len() as u64;
+    fs::write(output_path, &encoded)
+        .with_context(|| format!("Failed to write JPEG 2000 file: {}", output_path.display()))?;
+    Ok(size)
+}
+
+fn keep_smaller_jpeg2000_if_flagged(
+    input_path: &Path,
+    original_format: OriginalImageFormat,
+    bpg_path: PathBuf,
+    bpg_rel: String,
+    jp2_path: PathBuf,
+    jp2_rel: String,
+    width: u32,
+    height: u32,
+    stats: &Arc<parking_lot::Mutex<Jpeg2000FallbackStats>>,
+) -> Result<(PathBuf, String)> {
+    let bpg_size = fs::metadata(&bpg_path)?.len();
+    let Some(reason) = jpeg2000_fallback_reason(width, height, bpg_size) else {
+        return Ok((bpg_path, bpg_rel));
+    };
+
+    {
+        let mut guard = stats.lock();
+        guard.flagged_files += 1;
+    }
+
+    let jp2_size =
+        encode_jpeg2000_fallback(input_path, original_format, &jp2_path).with_context(|| {
+            format!(
+                "Failed to encode JPEG 2000 fallback for {} after {reason}",
+                input_path.display()
+            )
+        })?;
+
+    if jp2_size < bpg_size {
+        let _ = fs::remove_file(&bpg_path);
+        let mut guard = stats.lock();
+        guard.replaced_files += 1;
+        guard.total_bpg_bytes_for_replaced =
+            guard.total_bpg_bytes_for_replaced.saturating_add(bpg_size);
+        guard.total_jpeg2000_bytes = guard.total_jpeg2000_bytes.saturating_add(jp2_size);
+        guard.total_saved_bytes = guard
+            .total_saved_bytes
+            .saturating_add(bpg_size.saturating_sub(jp2_size));
+        Ok((jp2_path, jp2_rel))
+    } else {
+        let _ = fs::remove_file(&jp2_path);
+        Ok((bpg_path, bpg_rel))
     }
 }
 
@@ -647,8 +801,13 @@ fn apply_bpg_settings(
     cfg.chroma_format = chroma_format;
     cfg.encoder_type = settings.bpg_effort.encoder_type() as i32;
     cfg.compress_level = settings.bpg_effort.compression_level() as i32;
+    let (aq_mode, aq_strength, aq_clamp) =
+        codecs::bpg::resolve_aq_preset(settings.bpg_aq.as_str()).unwrap_or((0, 0.0, 2));
+    cfg.aq_mode = aq_mode;
+    cfg.aq_strength = aq_strength;
+    cfg.aq_clamp = aq_clamp;
+    cfg.two_pass_gate = true;
 }
-
 
 #[derive(Debug, Clone)]
 pub struct ProcessedFile {
@@ -670,6 +829,33 @@ pub struct FailedFile {
     pub error: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Jpeg2000FallbackStats {
+    pub flagged_files: usize,
+    pub replaced_files: usize,
+    pub total_bpg_bytes_for_replaced: u64,
+    pub total_jpeg2000_bytes: u64,
+    pub total_saved_bytes: u64,
+}
+
+impl Jpeg2000FallbackStats {
+    pub fn average_saved_bytes(&self) -> u64 {
+        if self.replaced_files == 0 {
+            0
+        } else {
+            self.total_saved_bytes / self.replaced_files as u64
+        }
+    }
+
+    pub fn average_saved_percent(&self) -> f64 {
+        if self.total_bpg_bytes_for_replaced == 0 {
+            0.0
+        } else {
+            (self.total_saved_bytes as f64 / self.total_bpg_bytes_for_replaced as f64) * 100.0
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct OrchestratorResult {
     pub discovered_files: Vec<PathBuf>,
@@ -679,6 +865,7 @@ pub struct OrchestratorResult {
     pub dedup_groups: usize,
     pub tracking_report: Option<String>,
     pub staged_uncompressed_videos: Vec<PathBuf>,
+    pub jpeg2000_fallback: Jpeg2000FallbackStats,
 }
 
 #[derive(Clone, Debug)]
@@ -720,10 +907,7 @@ pub fn collect_files(input_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
 
 fn append_rel_suffix(rel: &str, idx: usize) -> String {
     let path = Path::new(rel);
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("file");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let file_name = if ext.is_empty() {
         format!("{}_{}", stem, idx)
@@ -752,7 +936,11 @@ fn choose_source_rel_path(file: &Path, input_paths: &[PathBuf]) -> String {
                     .file_name()
                     .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from("file"));
-                if best.as_ref().map(|b| rel.components().count() > b.components().count()).unwrap_or(true) {
+                if best
+                    .as_ref()
+                    .map(|b| rel.components().count() > b.components().count())
+                    .unwrap_or(true)
+                {
                     best = Some(rel);
                 }
             }
@@ -781,7 +969,10 @@ fn choose_source_rel_path(file: &Path, input_paths: &[PathBuf]) -> String {
     normalize_archive_rel_path(&rel.to_string_lossy())
 }
 
-fn build_relative_path_map(discovered: &[PathBuf], input_paths: &[PathBuf]) -> HashMap<PathBuf, String> {
+fn build_relative_path_map(
+    discovered: &[PathBuf],
+    input_paths: &[PathBuf],
+) -> HashMap<PathBuf, String> {
     let mut map = HashMap::new();
     let mut seen: HashMap<String, usize> = HashMap::new();
 
@@ -819,8 +1010,9 @@ fn classify_file(path: &Path) -> (FileClass, Option<OriginalImageFormat>) {
         "heic" | "heif" | "hif" => (FileClass::Image, Some(OriginalImageFormat::Heic)),
 
         // Camera RAW formats - encode via PNG intermediate
-        "cr2" | "cr3" | "nef" | "arw" | "dng" | "orf" | "rw2" | "raf" | "pef" | "srw" =>
-            (FileClass::Raw, Some(OriginalImageFormat::Raw)),
+        "cr2" | "cr3" | "nef" | "arw" | "dng" | "orf" | "rw2" | "raf" | "pef" | "srw" => {
+            (FileClass::Raw, Some(OriginalImageFormat::Raw))
+        }
 
         // TIFF - encode via PNG intermediate
         "tiff" | "tif" => (FileClass::Image, Some(OriginalImageFormat::Tiff)),
@@ -832,8 +1024,9 @@ fn classify_file(path: &Path) -> (FileClass, Option<OriginalImageFormat>) {
         "webp" => (FileClass::Image, Some(OriginalImageFormat::WebP)),
 
         // Video formats
-        "mp4" | "mov" | "avi" | "mkv" | "webm" | "m4v" | "3gp" | "flv" | "wmv" | "mts" | "m2ts" =>
-            (FileClass::Video, None),
+        "mp4" | "mov" | "avi" | "mkv" | "webm" | "m4v" | "3gp" | "flv" | "wmv" | "mts" | "m2ts" => {
+            (FileClass::Video, None)
+        }
 
         // Everything else
         _ => (FileClass::Misc, None),
@@ -869,6 +1062,7 @@ pub fn create_archive(
             dedup_groups: 0,
             tracking_report: None,
             staged_uncompressed_videos: Vec::new(),
+            jpeg2000_fallback: Jpeg2000FallbackStats::default(),
         });
     }
 
@@ -983,9 +1177,22 @@ pub fn create_archive(
         .prefix("openarc")
         .tempdir_in(&staging_root)
         .with_context(|| format!("Failed to create temp dir in {}", staging_root.display()))?;
-    let media_dir = temp_dir.path().join("media");
-    let misc_dir = temp_dir.path().join("misc");
-    let raw_dir = temp_dir.path().join("raw");
+
+    let workspace_dir = if settings.output_folder_without_archive {
+        fs::create_dir_all(output_archive).with_context(|| {
+            format!(
+                "Failed to create output folder {}",
+                output_archive.display()
+            )
+        })?;
+        output_archive.to_path_buf()
+    } else {
+        temp_dir.path().to_path_buf()
+    };
+
+    let media_dir = workspace_dir.join("media");
+    let misc_dir = workspace_dir.join("misc");
+    let raw_dir = workspace_dir.join("raw");
     fs::create_dir_all(&media_dir)?;
     fs::create_dir_all(&misc_dir)?;
     let has_raw_files = work.iter().any(|w| w.class == FileClass::Raw);
@@ -997,6 +1204,7 @@ pub fn create_archive(
     let failed_mutex = Arc::new(parking_lot::Mutex::new(Vec::<FailedFile>::new()));
     let metadata_mutex = Arc::new(parking_lot::Mutex::new(ArchiveMetadata::default()));
     let staged_video_mutex = Arc::new(parking_lot::Mutex::new(Vec::<PathBuf>::new()));
+    let jpeg2000_stats_mutex = Arc::new(parking_lot::Mutex::new(Jpeg2000FallbackStats::default()));
     let completed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     let exe_dir = std::env::current_exe()
@@ -1007,9 +1215,13 @@ pub fn create_archive(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let video_stage_dir = exe_dir
-        .join("openarc_video_staging")
-        .join(stage_label.to_string());
+    let video_stage_dir = if settings.output_folder_without_archive {
+        workspace_dir.join("videos")
+    } else {
+        exe_dir
+            .join("openarc_video_staging")
+            .join(stage_label.to_string())
+    };
     fs::create_dir_all(&video_stage_dir)?;
 
     let (tx, rx) = flume::unbounded::<WorkDone>();
@@ -1028,27 +1240,38 @@ pub fn create_archive(
     });
 
     let settings_clone = settings.clone();
-    // Use bpg-rs memory estimation to size scheduler backpressure.
-    // Assume a "typical" 24 MPix image (6000×4000) for baseline in-flight sizing.
-    let per_image_peak = estimate_encode_peak(6000, 4000, 8, settings.bpg_chroma_format, settings.bpg_encoder_type);
-    let system_info = sysinfo::System::new();
+    // Size scheduler backpressure from a "typical" 24 MPix image (6000×4000).
+    let mut system_info = sysinfo::System::new();
+    system_info.refresh_memory();
     let total_ram = system_info.total_memory();
-    // Reserve 25% of RAM for OS + other processes, use up to 75% for encodes.
-    let ram_budget = (total_ram.saturating_mul(3) / 4).max(512 * 1024 * 1024);
+    let available_ram = system_info.available_memory();
+    // Budget from *currently available* RAM, not total. Other applications may
+    // already hold a large share, and the C/x265 backend allocates aggressively;
+    // committing 75% of total RAM regardless of what is free is what pushed the
+    // machine into the OOM killer mid-batch. Use up to 70% of what is actually
+    // free, capped at 75% of total, with a floor so we always make progress.
+    let ram_budget = available_ram
+        .saturating_mul(7)
+        .saturating_div(10)
+        .min(total_ram.saturating_mul(3) / 4)
+        .max(512 * 1024 * 1024);
     let base_threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
     let optimal_threads = get_optimal_thread_count(base_threads);
-    let image_heavy_capacity = safe_encode_concurrency(6000, 4000, 8, settings.bpg_chroma_format, settings.bpg_encoder_type, ram_budget)
-        .max(1);
-    let typical_image_reservation = per_image_peak
-        .saturating_mul(2)
-        .max(128 * 1024 * 1024);
-    let memory_bounded_in_flight = if per_image_peak > 0 {
-        (ram_budget / typical_image_reservation.max(1)).clamp(1, usize::MAX as u64) as usize
-    } else {
-        optimal_threads.max(1)
-    };
+    // Key concurrency off the preset the encoder will actually run (see
+    // `preset_peak_encoder_type`), not the reported encoder_type.
+    let peak_encoder_type =
+        preset_peak_encoder_type(settings.bpg_compression_level, settings.bpg_encoder_type);
+    let image_heavy_capacity = safe_encode_concurrency(
+        6000,
+        4000,
+        8,
+        settings.bpg_chroma_format,
+        peak_encoder_type,
+        ram_budget,
+    )
+    .max(1);
     let memory_limiter = Arc::new(MemoryBudgetLimiter::new(ram_budget));
     let pipeline_runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(optimal_threads)
@@ -1067,10 +1290,10 @@ pub fn create_archive(
     pipeline_runtime.block_on(async {
         let mut tasks = JoinSet::new();
         let mut next_item = 0usize;
-        let max_in_flight = optimal_threads
-            .max(1)
-            .min(memory_bounded_in_flight.max(1))
-            .min(image_heavy_capacity.saturating_mul(3).max(1));
+        let cpu_bounded_in_flight = optimal_threads.div_ceil(2).max(1);
+        let max_in_flight = cpu_bounded_in_flight
+            .min(image_heavy_capacity.saturating_mul(2).max(1))
+            .max(1);
 
         loop {
             while next_item < work.len() && tasks.len() < max_in_flight {
@@ -1087,6 +1310,7 @@ pub fn create_archive(
                 let failed_mutex = failed_mutex.clone();
                 let metadata_mutex = metadata_mutex.clone();
                 let staged_video_mutex = staged_video_mutex.clone();
+                let jpeg2000_stats_mutex = jpeg2000_stats_mutex.clone();
                 let completed_count = completed_count.clone();
                 let tx = tx.clone();
 
@@ -1095,14 +1319,25 @@ pub fn create_archive(
         let file_name = safe_file_name(input);
 
         let worker_result: Result<()> = (|| {
-        // Check memory usage before processing each item (throttled to 1 Hz per thread)
-        let memory_usage = MEM.with(|m| m.borrow_mut().usage());
-        if memory_usage > 0.90 { // 90% threshold
-            // More significant pause
-            std::thread::sleep(std::time::Duration::from_millis(500));
-        } else if memory_usage > 0.85 { // 85% threshold
-            // Brief pause to allow garbage collection
-            std::thread::sleep(std::time::Duration::from_millis(100));
+        // Backpressure safety valve (the budget limiter below is the primary
+        // gate). If the machine is critically low on memory, wait for in-flight
+        // encodes to release before starting another, rather than piling on and
+        // tripping the OOM killer. Bounded so we never deadlock if memory stays
+        // high for reasons outside our control.
+        {
+            let cap = std::time::Duration::from_secs(30);
+            let mut waited = std::time::Duration::ZERO;
+            loop {
+                let memory_usage = MEM.with(|m| m.borrow_mut().usage());
+                if memory_usage <= 0.90 || waited >= cap {
+                    if memory_usage > 0.85 {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                waited += std::time::Duration::from_millis(250);
+            }
         }
 
         let original_size = fs::metadata(input)?.len();
@@ -1125,6 +1360,7 @@ pub fn create_archive(
                     .unwrap_or("unknown")
                     .to_lowercase();
                 let encoded_rel = normalize_archive_rel_path(&source_rel.with_extension("bpg").to_string_lossy());
+                let jpeg2000_rel = normalize_archive_rel_path(&source_rel.with_extension("jp2").to_string_lossy());
 
                 if !settings_clone.reencode_media {
                     // Archive image bytes as-is (no transcoding).
@@ -1135,6 +1371,53 @@ pub fn create_archive(
                     (out, rel_path, true, Some(original_format), FileClass::Image)
                 } else {
                 let out = stage_at(&media_dir, &encoded_rel)?;
+                let jpeg2000_out = stage_at(&media_dir, &jpeg2000_rel)?;
+
+                // Resume support: when writing a folder layout (no final
+                // archive), a previously interrupted run may already have
+                // produced this image's output directly in the destination.
+                // Reuse it instead of re-encoding so a killed job can be
+                // restarted by simply pointing at the same output folder.
+                // (Archive mode stages into a fresh temp dir each run, so there
+                // is nothing to resume from there.)
+                if settings_clone.output_folder_without_archive {
+                    let prior = if fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false) {
+                        Some((out.clone(), encoded_rel.clone()))
+                    } else if fs::metadata(&jpeg2000_out).map(|m| m.len() > 0).unwrap_or(false) {
+                        Some((jpeg2000_out.clone(), jpeg2000_rel.clone()))
+                    } else {
+                        None
+                    };
+                    if let Some((prior_out, prior_rel)) = prior {
+                        {
+                            let mut meta = metadata_mutex.lock();
+                            meta.images.push(ImageMetadata {
+                                original_filename: file_name.clone(),
+                                original_format,
+                                original_extension: original_ext.clone(),
+                                bpg_filename: prior_rel.clone(),
+                            });
+                        }
+                        let rel_path = format!("media/{}", prior_rel);
+                        let output_size = fs::metadata(&prior_out)?.len();
+                        let sha = hash::sha256_file_hex(&prior_out).ok();
+                        {
+                            let mut guard = processed_mutex.lock();
+                            guard.push(ProcessedFile {
+                                original_path: input.clone(),
+                                class: FileClass::Image,
+                                archived_rel_path: rel_path,
+                                output_path: prior_out,
+                                original_size,
+                                output_size,
+                                sha256: sha,
+                                skipped_processing: true,
+                                original_format: Some(original_format),
+                            });
+                        }
+                        return Ok(());
+                    }
+                }
 
                 // Reserve memory budget per image based on dimensions/format.
                 let image_reservation = estimate_image_reservation_bytes(
@@ -1161,11 +1444,11 @@ pub fn create_archive(
                 if original_format == OriginalImageFormat::Heic {
                     use codecs::heic::{matrix_coeffs_to_bpg_color_space, HeicChromaFormat, HeicCodec};
                     use codecs::bpg::NativeBPGEncoder;
-                    
+
                     let mut codec = HeicCodec::new()?;
                     let decoded = codec.decode_file_yuv(input)
                         .with_context(|| format!("Failed to decode HEIC file: {}", input.display()))?;
-                    
+
                     let bpg_format = match decoded.chroma_format {
                         HeicChromaFormat::Monochrome => codecs::bpg::BPGImageFormat::Gray,
                         HeicChromaFormat::YCbCr420 => codecs::bpg::BPGImageFormat::YCbCr420P,
@@ -1190,7 +1473,7 @@ pub fn create_archive(
                     cfg.limited_range = if decoded.full_range { 0 } else { 1 };
                     encoder.set_config(&cfg)
                         .context("Failed to apply BPG config")?;
-                    
+
                     let bpg_data = encoder.encode_from_planar_u16(
                         &decoded.y_plane,
                         &decoded.cb_plane,
@@ -1202,10 +1485,23 @@ pub fn create_archive(
                         decoded.cr_stride,
                         bpg_format,
                     ).with_context(|| format!("Failed to encode HEIC to BPG via planar YUV: {}", input.display()))?;
-                    
+
                     fs::write(&out, &bpg_data)
                         .with_context(|| format!("Failed to write BPG file: {}", out.display()))?;
-                    
+                    drop(bpg_data);
+
+                    let (selected_out, selected_encoded_rel) = keep_smaller_jpeg2000_if_flagged(
+                        input,
+                        original_format,
+                        out,
+                        encoded_rel.clone(),
+                        jpeg2000_out,
+                        jpeg2000_rel.clone(),
+                        decoded.width,
+                        decoded.height,
+                        &jpeg2000_stats_mutex,
+                    )?;
+
                     // Record metadata
                     {
                         let mut meta = metadata_mutex.lock();
@@ -1213,14 +1509,14 @@ pub fn create_archive(
                             original_filename: file_name.clone(),
                             original_format,
                             original_extension: original_ext.clone(),
-                            bpg_filename: encoded_rel.clone(),
+                            bpg_filename: selected_encoded_rel.clone(),
                         });
                     }
-                    
-                    let rel_path = format!("media/{}", encoded_rel);
-                    
+
+                    let rel_path = format!("media/{}", selected_encoded_rel);
+
                     // HEIC processing complete - return from match arm
-                    (out, rel_path, false, Some(original_format), FileClass::Image)
+                    (selected_out, rel_path, false, Some(original_format), FileClass::Image)
                 } else if let Some(ycbcr) = jpeg_ycbcr {
                     // JPEG: direct YCbCr 4:2:0 → BPG — no colorspace conversion.
                     use codecs::bpg::NativeBPGEncoder;
@@ -1253,6 +1549,18 @@ pub fn create_archive(
 
                     drop(bpg_data);
 
+                    let (selected_out, selected_encoded_rel) = keep_smaller_jpeg2000_if_flagged(
+                        input,
+                        original_format,
+                        out,
+                        encoded_rel.clone(),
+                        jpeg2000_out,
+                        jpeg2000_rel.clone(),
+                        ycbcr.width,
+                        ycbcr.height,
+                        &jpeg2000_stats_mutex,
+                    )?;
+
                     // Record metadata
                     {
                         let mut meta = metadata_mutex.lock();
@@ -1260,13 +1568,13 @@ pub fn create_archive(
                             original_filename: file_name.clone(),
                             original_format,
                             original_extension: original_ext.clone(),
-                            bpg_filename: encoded_rel.clone(),
+                            bpg_filename: selected_encoded_rel.clone(),
                         });
                     }
 
-                    let rel_path = format!("media/{}", encoded_rel);
+                    let rel_path = format!("media/{}", selected_encoded_rel);
 
-                    (out, rel_path, false, Some(original_format), FileClass::Image)
+                    (selected_out, rel_path, false, Some(original_format), FileClass::Image)
                 } else {
                     // Generic RGB path for all other formats (PNG, TIFF, BMP, WebP, etc.)
                     // Also used as fallback for JPEGs where YCbCr decode failed.
@@ -1381,6 +1689,18 @@ pub fn create_archive(
                 fs::write(&out, &bpg_data)
                     .with_context(|| format!("Failed to write BPG file: {}", out.display()))?;
 
+                let (selected_out, selected_encoded_rel) = keep_smaller_jpeg2000_if_flagged(
+                    input,
+                    original_format,
+                    out,
+                    encoded_rel.clone(),
+                    jpeg2000_out,
+                    jpeg2000_rel.clone(),
+                    width,
+                    height,
+                    &jpeg2000_stats_mutex,
+                )?;
+
                 // Record metadata for extraction
                 {
                     let mut meta = metadata_mutex.lock();
@@ -1388,7 +1708,7 @@ pub fn create_archive(
                         original_filename: file_name.clone(),
                         original_format,
                         original_extension: original_ext,
-                        bpg_filename: encoded_rel.clone(),
+                        bpg_filename: selected_encoded_rel.clone(),
                     });
                 }
 
@@ -1401,8 +1721,8 @@ pub fn create_archive(
                     std::thread::yield_now();
                 }
 
-                let rel_path = format!("media/{}", encoded_rel);
-                (out, rel_path, false, Some(original_format), FileClass::Image)
+                let rel_path = format!("media/{}", selected_encoded_rel);
+                (selected_out, rel_path, false, Some(original_format), FileClass::Image)
                 }  // End of else block for non-HEIC image processing
                 }
             }
@@ -1525,76 +1845,164 @@ pub fn create_archive(
         .into_inner();
     staged_uncompressed_videos.sort();
 
+    let jpeg2000_fallback = Arc::try_unwrap(jpeg2000_stats_mutex)
+        .map_err(|_| anyhow!("Failed to unwrap JPEG 2000 fallback stats"))?
+        .into_inner();
+
     let metadata = Arc::try_unwrap(metadata_mutex)
         .map_err(|_| anyhow!("Failed to unwrap metadata"))?
         .into_inner();
 
     // Write metadata JSON
     emit_progress(&progress, work_total, progress_total, "Writing metadata...");
-    let metadata_path = temp_dir.path().join("OPENARC_METADATA.json");
+    let metadata_path = workspace_dir.join("OPENARC_METADATA.json");
     let metadata_json = serde_json::to_string_pretty(&metadata)?;
     fs::write(&metadata_path, &metadata_json)?;
 
-    emit_progress(&progress, work_total + 1, progress_total, "Bundling misc files...");
-    let misc_arc_path = temp_dir.path().join("misc.arc");
-    create_lzma2_bundle(&processed.iter().filter(|p| p.class == FileClass::Misc).collect::<Vec<_>>(), &misc_arc_path, settings.misc_compression_level)?;
+    emit_progress(
+        &progress,
+        work_total + 1,
+        progress_total,
+        "Bundling misc files...",
+    );
+    let misc_arc_path = workspace_dir.join("misc.arc");
+    create_lzma2_bundle(
+        &processed
+            .iter()
+            .filter(|p| p.class == FileClass::Misc)
+            .collect::<Vec<_>>(),
+        &misc_arc_path,
+        settings.misc_compression_level,
+    )?;
 
-    emit_progress(&progress, work_total + 2, progress_total, "Bundling RAW files...");
-    let raw_arc_path = temp_dir.path().join("raw.arc");
-    create_lzma2_bundle(&processed.iter().filter(|p| p.class == FileClass::Raw).collect::<Vec<_>>(), &raw_arc_path, 9)?;
+    emit_progress(
+        &progress,
+        work_total + 2,
+        progress_total,
+        "Bundling RAW files...",
+    );
+    let raw_arc_path = workspace_dir.join("raw.arc");
+    create_lzma2_bundle(
+        &processed
+            .iter()
+            .filter(|p| p.class == FileClass::Raw)
+            .collect::<Vec<_>>(),
+        &raw_arc_path,
+        9,
+    )?;
 
-    emit_progress(&progress, work_total + 3, progress_total, "Writing manifest...");
-    let manifest_path = temp_dir.path().join("MANIFEST.txt");
+    emit_progress(
+        &progress,
+        work_total + 3,
+        progress_total,
+        "Writing manifest...",
+    );
+    let manifest_path = workspace_dir.join("MANIFEST.txt");
     write_manifest(&processed, &skipped_by_catalog, &manifest_path)?;
 
-    let hashes_path = temp_dir.path().join("HASHES.sha256");
-    write_hashes(&processed, &hashes_path, &misc_arc_path, &raw_arc_path, &manifest_path)?;
+    let hashes_path = workspace_dir.join("HASHES.sha256");
+    write_hashes(
+        &processed,
+        &hashes_path,
+        &misc_arc_path,
+        &raw_arc_path,
+        &manifest_path,
+    )?;
 
     if misc_dir.exists() {
-        fs::remove_dir_all(&misc_dir)
-            .with_context(|| format!("Failed to remove staged misc directory {}", misc_dir.display()))?;
+        fs::remove_dir_all(&misc_dir).with_context(|| {
+            format!(
+                "Failed to remove staged misc directory {}",
+                misc_dir.display()
+            )
+        })?;
     }
     if raw_dir.exists() {
-        fs::remove_dir_all(&raw_dir)
-            .with_context(|| format!("Failed to remove staged raw directory {}", raw_dir.display()))?;
+        fs::remove_dir_all(&raw_dir).with_context(|| {
+            format!(
+                "Failed to remove staged raw directory {}",
+                raw_dir.display()
+            )
+        })?;
     }
 
-    emit_progress(&progress, work_total + 4, progress_total, "Compressing final archive...");
-    let output_parent = output_archive.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(output_parent)?;
-    let temp_output = tempfile::Builder::new()
-        .prefix("openarc-")
-        .suffix(".tmp")
-        .tempfile_in(output_parent)
-        .with_context(|| format!("Failed to create temp archive in {}", output_parent.display()))?;
-    let temp_output_path = temp_output.path().to_path_buf();
-    drop(temp_output);
+    if settings.output_folder_without_archive {
+        emit_progress(
+            &progress,
+            work_total + 4,
+            progress_total,
+            "Finalizing output folder...",
+        );
+    } else {
+        emit_progress(
+            &progress,
+            work_total + 4,
+            progress_total,
+            "Compressing final archive...",
+        );
+        let output_parent = output_archive.parent().unwrap_or_else(|| Path::new("."));
+        fs::create_dir_all(output_parent)?;
+        let temp_output = tempfile::Builder::new()
+            .prefix("openarc-")
+            .suffix(".tmp")
+            .tempfile_in(output_parent)
+            .with_context(|| {
+                format!(
+                    "Failed to create temp archive in {}",
+                    output_parent.display()
+                )
+            })?;
+        let temp_output_path = temp_output.path().to_path_buf();
+        drop(temp_output);
 
-    arcmax::tar_zst::archive_dir_tar_zst(temp_dir.path(), &temp_output_path, settings.compression_level)
+        arcmax::tar_zst::archive_dir_tar_zst(
+            &workspace_dir,
+            &temp_output_path,
+            settings.compression_level,
+        )
         .with_context(|| format!("Failed to create archive at {}", output_archive.display()))?;
 
-    if output_archive.exists() {
-        fs::remove_file(output_archive)
-            .with_context(|| format!("Failed to replace existing archive {}", output_archive.display()))?;
+        if output_archive.exists() {
+            fs::remove_file(output_archive).with_context(|| {
+                format!(
+                    "Failed to replace existing archive {}",
+                    output_archive.display()
+                )
+            })?;
+        }
+        fs::rename(&temp_output_path, output_archive)
+            .with_context(|| format!("Failed to finalize archive {}", output_archive.display()))?;
     }
-    fs::rename(&temp_output_path, output_archive)
-        .with_context(|| format!("Failed to finalize archive {}", output_archive.display()))?;
 
-    emit_progress(&progress, work_total + 5, progress_total, "Updating catalog/tracking...");
+    emit_progress(
+        &progress,
+        work_total + 5,
+        progress_total,
+        "Updating catalog/tracking...",
+    );
     // Record archive information in the database
     if let Some(ref mut cat) = catalog {
         record_catalog_entries(cat, &processed, output_archive)?;
 
         // Also record archive tracking information
-        let archive_metadata = std::fs::metadata(output_archive)
-            .with_context(|| format!("Failed to get metadata for archive: {}", output_archive.display()))?;
+        let archive_metadata = std::fs::metadata(output_archive).with_context(|| {
+            format!(
+                "Failed to get metadata for output: {}",
+                output_archive.display()
+            )
+        })?;
 
         let archive_record = ArchiveRecord {
             id: None,
             archive_path: output_archive.to_string_lossy().to_string(),
-            archive_size: archive_metadata.len(),
+            archive_size: if archive_metadata.is_file() {
+                archive_metadata.len()
+            } else {
+                0
+            },
             creation_date: 0, // Will be set by the database
-            original_location: output_archive.parent()
+            original_location: output_archive
+                .parent()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|| ".".to_string()),
             destination_location: None, // Will be set later when moved
@@ -1606,16 +2014,19 @@ pub fn create_archive(
         if let Ok(mut tracker) = ArchiveTracker::new(cat.get_connection_mut()) {
             if let Ok(archive_id) = tracker.record_archive(archive_record) {
                 // Record the files in this archive
-                let file_mappings: Vec<ArchiveFileMapping> = processed.iter().map(|p| {
-                    ArchiveFileMapping {
-                        id: None,
-                        archive_id,
-                        file_path: p.archived_rel_path.clone(),
-                        original_path: p.original_path.to_string_lossy().to_string(),
-                        file_size: p.original_size,
-                        archived_at: 0, // Will be set by the database
-                    }
-                }).collect();
+                let file_mappings: Vec<ArchiveFileMapping> = processed
+                    .iter()
+                    .map(|p| {
+                        ArchiveFileMapping {
+                            id: None,
+                            archive_id,
+                            file_path: p.archived_rel_path.clone(),
+                            original_path: p.original_path.to_string_lossy().to_string(),
+                            file_size: p.original_size,
+                            archived_at: 0, // Will be set by the database
+                        }
+                    })
+                    .collect();
 
                 if let Err(e) = tracker.record_archive_files(archive_id, file_mappings) {
                     eprintln!("Warning: Failed to record archive files: {}", e);
@@ -1641,41 +2052,44 @@ pub fn create_archive(
     // Phase 3 (tracking): Batch record all processed files, generate & save log
     let tracking_report = if let Some(ref tracker) = tracker {
         let now = crate::file_tracker::iso8601_now();
-        let archive_name = output_archive.file_name()
+        let archive_name = output_archive
+            .file_name()
             .and_then(|n| n.to_str())
             .map(|s| s.to_string());
         let archive_hash = hash::sha256_file_hex(output_archive).ok();
 
-        let records: Vec<ProcessedFileRecord> = processed.iter().map(|p| {
-            let file_hash = tracking_hashes
-                .get(&p.original_path)
-                .cloned()
-                .unwrap_or_default();
-            ProcessedFileRecord {
-                file_name: p.original_path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown")
-                    .to_string(),
-                file_hash,
-                file_size: p.original_size as i64,
-                processed_at: now.clone(),
-                run_id: tracker.run_id().to_string(),
-                archive_name: archive_name.clone(),
-                archive_hash: archive_hash.clone(),
-                output_path: p.output_path.to_string_lossy().to_string(),
-                processing_mode: "archive".to_string(),
-            }
-        }).collect();
+        let records: Vec<ProcessedFileRecord> = processed
+            .iter()
+            .map(|p| {
+                let file_hash = tracking_hashes
+                    .get(&p.original_path)
+                    .cloned()
+                    .unwrap_or_default();
+                ProcessedFileRecord {
+                    file_name: p
+                        .original_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("unknown")
+                        .to_string(),
+                    file_hash,
+                    file_size: p.original_size as i64,
+                    processed_at: now.clone(),
+                    run_id: tracker.run_id().to_string(),
+                    archive_name: archive_name.clone(),
+                    archive_hash: archive_hash.clone(),
+                    output_path: p.output_path.to_string_lossy().to_string(),
+                    processing_mode: "archive".to_string(),
+                }
+            })
+            .collect();
 
         if let Err(e) = tracker.record_batch(&records) {
             eprintln!("Warning: Failed to record tracking data: {}", e);
         }
 
-        let log_content = tracker.generate_run_log(
-            &tracking_duplicates,
-            processed.len(),
-            "archive",
-        );
+        let log_content =
+            tracker.generate_run_log(&tracking_duplicates, processed.len(), "archive");
         if let Err(e) = tracker.write_run_log(&log_content) {
             eprintln!("Warning: Failed to write run log: {}", e);
         }
@@ -1699,6 +2113,7 @@ pub fn create_archive(
         dedup_groups,
         tracking_report,
         staged_uncompressed_videos,
+        jpeg2000_fallback,
     })
 }
 
@@ -1744,13 +2159,18 @@ fn create_lzma2_bundle(files: &[&ProcessedFile], output_arc: &Path, level: i32) 
         .with_context(|| format!("Failed to create {}", output_arc.display()))?;
     let mut writer = std::io::BufWriter::new(f);
     let mut tar_reader = std::io::BufReader::new(tar_tmp.reopen()?);
-    codec.compress(&mut tar_reader, &mut writer)
+    codec
+        .compress(&mut tar_reader, &mut writer)
         .with_context(|| format!("LZMA2 compression failed for {}", output_arc.display()))?;
 
     Ok(())
 }
 
-fn write_manifest(processed: &[ProcessedFile], skipped: &[PathBuf], manifest_path: &Path) -> Result<()> {
+fn write_manifest(
+    processed: &[ProcessedFile],
+    skipped: &[PathBuf],
+    manifest_path: &Path,
+) -> Result<()> {
     let mut f = std::fs::File::create(manifest_path)?;
 
     writeln!(f, "OpenArc Archive Manifest")?;
@@ -1762,7 +2182,8 @@ fn write_manifest(processed: &[ProcessedFile], skipped: &[PathBuf], manifest_pat
     writeln!(f)?;
 
     for p in processed {
-        let format_info = p.original_format
+        let format_info = p
+            .original_format
             .map(|f| format!(" [orig: {:?}]", f))
             .unwrap_or_default();
         writeln!(
@@ -1772,7 +2193,11 @@ fn write_manifest(processed: &[ProcessedFile], skipped: &[PathBuf], manifest_pat
             p.archived_rel_path,
             p.original_size,
             p.output_size,
-            if p.skipped_processing { " [skipped_processing]" } else { "" },
+            if p.skipped_processing {
+                " [skipped_processing]"
+            } else {
+                ""
+            },
             format_info
         )?;
     }
@@ -1814,7 +2239,11 @@ fn write_hashes(
     Ok(())
 }
 
-fn record_catalog_entries(catalog: &mut BackupCatalog, processed: &[ProcessedFile], output_archive: &Path) -> Result<()> {
+fn record_catalog_entries(
+    catalog: &mut BackupCatalog,
+    processed: &[ProcessedFile],
+    output_archive: &Path,
+) -> Result<()> {
     let mut entries = Vec::new();
     let archive_id = output_archive
         .file_name()
@@ -1905,8 +2334,12 @@ pub fn extract_archive_with_decoding(
         return Err(anyhow!("Archive not found: {}", archive_path.display()));
     }
 
-    fs::create_dir_all(output_dir)
-        .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
+    fs::create_dir_all(output_dir).with_context(|| {
+        format!(
+            "Failed to create output directory: {}",
+            output_dir.display()
+        )
+    })?;
 
     if let Some(ref cb) = progress {
         cb(0, 1, "Extracting archive...");
@@ -1917,8 +2350,12 @@ pub fn extract_archive_with_decoding(
 
     let hashes_file = output_dir.join("HASHES.sha256");
     if hashes_file.exists() {
-        hash::verify_dir_against_hashes(output_dir, &hashes_file)
-            .with_context(|| format!("Archive checksum verification failed for {}", archive_path.display()))?;
+        hash::verify_dir_against_hashes(output_dir, &hashes_file).with_context(|| {
+            format!(
+                "Archive checksum verification failed for {}",
+                archive_path.display()
+            )
+        })?;
     }
 
     let mut decoded_count = 0usize;
@@ -1983,11 +2420,7 @@ pub fn extract_archive_with_decoding(
                         }
                     }
                     Err(e) => {
-                        warn!(
-                            "decode_failed file={} error={}",
-                            img_meta.bpg_filename,
-                            e
-                        );
+                        warn!("decode_failed file={} error={}", img_meta.bpg_filename, e);
                     }
                 }
             }
@@ -2028,14 +2461,22 @@ fn extract_lzma2_bundle(archive_path: &Path, output_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    fs::create_dir_all(output_dir)
-        .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
+    fs::create_dir_all(output_dir).with_context(|| {
+        format!(
+            "Failed to create output directory: {}",
+            output_dir.display()
+        )
+    })?;
 
     let f = fs::File::open(archive_path)
         .with_context(|| format!("Failed to open {}", archive_path.display()))?;
     let mut reader = std::io::BufReader::new(f);
 
-    let opts = LzmaOptions { lzma2: true, dict_size: 128 * 1024 * 1024, ..Default::default() };
+    let opts = LzmaOptions {
+        lzma2: true,
+        dict_size: 128 * 1024 * 1024,
+        ..Default::default()
+    };
     let mut codec = LzmaCodec::new(opts);
     let tar_tmp = tempfile::Builder::new()
         .prefix("openarc-extract-")
@@ -2043,13 +2484,15 @@ fn extract_lzma2_bundle(archive_path: &Path, output_dir: &Path) -> Result<()> {
         .tempfile_in(output_dir)
         .with_context(|| format!("Failed to create temp tar in {}", output_dir.display()))?;
     let mut tar_writer = std::io::BufWriter::new(tar_tmp.reopen()?);
-    codec.decompress(&mut reader, &mut tar_writer)
+    codec
+        .decompress(&mut reader, &mut tar_writer)
         .with_context(|| format!("LZMA2 decompression failed for {}", archive_path.display()))?;
     tar_writer.flush()?;
 
     let tar_reader = std::io::BufReader::new(tar_tmp.reopen()?);
     let mut archive = tar::Archive::new(tar_reader);
-    archive.unpack(output_dir)
+    archive
+        .unpack(output_dir)
         .with_context(|| format!("Failed to unpack {}", archive_path.display()))?;
 
     let _ = fs::remove_file(archive_path);
@@ -2146,7 +2589,11 @@ pub fn append_external_video_bundle(
     if manifest_path.exists() {
         let mut f = fs::OpenOptions::new().append(true).open(&manifest_path)?;
         writeln!(f, "")?;
-        writeln!(f, "Externally encoded videos bundled: {}", video_files.len())?;
+        writeln!(
+            f,
+            "Externally encoded videos bundled: {}",
+            video_files.len()
+        )?;
         writeln!(f, "Bundle: videos.arc")?;
     }
 
@@ -2177,31 +2624,74 @@ fn decode_bpg_to_original(
     _original_filename: &str,
     settings: &ExtractionSettings,
 ) -> Result<PathBuf> {
-    let stem = bpg_path.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
+    let stem = bpg_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("image");
     let parent = bpg_path.parent().unwrap_or(Path::new("."));
+    let is_jpeg2000 = bpg_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| {
+            matches!(
+                s.to_ascii_lowercase().as_str(),
+                "jp2" | "j2k" | "j2c" | "jpc"
+            )
+        })
+        .unwrap_or(false);
 
     match original_format {
         OriginalImageFormat::Jpeg => {
             // BPG → JPEG directly
             let output_path = parent.join(format!("{}.jpg", stem));
-            decode_bpg_to_jpeg(bpg_path, &output_path, settings.jpeg_quality)?;
+            if is_jpeg2000 {
+                decode_jpeg2000_to_jpeg(bpg_path, &output_path, settings.jpeg_quality)?;
+            } else {
+                decode_bpg_to_jpeg(bpg_path, &output_path, settings.jpeg_quality)?;
+            }
             Ok(output_path)
         }
         OriginalImageFormat::Heic => {
             // BPG → PNG (HEIC encoding not yet implemented in pure Rust decoder)
             // Note: Decoding works perfectly, but encoding requires external tools
             let output_path = parent.join(format!("{}.png", stem));
-            decode_bpg_to_png(bpg_path, &output_path)?;
+            if is_jpeg2000 {
+                decode_jpeg2000_to_png(bpg_path, &output_path)?;
+            } else {
+                decode_bpg_to_png(bpg_path, &output_path)?;
+            }
             Ok(output_path)
         }
-        OriginalImageFormat::Raw | OriginalImageFormat::Png |
-        OriginalImageFormat::Tiff | OriginalImageFormat::Bmp | OriginalImageFormat::WebP => {
+        OriginalImageFormat::Raw
+        | OriginalImageFormat::Png
+        | OriginalImageFormat::Tiff
+        | OriginalImageFormat::Bmp
+        | OriginalImageFormat::WebP => {
             // BPG → PNG (RAW cannot be recreated, others convert to PNG for compatibility)
             let output_path = parent.join(format!("{}.png", stem));
-            decode_bpg_to_png(bpg_path, &output_path)?;
+            if is_jpeg2000 {
+                decode_jpeg2000_to_png(bpg_path, &output_path)?;
+            } else {
+                decode_bpg_to_png(bpg_path, &output_path)?;
+            }
             Ok(output_path)
         }
     }
+}
+
+fn decode_jpeg2000_to_png(jp2_path: &Path, output_path: &Path) -> Result<()> {
+    let img = codecs::jpeg2000::decode_jpeg2000_file(jp2_path)?;
+    img.save(output_path)?;
+    Ok(())
+}
+
+fn decode_jpeg2000_to_jpeg(jp2_path: &Path, output_path: &Path, quality: u8) -> Result<()> {
+    let img = codecs::jpeg2000::decode_jpeg2000_file(jp2_path)?;
+    let rgb = img.to_rgb8();
+    let mut file = fs::File::create(output_path)?;
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality);
+    rgb.write_with_encoder(encoder)?;
+    Ok(())
 }
 
 /// Decode BPG to PNG
@@ -2229,7 +2719,8 @@ fn decode_bpg_to_jpeg(bpg_path: &Path, output_path: &Path, quality: u8) -> Resul
     match codecs::bpg::decode_file(&bpg_path.to_string_lossy()) {
         Ok((data, width, height, _format)) => {
             // Convert RGBA to RGB
-            let rgb_data: Vec<u8> = data.chunks(4)
+            let rgb_data: Vec<u8> = data
+                .chunks(4)
                 .flat_map(|rgba| [rgba[0], rgba[1], rgba[2]])
                 .collect();
 
@@ -2249,7 +2740,8 @@ fn decode_bpg_to_jpeg(bpg_path: &Path, output_path: &Path, quality: u8) -> Resul
                 let img = image::open(&temp_png)?;
                 let rgb = img.to_rgb8();
                 let mut file = fs::File::create(output_path)?;
-                let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality);
+                let encoder =
+                    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality);
                 rgb.write_with_encoder(encoder)?;
                 let _ = fs::remove_file(&temp_png);
                 Ok(())

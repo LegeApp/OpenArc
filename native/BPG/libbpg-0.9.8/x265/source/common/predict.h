@@ -1,7 +1,8 @@
 /*****************************************************************************
-* Copyright (C) 2013 x265 project
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Authors: Deepthi Nandakumar <deepthi@multicorewareinc.com>
+*          Min Chen <chenm003@163.com>
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -72,7 +73,6 @@ public:
     };
 
     ShortYuv  m_predShortYuv[2]; /* temporary storage for weighted prediction */
-    int16_t*  m_immedVals;
 
     // Unfiltered/filtered neighbours of the current partition.
     pixel     intraNeighbourBuf[2][258];

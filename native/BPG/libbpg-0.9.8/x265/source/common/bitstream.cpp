@@ -1,5 +1,6 @@
 #include "common.h"
 #include "bitstream.h"
+#include "threading.h"
 
 using namespace X265_NS;
 
@@ -63,9 +64,9 @@ void Bitstream::write(uint32_t val, uint32_t numBits)
 
         switch (writeBytes)
         {
-        case 4: push_back(write_bits >> 24);
-        case 3: push_back(write_bits >> 16);
-        case 2: push_back(write_bits >> 8);
+        case 4: push_back(write_bits >> 24);  // fall-through
+        case 3: push_back(write_bits >> 16);  // fall-through
+        case 2: push_back(write_bits >> 8);   // fall-through
         case 1: push_back(write_bits);
         }
 
@@ -112,16 +113,13 @@ void Bitstream::writeByteAlignment()
 
 void SyntaxElementWriter::writeUvlc(uint32_t code)
 {
-    uint32_t length = 1;
-    uint32_t temp = ++code;
+    ++code;
 
-    X265_CHECK(temp, "writing -1 code, will cause infinite loop\n");
+    X265_CHECK(code, "writing -1 code, will cause infinite loop\n");
 
-    while (1 != temp)
-    {
-        temp >>= 1;
-        length += 2;
-    }
+    unsigned long idx;
+    CLZ(idx, code);
+    uint32_t length = (uint32_t)idx * 2 + 1;
 
     // Take care of cases where length > 32
     m_bitIf->write(0, length >> 1);

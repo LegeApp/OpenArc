@@ -244,11 +244,11 @@ dependencies = [
 
 [[package]]
 name = "bpg-bitstream"
-version = "0.1.0"
+version = "0.4.5"
 
 [[package]]
 name = "bpg-decode"
-version = "0.1.0"
+version = "0.4.5"
 dependencies = [
  "bpg-bitstream",
  "bpg-format",
@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "bpg-encode"
-version = "0.1.0"
+version = "0.4.5"
 dependencies = [
  "bpg-format",
  "bpg-hevc",
@@ -267,21 +267,21 @@ dependencies = [
 
 [[package]]
 name = "bpg-format"
-version = "0.1.0"
+version = "0.4.5"
 dependencies = [
  "bpg-bitstream",
 ]
 
 [[package]]
 name = "bpg-hevc"
-version = "0.1.0"
+version = "0.4.5"
 dependencies = [
  "bpg-bitstream",
 ]
 
 [[package]]
 name = "bpg-hevc-decode"
-version = "0.1.0"
+version = "0.4.5"
 dependencies = [
  "archmage",
  "safe_unaligned_simd",
@@ -289,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "bpg-image"
-version = "0.1.0"
+version = "0.4.5"
 
 [[package]]
 name = "brotli"
@@ -438,6 +438,7 @@ dependencies = [
  "bpg-decode",
  "bpg-encode",
  "bpg-image",
+ "cc",
  "image",
  "infer",
  "jp2lam",
@@ -1643,6 +1644,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
+name = "safe_arch"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f7caad094bd561859bcd467734a720c3c1f5d1f338995351fefe2190c45efed"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
 name = "safe_unaligned_simd"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1807,12 +1817,13 @@ dependencies = [
 
 [[package]]
 name = "still265"
-version = "0.1.0"
+version = "0.4.5"
 dependencies = [
  "bpg-bitstream",
  "bpg-encode",
  "bpg-hevc-decode",
  "bpg-image",
+ "wide",
 ]
 
 [[package]]
@@ -2180,6 +2191,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81995fafaaaf6ae47a7d0cc83c67caf92aeb7e5331650ae6ff856f7c0c60c459"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "wide"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfdfe6a32973f2d1b268b8895845a8a96cac2f0191e72c27cc929036060dbf89"
+dependencies = [
+ "bytemuck",
+ "safe_arch",
 ]
 
 [[package]]

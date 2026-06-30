@@ -89,7 +89,7 @@ impl FileTracker {
                 output_path TEXT,
                 processing_mode TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_file_hash ON processed_files(file_hash);"
+            CREATE INDEX IF NOT EXISTS idx_file_hash ON processed_files(file_hash);",
         )?;
 
         let run_id = generate_run_id();
@@ -104,7 +104,10 @@ impl FileTracker {
 
     /// Batch lookup: given a slice of SHA-256 hashes, return all previously
     /// processed records grouped by hash.
-    pub fn find_duplicates(&self, hashes: &[String]) -> Result<HashMap<String, Vec<DuplicateRecord>>> {
+    pub fn find_duplicates(
+        &self,
+        hashes: &[String],
+    ) -> Result<HashMap<String, Vec<DuplicateRecord>>> {
         if hashes.is_empty() {
             return Ok(HashMap::new());
         }
@@ -240,8 +243,10 @@ impl FileTracker {
             return;
         }
 
-        println!("\n\x1b[93m⚠ Duplicate files detected ({} hashes matched previous runs):\x1b[0m",
-            duplicates.len());
+        println!(
+            "\n\x1b[93m⚠ Duplicate files detected ({} hashes matched previous runs):\x1b[0m",
+            duplicates.len()
+        );
 
         let mut shown = 0;
         for (hash, records) in duplicates {
@@ -252,9 +257,11 @@ impl FileTracker {
             }
             let short_hash = &hash[..12.min(hash.len())];
             let names: Vec<&str> = records.iter().map(|r| r.file_name.as_str()).collect();
-            println!("  [{}...] previously processed as: {}",
+            println!(
+                "  [{}...] previously processed as: {}",
                 short_hash,
-                names.join(", "));
+                names.join(", ")
+            );
             shown += 1;
         }
         println!();
@@ -288,7 +295,10 @@ pub fn iso8601_now() -> String {
 
     // Days since 1970-01-01 to Y-M-D (simplified)
     let (year, month, day) = days_to_ymd(days);
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month, day, hours, minutes, seconds)
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hours, minutes, seconds
+    )
 }
 
 fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {

@@ -1,9 +1,10 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Deepthi Devaki <deepthidevaki@multicorewareinc.com>,
  *          Rajesh Paulraj <rajesh@multicorewareinc.com>
  *          Praveen Kumar Tiwari <praveen@multicorewareinc.com>
+ *          Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,8 +34,8 @@ using namespace X265_NS;
 #pragma warning(disable: 4127) // conditional expression is constant, typical for templated functions
 #endif
 
-namespace {
-// file local namespace
+namespace X265_NS {
+// x265 private namespace
 
 template<int width, int height>
 void filterPixelToShort_c(const pixel* src, intptr_t srcStride, int16_t* dst, intptr_t dstStride)
@@ -122,9 +123,8 @@ void interp_horiz_ps_c(const pixel* src, intptr_t srcStride, int16_t* dst, intpt
     const int16_t* coeff = (N == 4) ? g_chromaFilter[coeffIdx] : g_lumaFilter[coeffIdx];
     int headRoom = IF_INTERNAL_PREC - X265_DEPTH;
     int shift = IF_FILTER_PREC - headRoom;
-    int offset = -IF_INTERNAL_OFFS << shift;
+    int offset = (unsigned)-IF_INTERNAL_OFFS << shift;
     int blkheight = height;
-
     src -= N / 2 - 1;
 
     if (isRowExt)
@@ -208,10 +208,8 @@ void interp_vert_ps_c(const pixel* src, intptr_t srcStride, int16_t* dst, intptr
     const int16_t* c = (N == 4) ? g_chromaFilter[coeffIdx] : g_lumaFilter[coeffIdx];
     int headRoom = IF_INTERNAL_PREC - X265_DEPTH;
     int shift = IF_FILTER_PREC - headRoom;
-    int offset = -IF_INTERNAL_OFFS << shift;
-
+    int offset = (unsigned)-IF_INTERNAL_OFFS << shift;
     src -= (N / 2 - 1) * srcStride;
-
     int row, col;
     for (row = 0; row < height; row++)
     {
@@ -364,15 +362,11 @@ void filterVertical_sp_c(const int16_t* src, intptr_t srcStride, pixel* dst, int
 template<int N, int width, int height>
 void interp_hv_pp_c(const pixel* src, intptr_t srcStride, pixel* dst, intptr_t dstStride, int idxX, int idxY)
 {
-    short immedVals[(64 + 8) * (64 + 8)];
+    ALIGN_VAR_32(int16_t, immed[width * (height + N - 1)]);
 
-    interp_horiz_ps_c<N, width, height>(src, srcStride, immedVals, width, idxX, 1);
-    filterVertical_sp_c<N>(immedVals + 3 * width, width, dst, dstStride, width, height, idxY);
+    interp_horiz_ps_c<N, width, height>(src, srcStride, immed, width, idxX, 1);
+    filterVertical_sp_c<N>(immed + (N / 2 - 1) * width, width, dst, dstStride, width, height, idxY);
 }
-}
-
-namespace X265_NS {
-// x265 private namespace
 
 #define CHROMA_420(W, H) \
     p.chroma[X265_CSP_I420].pu[CHROMA_420_ ## W ## x ## H].filter_hpp = interp_horiz_pp_c<4, W, H>; \
@@ -381,7 +375,8 @@ namespace X265_NS {
     p.chroma[X265_CSP_I420].pu[CHROMA_420_ ## W ## x ## H].filter_vps = interp_vert_ps_c<4, W, H>;  \
     p.chroma[X265_CSP_I420].pu[CHROMA_420_ ## W ## x ## H].filter_vsp = interp_vert_sp_c<4, W, H>;  \
     p.chroma[X265_CSP_I420].pu[CHROMA_420_ ## W ## x ## H].filter_vss = interp_vert_ss_c<4, W, H>; \
-    p.chroma[X265_CSP_I420].pu[CHROMA_420_ ## W ## x ## H].p2s = filterPixelToShort_c<W, H>;
+    p.chroma[X265_CSP_I420].pu[CHROMA_420_ ## W ## x ## H].p2s[NONALIGNED] = filterPixelToShort_c<W, H>;\
+    p.chroma[X265_CSP_I420].pu[CHROMA_420_ ## W ## x ## H].p2s[ALIGNED] = filterPixelToShort_c<W, H>;
 
 #define CHROMA_422(W, H) \
     p.chroma[X265_CSP_I422].pu[CHROMA_422_ ## W ## x ## H].filter_hpp = interp_horiz_pp_c<4, W, H>; \
@@ -390,7 +385,8 @@ namespace X265_NS {
     p.chroma[X265_CSP_I422].pu[CHROMA_422_ ## W ## x ## H].filter_vps = interp_vert_ps_c<4, W, H>;  \
     p.chroma[X265_CSP_I422].pu[CHROMA_422_ ## W ## x ## H].filter_vsp = interp_vert_sp_c<4, W, H>;  \
     p.chroma[X265_CSP_I422].pu[CHROMA_422_ ## W ## x ## H].filter_vss = interp_vert_ss_c<4, W, H>; \
-    p.chroma[X265_CSP_I422].pu[CHROMA_422_ ## W ## x ## H].p2s = filterPixelToShort_c<W, H>;
+    p.chroma[X265_CSP_I422].pu[CHROMA_422_ ## W ## x ## H].p2s[NONALIGNED] = filterPixelToShort_c<W, H>;\
+    p.chroma[X265_CSP_I422].pu[CHROMA_422_ ## W ## x ## H].p2s[ALIGNED] = filterPixelToShort_c<W, H>;
 
 #define CHROMA_444(W, H) \
     p.chroma[X265_CSP_I444].pu[LUMA_ ## W ## x ## H].filter_hpp = interp_horiz_pp_c<4, W, H>; \
@@ -399,7 +395,8 @@ namespace X265_NS {
     p.chroma[X265_CSP_I444].pu[LUMA_ ## W ## x ## H].filter_vps = interp_vert_ps_c<4, W, H>;  \
     p.chroma[X265_CSP_I444].pu[LUMA_ ## W ## x ## H].filter_vsp = interp_vert_sp_c<4, W, H>;  \
     p.chroma[X265_CSP_I444].pu[LUMA_ ## W ## x ## H].filter_vss = interp_vert_ss_c<4, W, H>; \
-    p.chroma[X265_CSP_I444].pu[LUMA_ ## W ## x ## H].p2s = filterPixelToShort_c<W, H>;
+    p.chroma[X265_CSP_I444].pu[LUMA_ ## W ## x ## H].p2s[NONALIGNED] = filterPixelToShort_c<W, H>;\
+    p.chroma[X265_CSP_I444].pu[LUMA_ ## W ## x ## H].p2s[ALIGNED] = filterPixelToShort_c<W, H>;
 
 #define LUMA(W, H) \
     p.pu[LUMA_ ## W ## x ## H].luma_hpp     = interp_horiz_pp_c<8, W, H>; \
@@ -409,7 +406,8 @@ namespace X265_NS {
     p.pu[LUMA_ ## W ## x ## H].luma_vsp     = interp_vert_sp_c<8, W, H>;  \
     p.pu[LUMA_ ## W ## x ## H].luma_vss     = interp_vert_ss_c<8, W, H>;  \
     p.pu[LUMA_ ## W ## x ## H].luma_hvpp    = interp_hv_pp_c<8, W, H>; \
-    p.pu[LUMA_ ## W ## x ## H].convert_p2s = filterPixelToShort_c<W, H>;
+    p.pu[LUMA_ ## W ## x ## H].convert_p2s[NONALIGNED] = filterPixelToShort_c<W, H>;\
+    p.pu[LUMA_ ## W ## x ## H].convert_p2s[ALIGNED] = filterPixelToShort_c<W, H>;
 
 void setupFilterPrimitives_c(EncoderPrimitives& p)
 {

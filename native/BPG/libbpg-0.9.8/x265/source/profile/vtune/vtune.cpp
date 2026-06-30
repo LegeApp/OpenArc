@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2015 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -30,7 +30,6 @@ namespace {
 const char *stringNames[] =
 {
 #include "../cpuEvents.h"
-    ""
 };
 #undef CPU_EVENT
 
@@ -44,14 +43,15 @@ __itt_string_handle* taskHandle[NUM_VTUNE_TASKS];
 void vtuneInit()
 {
     domain = __itt_domain_create("x265");
-    for (size_t i = 0; i < sizeof(stringNames) / sizeof(const char *); i++)
+    size_t length = sizeof(stringNames) / sizeof(const char *);
+    for (size_t i = 0; i < length; i++)
         taskHandle[i] = __itt_string_handle_create(stringNames[i]);
 }
 
 void vtuneSetThreadName(const char *name, int id)
 {
     char threadname[128];
-    sprintf(threadname, "%s %d", name, id);
+    snprintf(threadname, sizeof(threadname), "%s %d", name, id);
     __itt_thread_set_name(threadname);
 }
 

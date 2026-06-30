@@ -1,7 +1,8 @@
 /*****************************************************************************
- * Copyright (C) 2015 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
+ *          Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,7 +100,7 @@ public:
     ~Quant();
 
     /* one-time setup */
-    bool init(int rdoqLevel, double psyScale, const ScalingList& scalingList, Entropy& entropy);
+    bool init(double psyScale, const ScalingList& scalingList, Entropy& entropy);
     bool allocNoiseReduction(const x265_param& param);
 
     /* CU setup */
@@ -110,6 +111,8 @@ public:
 
     void invtransformNxN(const CUData& cu, int16_t* residual, uint32_t resiStride, const coeff_t* coeff,
                          uint32_t log2TrSize, TextType ttype, bool bIntra, bool useTransformSkip, uint32_t numSig);
+    uint64_t ssimDistortion(const CUData& cu, const pixel* fenc, uint32_t fStride, const pixel* recon, intptr_t rstride,
+                            uint32_t log2TrSize, TextType ttype, uint32_t absPartIdx);
 
     /* Pattern decision for context derivation process of significant_coeff_flag */
     static uint32_t calcPatternSigCtx(uint64_t sigCoeffGroupFlag64, uint32_t cgPosX, uint32_t cgPosY, uint32_t cgBlkPos, uint32_t trSizeCG)
@@ -125,8 +128,8 @@ public:
         const uint32_t sigPos = (uint32_t)(sigCoeffGroupFlag64 >> (cgBlkPos + 1)); // just need lowest 7-bits valid
 
         // TODO: instruction BT is faster, but _bittest64 still generate instruction 'BT m, r' in VS2012
-        const uint32_t sigRight = ((uint32_t)(cgPosX - (trSizeCG - 1)) >> 31) & sigPos;
-        const uint32_t sigLower = ((uint32_t)(cgPosY - (trSizeCG - 1)) >> 31) & (sigPos >> (trSizeCG - 1));
+        const uint32_t sigRight = (cgPosX != (trSizeCG - 1)) & sigPos;
+        const uint32_t sigLower = (cgPosY != (trSizeCG - 1)) & (sigPos >> (trSizeCG - 1));
         return sigRight + sigLower * 2;
     }
 
@@ -136,8 +139,8 @@ public:
         X265_CHECK(cgBlkPos < 64, "cgBlkPos is too large\n");
         // NOTE: unsafe shift operator, see NOTE in calcPatternSigCtx
         const uint32_t sigPos = (uint32_t)(cgGroupMask >> (cgBlkPos + 1)); // just need lowest 8-bits valid
-        const uint32_t sigRight = ((uint32_t)(cgPosX - (trSizeCG - 1)) >> 31) & sigPos;
-        const uint32_t sigLower = ((uint32_t)(cgPosY - (trSizeCG - 1)) >> 31) & (sigPos >> (trSizeCG - 1));
+        const uint32_t sigRight = (cgPosX != (trSizeCG - 1)) & sigPos;
+        const uint32_t sigLower = (cgPosY != (trSizeCG - 1)) & (sigPos >> (trSizeCG - 1));
 
         return (sigRight | sigLower);
     }
@@ -151,7 +154,14 @@ protected:
 
     uint32_t signBitHidingHDQ(int16_t* qcoeff, int32_t* deltaU, uint32_t numSig, const TUEntropyCodingParameters &codingParameters, uint32_t log2TrSize);
 
-    uint32_t rdoQuant(const CUData& cu, int16_t* dstCoeff, uint32_t log2TrSize, TextType ttype, uint32_t absPartIdx, bool usePsy);
+    template<uint32_t log2TrSize>
+    uint32_t rdoQuant(const CUData& cu, int16_t* dstCoeff, TextType ttype, uint32_t absPartIdx, bool usePsy);
+
+public:
+    typedef uint32_t (Quant::*rdoQuant_t)(const CUData& cu, int16_t* dstCoeff, TextType ttype, uint32_t absPartIdx, bool usePsy);
+
+private:
+    static rdoQuant_t rdoQuant_func[NUM_CU_DEPTH];
 };
 }
 

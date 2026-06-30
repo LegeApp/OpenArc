@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2015 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -27,6 +27,7 @@
 #include "common.h"
 #include "md5.h"
 #include "x265.h"
+struct x265_picyuv {};
 
 namespace X265_NS {
 // private namespace
@@ -34,7 +35,7 @@ namespace X265_NS {
 class ShortYuv;
 struct SPS;
 
-class PicYuv
+class PicYuv : public x265_picyuv
 {
 public:
 
@@ -60,16 +61,30 @@ public:
     uint32_t m_chromaMarginX;
     uint32_t m_chromaMarginY;
 
-    uint16_t m_maxLumaLevel;
-    double   m_avgLumaLevel;
+    pixel   m_maxLumaLevel;
+    pixel   m_minLumaLevel;
+    double  m_avgLumaLevel;
+
+    pixel   m_maxChromaULevel;
+    pixel   m_minChromaULevel;
+    double  m_avgChromaULevel;
+
+    pixel   m_maxChromaVLevel;
+    pixel   m_minChromaVLevel;
+    double  m_avgChromaVLevel;
+    double  m_vmafScore;
+    x265_param *m_param;
 
     PicYuv();
 
-    bool  create(uint32_t picWidth, uint32_t picHeight, uint32_t csp);
+    bool  create(x265_param* param, bool picAlloc = true, pixel *pixelbuf = NULL);
+    bool  createScaledPicYUV(x265_param* param, uint8_t scaleFactor);
     bool  createOffsets(const SPS& sps);
     void  destroy();
+    int   getLumaBufLen(uint32_t picWidth, uint32_t picHeight, uint32_t picCsp);
 
-    void  copyFromPicture(const x265_picture&, const x265_param& param, int padx, int pady);
+    void  copyFromPicture(const x265_picture&, const x265_param& param, int padx, int pady, bool isBase = true);
+    void  copyFromFrame(PicYuv* source);
 
     intptr_t getChromaAddrOffset(uint32_t ctuAddr, uint32_t absPartIdx) const { return m_cuOffsetC[ctuAddr] + m_buOffsetC[absPartIdx]; }
 

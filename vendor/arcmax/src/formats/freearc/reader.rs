@@ -4,8 +4,8 @@ use crate::formats::freearc::block::BlockDescriptor;
 use crate::formats::freearc::constants::{BlockType, ARC_SIGNATURE, SCAN_MAX};
 use crate::formats::freearc::directory::DirectoryBlock;
 use crate::formats::freearc::footer::FooterBlock;
-use crate::formats::freearc::utils::{read_varint, split_compressor_encryption};
-use anyhow::{anyhow, Context, Result};
+use crate::formats::freearc::utils::parse_codec_chain;
+use anyhow::{anyhow, Result};
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Mutex;
@@ -109,7 +109,12 @@ impl<R: Read + Seek> FreeArcReader<R> {
         orig_size: usize,
         password: Option<&str>,
     ) -> Result<Vec<u8>> {
-        let (compressor, encryption) = split_compressor_encryption(method);
+        let chain = parse_codec_chain(method);
+        let first_encryption = chain
+            .iter()
+            .position(|spec| is_encryption_codec(&spec.name))
+            .unwrap_or(chain.len());
+        let (compressors, encryption) = chain.split_at(first_encryption);
 
         // 1. Decrypt if needed
         let processed_data = if !encryption.is_empty() {
@@ -118,6 +123,17 @@ impl<R: Read + Seek> FreeArcReader<R> {
             // Parse encryption info
             // Format usually: aes-256/ctr:k...:i... or similar
             // We reuse existing logic for this if possible, or parse here.
+            let encryption = encryption
+                .iter()
+                .map(|spec| {
+                    if spec.params.is_empty() {
+                        spec.name.clone()
+                    } else {
+                        format!("{}:{}", spec.name, spec.params.join(":"))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("+");
             let enc_info = EncryptionInfo::from_method_string(&encryption, None)?;
             let decryptor = CascadedDecryptor::new(&enc_info, pwd)?;
 
@@ -127,14 +143,32 @@ impl<R: Read + Seek> FreeArcReader<R> {
         };
 
         // 2. Decompress
-        if compressor == "storing" || compressor.is_empty() {
-            return Ok(processed_data);
+        let mut processed_data = processed_data;
+        for codec in compressors.iter().rev() {
+            match codec.name.as_str() {
+                "" | "store" | "storing" => {}
+                name if name.starts_with("lzma") => {
+                    processed_data = decompress_lzma_compat(&processed_data, orig_size)?;
+                }
+                "grzip" => {
+                    processed_data = crate::codec::grzip_native::decompress_stream(&processed_data)
+                        .map_err(|err| anyhow!(err))?;
+                }
+                "mm" => {
+                    processed_data = decompress_mm_native(&processed_data, orig_size)?;
+                }
+                other => return Err(anyhow!("Unsupported compressor: {}", other)),
+            }
         }
 
-        if compressor.starts_with("lzma") {
-            decompress_lzma_compat(&processed_data, orig_size)
+        if processed_data.len() != orig_size {
+            Err(anyhow!(
+                "decompressed {} bytes but block expected {}",
+                processed_data.len(),
+                orig_size
+            ))
         } else {
-            Err(anyhow!("Unsupported compressor: {}", compressor))
+            Ok(processed_data)
         }
     }
 
@@ -211,6 +245,202 @@ impl<R: Read + Seek> FreeArcReader<R> {
         }
 
         Ok(decompressed[start..end].to_vec())
+    }
+}
+
+fn is_encryption_codec(name: &str) -> bool {
+    name.starts_with("aes") || name.starts_with("blowfish") || name == "encryption"
+}
+
+fn decompress_mm_native(data: &[u8], orig_size: usize) -> Result<Vec<u8>> {
+    if data.is_empty() {
+        return Err(anyhow!("MM stream is empty"));
+    }
+
+    let flags = data[0];
+    if flags == 0 {
+        return Ok(data[1..].to_vec());
+    }
+
+    // FreeArc's mm_decompress currently rejects reorder flags too.
+    if flags & !1 != 0 {
+        return Err(anyhow!("Unsupported MM reorder flags: {flags:#x}"));
+    }
+    if data.len() < 7 {
+        return Err(anyhow!("MM stream header is truncated"));
+    }
+
+    let num_chan = data[1] as usize;
+    let word_size = data[2] as usize;
+    let offset = u32::from_le_bytes(data[3..7].try_into().unwrap()) as usize;
+    let byte_size = (word_size + 7) / 8;
+    let sample_size = num_chan
+        .checked_mul(byte_size)
+        .ok_or_else(|| anyhow!("MM sample size overflows"))?;
+    if !(1..=4).contains(&byte_size) || sample_size == 0 {
+        return Err(anyhow!(
+            "Unsupported MM sample layout: channels={num_chan}, word_size={word_size}"
+        ));
+    }
+
+    let mut pos = 7usize;
+    if pos + offset > data.len() {
+        return Err(anyhow!("MM original header exceeds stream size"));
+    }
+
+    let mut output = Vec::with_capacity(orig_size);
+    output.extend_from_slice(&data[pos..pos + offset]);
+    pos += offset;
+
+    let align = round_up(7 + offset, sample_size) - (7 + offset);
+    if pos + align > data.len() {
+        return Err(anyhow!("MM alignment padding exceeds stream size"));
+    }
+    pos += align;
+
+    let mut base = vec![0u32; num_chan];
+    let chunk_size = if sample_size > 1 {
+        round_down(256 * 1024, sample_size)
+    } else {
+        256 * 1024
+    };
+
+    while pos < data.len() {
+        let len = (data.len() - pos).min(chunk_size);
+        let full_len = round_down(len, sample_size);
+        if full_len == 0 {
+            output.extend_from_slice(&data[pos..]);
+            break;
+        }
+
+        let chunk = &data[pos..pos + full_len];
+        match byte_size {
+            1 => undiff1(chunk, num_chan, &mut base, &mut output),
+            2 => undiff2(chunk, num_chan, &mut base, &mut output),
+            3 => undiff3(chunk, num_chan, &mut base, &mut output),
+            4 => undiff4(chunk, num_chan, &mut base, &mut output),
+            _ => unreachable!(),
+        }
+        pos += full_len;
+
+        if full_len < len {
+            output.extend_from_slice(&data[pos..pos + (len - full_len)]);
+            pos += len - full_len;
+        }
+    }
+
+    Ok(output)
+}
+
+fn undiff1(input: &[u8], num_chan: usize, base: &mut [u32], output: &mut Vec<u8>) {
+    for sample in input.chunks_exact(num_chan) {
+        for i in 0..num_chan {
+            let value = (base[i] as u8).wrapping_add(sample[i]);
+            base[i] = value as u32;
+            output.push(value);
+        }
+    }
+}
+
+fn undiff2(input: &[u8], num_chan: usize, base: &mut [u32], output: &mut Vec<u8>) {
+    for sample in input.chunks_exact(num_chan * 2) {
+        for i in 0..num_chan {
+            let off = i * 2;
+            let delta = u16::from_le_bytes(sample[off..off + 2].try_into().unwrap());
+            let value = (base[i] as u16).wrapping_add(delta);
+            base[i] = value as u32;
+            output.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+}
+
+fn undiff3(input: &[u8], num_chan: usize, base: &mut [u32], output: &mut Vec<u8>) {
+    for sample in input.chunks_exact(num_chan * 3) {
+        for i in 0..num_chan {
+            let off = i * 3;
+            let delta = read_u24_le(&sample[off..off + 3]);
+            let value = base[i].wrapping_add(delta) & 0x00ff_ffff;
+            base[i] = value;
+            output.extend_from_slice(&value.to_le_bytes()[..3]);
+        }
+    }
+}
+
+fn undiff4(input: &[u8], num_chan: usize, base: &mut [u32], output: &mut Vec<u8>) {
+    for sample in input.chunks_exact(num_chan * 4) {
+        for i in 0..num_chan {
+            let off = i * 4;
+            let delta = u32::from_le_bytes(sample[off..off + 4].try_into().unwrap());
+            let value = base[i].wrapping_add(delta);
+            base[i] = value;
+            output.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+}
+
+fn read_u24_le(bytes: &[u8]) -> u32 {
+    bytes[0] as u32 | ((bytes[1] as u32) << 8) | ((bytes[2] as u32) << 16)
+}
+
+fn round_down(value: usize, factor: usize) -> usize {
+    if factor <= 1 {
+        value
+    } else {
+        value - (value % factor)
+    }
+}
+
+fn round_up(value: usize, factor: usize) -> usize {
+    if value != 0 && factor > 1 {
+        round_down(value - 1, factor) + factor
+    } else {
+        value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stored_grzip_block(data: &[u8]) -> Vec<u8> {
+        let mut block = Vec::with_capacity(28 + data.len());
+        block.extend_from_slice(&(data.len() as i32).to_le_bytes());
+        block.extend_from_slice(&(-1i32).to_le_bytes());
+        block.extend_from_slice(&0i32.to_le_bytes());
+        block.extend_from_slice(&0i32.to_le_bytes());
+        block.extend_from_slice(&(data.len() as i32).to_le_bytes());
+        block.extend_from_slice(&0i32.to_le_bytes());
+        block.extend_from_slice(&0i32.to_le_bytes());
+        block.extend_from_slice(data);
+        block
+    }
+
+    #[test]
+    fn mm_native_undiffs_interleaved_samples() {
+        let mut encoded = vec![1, 2, 8];
+        encoded.extend_from_slice(&4u32.to_le_bytes());
+        encoded.extend_from_slice(b"RIFF");
+        encoded.push(0); // alignment to 2-byte sample size
+        encoded.extend_from_slice(&[10, 20, 3, 5, 255, 5]);
+
+        let decoded = decompress_mm_native(&encoded, 10).unwrap();
+        assert_eq!(decoded, b"RIFF\x0a\x14\x0d\x19\x0c\x1e");
+    }
+
+    #[test]
+    fn freearc_data_block_decodes_mm_plus_grzip() {
+        let mut mm_encoded = vec![1, 2, 8];
+        mm_encoded.extend_from_slice(&4u32.to_le_bytes());
+        mm_encoded.extend_from_slice(b"RIFF");
+        mm_encoded.push(0);
+        mm_encoded.extend_from_slice(&[10, 20, 3, 5, 255, 5]);
+
+        let grzip_stream = stored_grzip_block(&mm_encoded);
+        let decoded =
+            FreeArcReader::<Cursor<Vec<u8>>>::decompress_data("mm+grzip", &grzip_stream, 10, None)
+                .unwrap();
+
+        assert_eq!(decoded, b"RIFF\x0a\x14\x0d\x19\x0c\x1e");
     }
 }
 

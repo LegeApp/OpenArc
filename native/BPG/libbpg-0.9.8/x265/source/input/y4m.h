@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -55,39 +55,36 @@ protected:
 
     int colorSpace;
 
+    bool alphaAvailable;
+
     bool threadActive;
 
     ThreadSafeInteger readCount;
 
     ThreadSafeInteger writeCount;
-
     char* buf[QUEUE_SIZE];
-
-    std::istream *ifs;
-
+    FILE *ifs;
     bool parseHeader();
-
     void threadMain();
 
     bool populateFrameQueue();
 
 public:
 
-    Y4MInput(InputFileInfo& info);
+    Y4MInput(InputFileInfo& info, bool alpha, int format);
 
     virtual ~Y4MInput();
-
     void release();
-
-    bool isEof() const            { return ifs && ifs->eof();  }
-
-    bool isFail()                 { return !(ifs && !ifs->fail() && threadActive); }
-
+    bool isEof() const            { return ifs && feof(ifs); }
+    bool isFail()                 { return !(ifs && !ferror(ifs) && threadActive); }
     void startReader();
-
     bool readPicture(x265_picture&);
 
     const char *getName() const   { return "y4m"; }
+
+    int getWidth() const                          { return width; }
+
+    int getHeight() const                         { return height; }
 };
 }
 

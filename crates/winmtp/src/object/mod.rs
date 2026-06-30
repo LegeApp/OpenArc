@@ -1,22 +1,23 @@
 //! MTP object (can be a folder, a file, etc.)
 
-use std::io::BufReader;
-use std::path::{Path, Components, Component};
-use std::iter::Peekable;
 use std::ffi::OsStr;
+use std::io::BufReader;
+use std::iter::Peekable;
+use std::path::{Component, Components, Path};
 
+use widestring::{U16CStr, U16CString};
 use windows::core::{GUID, PCWSTR, PROPVARIANT, PWSTR};
+use windows::Win32::Devices::PortableDevices::{
+    IPortableDeviceContent, IPortableDevicePropVariantCollection, IPortableDeviceValues,
+    PortableDevicePropVariantCollection, PORTABLE_DEVICE_DELETE_NO_RECURSION,
+    PORTABLE_DEVICE_DELETE_WITH_RECURSION, WPD_OBJECT_PARENT_ID, WPD_RESOURCE_DEFAULT,
+};
 use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL};
 use windows::Win32::System::Com::{IStream, STGM, STGM_READ};
-use windows::Win32::Devices::PortableDevices::{
-    PortableDevicePropVariantCollection, IPortableDeviceValues, IPortableDevicePropVariantCollection, IPortableDeviceContent,
-    PORTABLE_DEVICE_DELETE_WITH_RECURSION, PORTABLE_DEVICE_DELETE_NO_RECURSION, WPD_OBJECT_PARENT_ID, WPD_RESOURCE_DEFAULT,
-};
-use widestring::{U16CString, U16CStr};
 
+use crate::device::device_values::{make_values_for_create_file, make_values_for_create_folder};
 use crate::device::Content;
-use crate::device::device_values::{make_values_for_create_folder, make_values_for_create_file};
-use crate::error::{ItemByPathError, OpenStreamError, CreateFolderError, AddFileError};
+use crate::error::{AddFileError, CreateFolderError, ItemByPathError, OpenStreamError};
 use crate::io::{ReadStream, WriteStream};
 use crate::utils::are_path_eq;
 
@@ -28,7 +29,6 @@ pub use object_type::ObjectType;
 
 mod object_iterator;
 pub use object_iterator::ObjectIterator;
-
 
 #[derive(Debug, Clone)]
 pub struct Object {
@@ -42,7 +42,12 @@ pub struct Object {
 
 impl Object {
     pub fn new(device_content: Content, id: U16CString, name: U16CString, ty: ObjectType) -> Self {
-        Self { device_content, id, name, ty }
+        Self {
+            device_content,
+            id,
+            name,
+            ty,
+        }
     }
 
     pub(crate) fn device_content(&self) -> &Content {
@@ -66,18 +71,24 @@ impl Object {
     /// Get a list of requested metadata about an object.
     ///
     /// See [`crate::device::Content::properties`].
-    pub fn properties(&self, properties_to_fetch: &[crate::PROPERTYKEY]) -> crate::WindowsResult<crate::device::device_values::DeviceValues> {
-        self.device_content.properties(&self.id, properties_to_fetch)
+    pub fn properties(
+        &self,
+        properties_to_fetch: &[crate::PROPERTYKEY],
+    ) -> crate::WindowsResult<crate::device::device_values::DeviceValues> {
+        self.device_content
+            .properties(&self.id, properties_to_fetch)
     }
 
     pub fn parent_id(&self) -> crate::WindowsResult<U16CString> {
-        let parent_id_props = self.device_content.properties(&self.id, &[WPD_OBJECT_PARENT_ID])?;
+        let parent_id_props = self
+            .device_content
+            .properties(&self.id, &[WPD_OBJECT_PARENT_ID])?;
         parent_id_props.get_string(&WPD_OBJECT_PARENT_ID)
     }
 
     /// Returns an iterator to list every children of the current object (including sub-folders)
     pub fn children(&self) -> crate::WindowsResult<ObjectIterator> {
-        let com_iter = unsafe{
+        let com_iter = unsafe {
             self.device_content.com_object().EnumObjects(
                 0,
                 PCWSTR::from_raw(self.id.as_ptr()),
@@ -90,7 +101,8 @@ impl Object {
 
     /// Returns an iterator that only lists folders within this object
     pub fn sub_folders(&self) -> crate::WindowsResult<impl Iterator<Item = Object> + '_> {
-        self.children().map(|children| children.filter(|obj| obj.object_type() == ObjectType::Folder))
+        self.children()
+            .map(|children| children.filter(|obj| obj.object_type() == ObjectType::Folder))
     }
 
     /// Retrieve an item by its path
@@ -103,34 +115,39 @@ impl Object {
         self.object_by_components(&mut comps)
     }
 
-    fn object_by_components(&self, comps: &mut Peekable<Components>) -> Result<Object, ItemByPathError> {
+    fn object_by_components(
+        &self,
+        comps: &mut Peekable<Components>,
+    ) -> Result<Object, ItemByPathError> {
         match comps.next() {
             Some(Component::Normal(haystack)) => {
                 let candidate = self
                     .children()?
-                    .find(|obj| are_path_eq(obj.name(), haystack, self.device_content.case_sensitive_fs()))
+                    .find(|obj| {
+                        are_path_eq(
+                            obj.name(),
+                            haystack,
+                            self.device_content.case_sensitive_fs(),
+                        )
+                    })
                     .ok_or(ItemByPathError::NotFound)?;
-
-                object_by_components_last_stage(candidate, comps)
-            },
-
-            Some(Component::CurDir) => {
-                object_by_components_last_stage(self.clone(), comps)
-            },
-
-            Some(Component::ParentDir) => {
-                let candidate = self
-                    .device_content
-                    .object_by_id(self.parent_id()?)?;
 
                 object_by_components_last_stage(candidate, comps)
             }
 
-            Some(Component::Prefix(_)) |
-            Some(Component::RootDir) =>
-                Err(ItemByPathError::AbsolutePath),
+            Some(Component::CurDir) => object_by_components_last_stage(self.clone(), comps),
 
-            None => Err(ItemByPathError::NotFound)
+            Some(Component::ParentDir) => {
+                let candidate = self.device_content.object_by_id(self.parent_id()?)?;
+
+                object_by_components_last_stage(candidate, comps)
+            }
+
+            Some(Component::Prefix(_)) | Some(Component::RootDir) => {
+                Err(ItemByPathError::AbsolutePath)
+            }
+
+            None => Err(ItemByPathError::NotFound),
         }
     }
 
@@ -152,18 +169,24 @@ impl Object {
     /// Also returns the optimal transfer buffer size (in bytes) for this transfer, as stated by the Microsoft API.
     ///
     /// See also [`Self::open_resource_stream`].
-    pub fn open_raw_resource_stream(&self, resource_key: &crate::PROPERTYKEY, stream_mode: STGM) -> Result<(IStream, u32), OpenStreamError> {
-        let resources = unsafe{ self.device_content.com_object().Transfer()? };
+    pub fn open_raw_resource_stream(
+        &self,
+        resource_key: &crate::PROPERTYKEY,
+        stream_mode: STGM,
+    ) -> Result<(IStream, u32), OpenStreamError> {
+        let resources = unsafe { self.device_content.com_object().Transfer()? };
 
         let mut stream = None;
         let mut optimal_transfer_size_bytes: u32 = 0;
-        unsafe{ resources.GetStream(
-            PCWSTR::from_raw(self.id.as_ptr()),
-            resource_key as *const _,
-            stream_mode.0,
-            &mut optimal_transfer_size_bytes as *mut u32,
-            &mut stream as *mut Option<IStream>,
-        )}?;
+        unsafe {
+            resources.GetStream(
+                PCWSTR::from_raw(self.id.as_ptr()),
+                resource_key as *const _,
+                stream_mode.0,
+                &mut optimal_transfer_size_bytes as *mut u32,
+                &mut stream as *mut Option<IStream>,
+            )
+        }?;
 
         match stream {
             None => Err(OpenStreamError::UnableToCreate),
@@ -189,7 +212,10 @@ impl Object {
         let read_stream = ReadStream::new(stream, optimal_transfer_size as usize);
         // Reader this reader is a slow process. Let's wrap it in a buffered reader for optimal perfs.
         // (There is no obvious reason for the capacity to be the same as the transfer size, but let's use it anyway)
-        Ok(BufReader::with_capacity(optimal_transfer_size as usize, read_stream))
+        Ok(BufReader::with_capacity(
+            optimal_transfer_size as usize,
+            read_stream,
+        ))
     }
 
     /// Open a read stream for a specific resource type (e.g., WPD_RESOURCE_THUMBNAIL for device thumbnails).
@@ -204,10 +230,17 @@ impl Object {
     /// let mut output_file = std::fs::File::create("thumbnail.jpg")?;
     /// std::io::copy(&mut thumb_stream, &mut output_file)?;
     /// ```
-    pub fn open_resource_stream(&self, resource_key: &crate::PROPERTYKEY) -> Result<BufReader<ReadStream>, OpenStreamError> {
-        let (stream, optimal_transfer_size) = self.open_raw_resource_stream(resource_key, STGM_READ)?;
+    pub fn open_resource_stream(
+        &self,
+        resource_key: &crate::PROPERTYKEY,
+    ) -> Result<BufReader<ReadStream>, OpenStreamError> {
+        let (stream, optimal_transfer_size) =
+            self.open_raw_resource_stream(resource_key, STGM_READ)?;
         let read_stream = ReadStream::new(stream, optimal_transfer_size as usize);
-        Ok(BufReader::with_capacity(optimal_transfer_size as usize, read_stream))
+        Ok(BufReader::with_capacity(
+            optimal_transfer_size as usize,
+            read_stream,
+        ))
     }
 
     /// Create a subfolder, and return its object ID
@@ -218,20 +251,22 @@ impl Object {
     pub fn create_subfolder(&self, folder_name: &OsStr) -> Result<U16CString, CreateFolderError> {
         // Check if such an item already exist (otherwise, `CreateObjectWithPropertiesOnly` would return an unhelpful "Unspecified error ")
         if let Ok(_existing_item) = self.object_by_path(Path::new(folder_name)) {
-            return Err(CreateFolderError::AlreadyExists)
+            return Err(CreateFolderError::AlreadyExists);
         }
 
         let folder_properties = make_values_for_create_folder(&self.id, folder_name)?;
         let mut created_object_id = PWSTR::null();
-        unsafe{ self.device_content.com_object().CreateObjectWithPropertiesOnly(
-            &folder_properties,
-            &mut created_object_id as *mut _,
-        )}?;
+        unsafe {
+            self.device_content
+                .com_object()
+                .CreateObjectWithPropertiesOnly(
+                    &folder_properties,
+                    &mut created_object_id as *mut _,
+                )
+        }?;
 
-        let owned_id = unsafe{ U16CString::from_ptr_str(created_object_id.as_ptr()) };
-        unsafe{
-            CoTaskMemFree(Some(created_object_id.as_ptr() as *const _))
-        };
+        let owned_id = unsafe { U16CString::from_ptr_str(created_object_id.as_ptr()) };
+        unsafe { CoTaskMemFree(Some(created_object_id.as_ptr() as *const _)) };
 
         Ok(owned_id)
     }
@@ -242,21 +277,27 @@ impl Object {
         self.create_subfolder_recursive_inner(comps)
     }
 
-    fn create_subfolder_recursive_inner(&self, mut remaining_components: Components) -> Result<(), CreateFolderError> {
+    fn create_subfolder_recursive_inner(
+        &self,
+        mut remaining_components: Components,
+    ) -> Result<(), CreateFolderError> {
         match remaining_components.next() {
-            None => {},
+            None => {}
             Some(Component::Normal(dir)) => {
-                match self.sub_folders()?.find(|f| are_path_eq(f.name(), dir, self.device_content().case_sensitive_fs())) {
+                match self
+                    .sub_folders()?
+                    .find(|f| are_path_eq(f.name(), dir, self.device_content().case_sensitive_fs()))
+                {
                     Some(already_exists) => {
                         already_exists.create_subfolder_recursive_inner(remaining_components)?;
-                    },
+                    }
                     None => {
                         let created_folder_id = self.create_subfolder(dir)?;
                         let created_folder = self.device_content.object_by_id(created_folder_id)?;
                         created_folder.create_subfolder_recursive_inner(remaining_components)?;
                     }
                 }
-            },
+            }
             _ => return Err(CreateFolderError::NonRelativePath),
         }
 
@@ -265,7 +306,9 @@ impl Object {
 
     /// Add a file into the current directory
     pub fn push_file(&self, local_file: &Path, allow_overwrite: bool) -> Result<(), AddFileError> {
-        let file_name = local_file.file_name().ok_or(AddFileError::InvalidLocalFile)?;
+        let file_name = local_file
+            .file_name()
+            .ok_or(AddFileError::InvalidLocalFile)?;
         let file_size = local_file.metadata()?.len();
         self.remove_existing_file_if_needed(file_name, allow_overwrite)?;
 
@@ -281,7 +324,12 @@ impl Object {
     }
 
     /// Add a file into the current directory
-    pub fn push_data(&self, file_name: &OsStr, data: &[u8], allow_overwrite: bool) -> Result<(), AddFileError> {
+    pub fn push_data(
+        &self,
+        file_name: &OsStr,
+        data: &[u8],
+        allow_overwrite: bool,
+    ) -> Result<(), AddFileError> {
         let file_size = data.len() as u64;
         self.remove_existing_file_if_needed(file_name, allow_overwrite)?;
 
@@ -296,7 +344,11 @@ impl Object {
         Ok(())
     }
 
-    fn remove_existing_file_if_needed(&self, file_name: &OsStr, allow_overwrite: bool) -> Result<(), AddFileError> {
+    fn remove_existing_file_if_needed(
+        &self,
+        file_name: &OsStr,
+        allow_overwrite: bool,
+    ) -> Result<(), AddFileError> {
         if let Ok(mut existing_file) = self.object_by_path(Path::new(file_name)) {
             if allow_overwrite {
                 existing_file.delete(false)?;
@@ -311,57 +363,64 @@ impl Object {
     ///
     /// If this is a folder, you must set `recursive` to `true`, otherwise this would return an error.
     pub fn delete(&mut self, recursive: bool) -> crate::WindowsResult<()> {
-        let id_as_propvariant = unsafe{ init_propvariant_from_string(&mut self.id) };
+        let id_as_propvariant = unsafe { init_propvariant_from_string(&mut self.id) };
 
         let objects_to_delete: IPortableDevicePropVariantCollection = unsafe {
             CoCreateInstance(
                 &PortableDevicePropVariantCollection as *const GUID,
                 None,
-                CLSCTX_ALL
+                CLSCTX_ALL,
             )
-        }.unwrap();
-        unsafe{ objects_to_delete.Add(&id_as_propvariant as *const _) }.unwrap();
+        }
+        .unwrap();
+        unsafe { objects_to_delete.Add(&id_as_propvariant as *const _) }.unwrap();
 
-        let options = if recursive { PORTABLE_DEVICE_DELETE_WITH_RECURSION } else { PORTABLE_DEVICE_DELETE_NO_RECURSION };
+        let options = if recursive {
+            PORTABLE_DEVICE_DELETE_WITH_RECURSION
+        } else {
+            PORTABLE_DEVICE_DELETE_NO_RECURSION
+        };
         let mut result_status = None;
-        unsafe{
+        unsafe {
             self.device_content.com_object().Delete(
                 options.0 as u32,
                 &objects_to_delete,
                 &mut result_status as *mut _,
             )
-        }.unwrap();
+        }
+        .unwrap();
 
         Ok(())
     }
 
     /// Move an object that is already on the device to a new folder
-    pub fn move_to(&mut self, new_folder_id: &U16CStr) -> crate::WindowsResult<()>  {
-        let id_as_propvariant = unsafe{ init_propvariant_from_string(&mut self.id) };
+    pub fn move_to(&mut self, new_folder_id: &U16CStr) -> crate::WindowsResult<()> {
+        let id_as_propvariant = unsafe { init_propvariant_from_string(&mut self.id) };
 
         let objects_to_move: IPortableDevicePropVariantCollection = unsafe {
             CoCreateInstance(
                 &PortableDevicePropVariantCollection as *const GUID,
                 None,
-                CLSCTX_ALL
+                CLSCTX_ALL,
             )
-        }.unwrap();
-        unsafe{ objects_to_move.Add(&id_as_propvariant as *const _) }.unwrap();
+        }
+        .unwrap();
+        unsafe { objects_to_move.Add(&id_as_propvariant as *const _) }.unwrap();
 
         let dest = PCWSTR::from_raw(new_folder_id.as_ptr());
         let mut result_status = None;
-        unsafe{
+        unsafe {
             self.device_content.com_object().Move(
                 &objects_to_move,
                 dest,
                 &mut result_status as *mut _,
             )
-        }.unwrap();
+        }
+        .unwrap();
 
         Ok(())
     }
 }
-
 
 /// Re-implementation of `InitPropVariantFromString`, which is missing in windows-rs.
 /// See https://github.com/microsoft/windows-rs/issues/976#issuecomment-878697273
@@ -385,29 +444,38 @@ unsafe fn init_propvariant_from_string(data: &mut U16CStr) -> PROPVARIANT {
     })
 }
 
-fn object_by_components_last_stage(candidate: Object, next_components: &mut Peekable<Components>) -> Result<Object, ItemByPathError> {
+fn object_by_components_last_stage(
+    candidate: Object,
+    next_components: &mut Peekable<Components>,
+) -> Result<Object, ItemByPathError> {
     match next_components.peek() {
         None => {
             // We've reached the end of the required path
             // This means the candidate is the object we wanted
             Ok(candidate)
-        },
-        Some(_) => {
-            candidate.object_by_components(next_components)
         }
+        Some(_) => candidate.object_by_components(next_components),
     }
 }
 
-fn make_dest_writer(com_object: &IPortableDeviceContent, file_properties: &IPortableDeviceValues) -> Result<WriteStream, AddFileError> {
+fn make_dest_writer(
+    com_object: &IPortableDeviceContent,
+    file_properties: &IPortableDeviceValues,
+) -> Result<WriteStream, AddFileError> {
     let mut write_stream = None;
     let mut optimal_write_buffer_size = 0;
-    unsafe{ com_object.CreateObjectWithPropertiesAndData(
-        file_properties,
-        &mut write_stream as *mut _,
-        &mut optimal_write_buffer_size,
-        &mut PWSTR::null() as *mut PWSTR,
-    )}?;
+    unsafe {
+        com_object.CreateObjectWithPropertiesAndData(
+            file_properties,
+            &mut write_stream as *mut _,
+            &mut optimal_write_buffer_size,
+            &mut PWSTR::null() as *mut PWSTR,
+        )
+    }?;
 
     let write_stream = write_stream.ok_or(AddFileError::UnableToCreate)?;
-    Ok(WriteStream::new(write_stream, optimal_write_buffer_size as usize))
+    Ok(WriteStream::new(
+        write_stream,
+        optimal_write_buffer_size as usize,
+    ))
 }

@@ -11,21 +11,19 @@ if(MSVC)
    add_definitions(/wd4701) # potentially uninitialized local variable 'foo' used
 endif()
 
-if(LINKED_8BIT)
-  list(APPEND APIFLAGS "-DLINKED_8BIT=1")
-endif(LINKED_8BIT)
-if(LINKED_10BIT)
-  list(APPEND APIFLAGS "-DLINKED_10BIT=1")
-endif(LINKED_10BIT)
-if(LINKED_12BIT)
-  list(APPEND APIFLAGS "-DLINKED_12BIT=1")
-endif(LINKED_12BIT)
-if(ENABLE_SHARED)
-  list(APPEND APIFLAGS "-DENABLE_SHARED=1")
-endif(ENABLE_SHARED)
-
-string(REPLACE ";" " " APIFLAGSTR "${APIFLAGS}")
-set_source_files_properties(api.cpp PROPERTIES COMPILE_FLAGS "${APIFLAGSTR}")
+if(EXTRA_LIB)
+    if(LINKED_8BIT)
+        list(APPEND APIFLAGS "-DLINKED_8BIT=1")
+    endif(LINKED_8BIT)
+    if(LINKED_10BIT)
+        list(APPEND APIFLAGS "-DLINKED_10BIT=1")
+    endif(LINKED_10BIT)
+    if(LINKED_12BIT)
+        list(APPEND APIFLAGS "-DLINKED_12BIT=1")
+    endif(LINKED_12BIT)
+    string(REPLACE ";" " " APIFLAGSTR "${APIFLAGS}")
+    set_source_files_properties(api.cpp PROPERTIES COMPILE_FLAGS ${APIFLAGSTR})
+endif(EXTRA_LIB)
 
 add_library(encoder OBJECT ../x265.h
     analysis.cpp analysis.h
@@ -45,4 +43,4 @@ add_library(encoder OBJECT ../x265.h
     reference.cpp reference.h
     encoder.cpp encoder.h
     api.cpp
-    weightPrediction.cpp)
+    weightPrediction.cpp svt.h)

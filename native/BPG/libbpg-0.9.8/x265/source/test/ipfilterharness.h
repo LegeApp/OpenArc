@@ -1,9 +1,10 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Deepthi Devaki <deepthidevaki@multicorewareinc.com>,
  *          Rajesh Paulraj <rajesh@multicorewareinc.com>
  *          Praveen Kumar Tiwari <praveen@multicorewareinc.com>
+ *          Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,17 +39,16 @@ protected:
     enum { ITERS = 100 };
     enum { TEST_CASES = 3 };
     enum { SMAX = 1 << 12 };
-    enum { SMIN = -1 << 12 };
+    enum { SMIN = (unsigned)-1 << 12 };
+    ALIGN_VAR_64(pixel, pixel_buff[TEST_BUF_SIZE]);
+    ALIGN_VAR_64(int16_t, short_buff[TEST_BUF_SIZE]);
+    ALIGN_VAR_64(int16_t, IPF_vec_output_s[TEST_BUF_SIZE]);
+    ALIGN_VAR_64(int16_t, IPF_C_output_s[TEST_BUF_SIZE]);
+    ALIGN_VAR_64(pixel,   IPF_vec_output_p[TEST_BUF_SIZE]);
+    ALIGN_VAR_64(pixel,   IPF_C_output_p[TEST_BUF_SIZE]);
 
-    ALIGN_VAR_32(pixel, pixel_buff[TEST_BUF_SIZE]);
-    int16_t short_buff[TEST_BUF_SIZE];
-    int16_t IPF_vec_output_s[TEST_BUF_SIZE];
-    int16_t IPF_C_output_s[TEST_BUF_SIZE];
-    pixel   IPF_vec_output_p[TEST_BUF_SIZE];
-    pixel   IPF_C_output_p[TEST_BUF_SIZE];
-
-    pixel   pixel_test_buff[TEST_CASES][TEST_BUF_SIZE];
-    int16_t short_test_buff[TEST_CASES][TEST_BUF_SIZE];
+    ALIGN_VAR_64(pixel,   pixel_test_buff[TEST_CASES][TEST_BUF_SIZE]);
+    ALIGN_VAR_64(int16_t, short_test_buff[TEST_CASES][TEST_BUF_SIZE]);
 
     bool check_IPFilterChroma_primitive(filter_pp_t ref, filter_pp_t opt);
     bool check_IPFilterChroma_ps_primitive(filter_ps_t ref, filter_ps_t opt);
@@ -62,7 +62,9 @@ protected:
     bool check_IPFilterLuma_ss_primitive(filter_ss_t ref, filter_ss_t opt);
     bool check_IPFilterLumaHV_primitive(filter_hv_pp_t ref, filter_hv_pp_t opt);
     bool check_IPFilterLumaP2S_primitive(filter_p2s_t ref, filter_p2s_t opt);
+    bool check_IPFilterLumaP2S_aligned_primitive(filter_p2s_t ref, filter_p2s_t opt);
     bool check_IPFilterChromaP2S_primitive(filter_p2s_t ref, filter_p2s_t opt);
+    bool check_IPFilterChromaP2S_aligned_primitive(filter_p2s_t ref, filter_p2s_t opt);
 
 public:
 

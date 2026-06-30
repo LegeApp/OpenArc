@@ -39,6 +39,81 @@ struct HEVCEncoderContext {
     int buf_len, buf_size;
 };
 
+static int x265_apply_param(HEVCEncoderContext *s, x265_param *p,
+                            const char *name, const char *value)
+{
+    if (s->api->param_parse(p, name, value) != 0) {
+        fprintf(stderr, "x265: invalid parameter override %s=%s\n", name, value);
+        return -1;
+    }
+    return 0;
+}
+
+static int x265_apply_param_list(HEVCEncoderContext *s, x265_param *p,
+                                 const char *list)
+{
+    char *copy, *tok, *eq;
+    int ret = 0;
+
+    if (!list || !list[0])
+        return 0;
+    copy = strdup(list);
+    if (!copy)
+        return -1;
+    for (tok = strtok(copy, ",;"); tok; tok = strtok(NULL, ",;")) {
+        while (*tok == ' ' || *tok == '\t')
+            tok++;
+        if (!tok[0])
+            continue;
+        eq = strchr(tok, '=');
+        if (!eq || eq == tok || !eq[1]) {
+            fprintf(stderr, "x265: expected name=value in BPG_X265_PARAMS token '%s'\n", tok);
+            ret = -1;
+            break;
+        }
+        *eq = '\0';
+        if (x265_apply_param(s, p, tok, eq + 1) < 0) {
+            ret = -1;
+            break;
+        }
+    }
+    free(copy);
+    return ret;
+}
+
+static void x265_apply_openarc_aq(x265_param *p, const HEVCEncodeParams *params)
+{
+    switch (params->aq_mode) {
+    case 0:
+        p->rc.aqMode = X265_AQ_NONE;
+        p->rc.aqStrength = 0.0;
+        break;
+    case 1:
+        p->rc.aqMode = X265_AQ_VARIANCE;
+        if (params->aq_strength > 0.0f)
+            p->rc.aqStrength = params->aq_strength;
+        break;
+    case 3:
+        p->rc.aqMode = X265_AQ_AUTO_VARIANCE_BIASED;
+        if (params->aq_strength > 0.0f)
+            p->rc.aqStrength = params->aq_strength;
+        break;
+    case 6:
+        /* bpg-rs has an experimental two-pass measured AQ mode.  The C/x265
+         * production path maps it to strong auto-variance AQ rather than
+         * silently disabling perceptual AQ. */
+        p->rc.aqMode = X265_AQ_AUTO_VARIANCE_BIASED;
+        p->rc.aqStrength = params->aq_strength > 0.0f ? params->aq_strength : 1.2;
+        break;
+    case 2:
+    default:
+        p->rc.aqMode = X265_AQ_AUTO_VARIANCE;
+        if (params->aq_strength > 0.0f)
+            p->rc.aqStrength = params->aq_strength;
+        break;
+    }
+}
+
 static HEVCEncoderContext *x265_open(const HEVCEncodeParams *params)
 {
     HEVCEncoderContext *s;
@@ -114,17 +189,25 @@ static HEVCEncoderContext *x265_open(const HEVCEncodeParams *params)
     p->fpsNum = 25;
     p->fpsDenom = 1;
 
+    /* Keep BPG's QP-style quality selection, but do not let x265's CQP
+     * validation path erase the SSIM tune's AQ settings.  The vendored x265
+     * 4.1 tree carries an OpenArc patch that permits AQ in CQP mode. */
     p->rc.rateControlMode = X265_RC_CQP;
     p->rc.qp = params->qp;
+    x265_apply_openarc_aq(p, params);
     p->bLossless = params->lossless;
 
-    s->enc = s->api->encoder_open(p);
-    if (!s->enc) {
-        fprintf(stderr, "x265: encoder_open failed (check bit_depth/lossless/dimensions)\n");
-        s->api->param_free(p);
-        free(s);
-        return NULL;
+    if (getenv("BPG_X265_SINGLE_THREAD")) {
+        if (x265_apply_param(s, p, "frame-threads", "1") < 0 ||
+            x265_apply_param(s, p, "pools", "none") < 0)
+            goto fail;
     }
+    if (x265_apply_param_list(s, p, getenv("BPG_X265_PARAMS")) < 0)
+        goto fail;
+
+    s->enc = s->api->encoder_open(p);
+    if (!s->enc)
+        goto fail;
 
     s->pic = s->api->picture_alloc();
     s->api->picture_init(p, s->pic);
@@ -134,6 +217,11 @@ static HEVCEncoderContext *x265_open(const HEVCEncodeParams *params)
     s->api->param_free(p);
 
     return s;
+
+ fail:
+    s->api->param_free(p);
+    free(s);
+    return NULL;
 }
 
 static void add_nal(HEVCEncoderContext *s, const uint8_t *data, int data_len)

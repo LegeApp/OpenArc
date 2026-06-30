@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2015 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -28,6 +28,8 @@
 #include "slice.h"
 #include "mv.h"
 
+#define NUM_TU_DEPTH 21
+
 namespace X265_NS {
 // private namespace
 
@@ -35,6 +37,9 @@ class FrameData;
 class Slice;
 struct TUEntropyCodingParameters;
 struct CUDataMemPool;
+#if ENABLE_SCC_EXT
+struct IBC;
+#endif
 
 enum PartSize
 {
@@ -46,7 +51,7 @@ enum PartSize
     SIZE_2NxnD, // asymmetric motion partition, 2Nx(3N/2) + 2Nx( N/2)
     SIZE_nLx2N, // asymmetric motion partition, ( N/2)x2N + (3N/2)x2N
     SIZE_nRx2N, // asymmetric motion partition, (3N/2)x2N + ( N/2)x2N
-    NUM_SIZES
+    NUM_PART_SIZES
 };
 
 enum PredMode
@@ -87,6 +92,7 @@ struct CUGeom
     uint32_t numPartitions; // Number of 4x4 blocks in the CU
     uint32_t flags;         // CU flags.
     uint32_t depth;         // depth of this CU relative from CTU
+    uint32_t geomRecurId;   // Unique geom id from 0 to MAX_GEOMS - 1 for every depth
 };
 
 struct MVField
@@ -104,6 +110,8 @@ struct InterNeighbourMV
     // Collocated right bottom CU addr.
     uint32_t cuAddr[2];
 
+    bool isAvailable;
+
     // For spatial prediction, this field contains the reference index
     // in each list (-1 if not available).
     //
@@ -113,6 +121,14 @@ struct InterNeighbourMV
     // associated to the PMV, and the fifth bit is the list associated to the PMV.
     // if both reference indices are -1, then unifiedRef is also -1
     union { int16_t refIdx[2]; int32_t unifiedRef; };
+};
+
+struct IBC
+{
+    int             m_numBVs;
+    int             m_numBV16s;
+    MV              m_BVs[64];
+    MV              m_lastIntraBCMv[2];
 };
 
 typedef void(*cucopy_t)(uint8_t* dst, uint8_t* src); // dst and src are aligned to MIN(size, 32)
@@ -158,8 +174,10 @@ class CUData
 {
 public:
 
-    static cubcast_t s_partSet[NUM_FULL_DEPTH]; // pointer to broadcast set functions per absolute depth
-    static uint32_t  s_numPartInCUSize;
+    cubcast_t s_partSet[NUM_FULL_DEPTH]; // pointer to broadcast set functions per absolute depth
+    uint32_t  s_numPartInCUSize;
+
+    bool          m_vbvAffected;
 
     FrameData*    m_encData;
     const Slice*  m_slice;
@@ -179,8 +197,14 @@ public:
     uint32_t      m_hChromaShift;
     uint32_t      m_vChromaShift;
 
+    /* multiple slices informations */
+    uint8_t      m_bFirstRowInSlice;
+    uint8_t      m_bLastRowInSlice;
+    uint8_t      m_bLastCuInSlice;
+
     /* Per-part data, stored contiguously */
     int8_t*       m_qp;               // array of QP values
+    int8_t*       m_qpAnalysis;       // array of QP values for analysis reuse
     uint8_t*      m_log2CUSize;       // array of cu log2Size TODO: seems redundant to depth
     uint8_t*      m_lumaIntraDir;     // array of intra directions (luma)
     uint8_t*      m_tqBypass;         // array of CU lossless flags
@@ -189,15 +213,18 @@ public:
     uint8_t*      m_predMode;         // array of prediction modes
     uint8_t*      m_partSize;         // array of partition sizes
     uint8_t*      m_mergeFlag;        // array of merge flags
+    uint8_t*      m_skipFlag[2];
     uint8_t*      m_interDir;         // array of inter directions
     uint8_t*      m_mvpIdx[2];        // array of motion vector predictor candidates or merge candidate indices [0]
     uint8_t*      m_tuDepth;          // array of transform indices
     uint8_t*      m_transformSkip[3]; // array of transform skipping flags per plane
     uint8_t*      m_cbf[3];           // array of coded block flags (CBF) per plane
     uint8_t*      m_chromaIntraDir;   // array of intra directions (chroma)
-    enum { BytesPerPartition = 21 };  // combined sizeof() of all per-part data
+    enum { BytesPerPartition = 24 };  // combined sizeof() of all per-part data
 
+    sse_t*        m_distortion;
     coeff_t*      m_trCoeff[3];       // transformed coefficient buffer per plane
+    int8_t        m_refTuDepth[NUM_TU_DEPTH];   // TU depth of CU at depths 0, 1 and 2
 
     MV*           m_mv[2];            // array of motion vectors per list
     MV*           m_mvd[2];           // array of coded motion vector deltas per list
@@ -207,14 +234,28 @@ public:
     const CUData* m_cuAboveRight;     // pointer to above-right neighbor CTU
     const CUData* m_cuAbove;          // pointer to above neighbor CTU
     const CUData* m_cuLeft;           // pointer to left neighbor CTU
+    double m_meanQP;
+    uint64_t      m_fAc_den[3];
+    uint64_t      m_fDc_den[3];
+
+    /* Feature values per CTU for dynamic refinement */
+    uint64_t*       m_collectCURd;
+    uint32_t*       m_collectCUVariance;
+    uint32_t*       m_collectCUCount;
+
+#if ENABLE_SCC_EXT
+    MV              m_lastIntraBCMv[2];
+#endif
 
     CUData();
 
-    void     initialize(const CUDataMemPool& dataPool, uint32_t depth, int csp, int instance);
+    void     initialize(const CUDataMemPool& dataPool, uint32_t depth, const x265_param& param, int instance);
     static void calcCTUGeoms(uint32_t ctuWidth, uint32_t ctuHeight, uint32_t maxCUSize, uint32_t minCUSize, CUGeom cuDataArray[CUGeom::MAX_GEOMS]);
 
-    void     initCTU(const Frame& frame, uint32_t cuAddr, int qp);
+    void     initCTU(const Frame& frame, uint32_t cuAddr, int qp, uint32_t firstRowInSlice, uint32_t lastRowInSlice, uint32_t lastCUInSlice);
+#if !ENABLE_SCC_EXT
     void     initSubCU(const CUData& ctu, const CUGeom& cuGeom, int qp);
+#endif
     void     initLosslessCU(const CUData& cu, const CUGeom& cuGeom);
 
     void     copyPartFrom(const CUData& cu, const CUGeom& childGeom, uint32_t subPartIdx);
@@ -222,12 +263,12 @@ public:
     void     copyToPic(uint32_t depth) const;
 
     /* RD-0 methods called only from encodeResidue */
-    void     copyFromPic(const CUData& ctu, const CUGeom& cuGeom);
-    void     updatePic(uint32_t depth) const;
+    void     copyFromPic(const CUData& ctu, const CUGeom& cuGeom, int csp, bool copyQp = true);
+    void     updatePic(uint32_t depth, int picCsp) const;
 
     void     setPartSizeSubParts(PartSize size)    { m_partSet(m_partSize, (uint8_t)size); }
     void     setPredModeSubParts(PredMode mode)    { m_partSet(m_predMode, (uint8_t)mode); }
-    void     clearCbf()                            { m_partSet(m_cbf[0], 0); m_partSet(m_cbf[1], 0); m_partSet(m_cbf[2], 0); }
+    void     clearCbf()                            { m_partSet(m_cbf[0], 0); if (m_chromaFormat != X265_CSP_I400) { m_partSet(m_cbf[1], 0); m_partSet(m_cbf[2], 0);} }
 
     /* these functions all take depth as an absolute depth from CTU, it is used to calculate the number of parts to copy */
     void     setQPSubParts(int8_t qp, uint32_t absPartIdx, uint32_t depth)                    { s_partSet[depth]((uint8_t*)m_qp + absPartIdx, (uint8_t)qp); }
@@ -246,17 +287,21 @@ public:
     void     setPURefIdx(int list, int8_t refIdx, int absPartIdx, int puIdx);
 
     uint8_t  getCbf(uint32_t absPartIdx, TextType ttype, uint32_t tuDepth) const { return (m_cbf[ttype][absPartIdx] >> tuDepth) & 0x1; }
-    uint8_t  getQtRootCbf(uint32_t absPartIdx) const                             { return m_cbf[0][absPartIdx] || m_cbf[1][absPartIdx] || m_cbf[2][absPartIdx]; }
+    bool     getQtRootCbf(uint32_t absPartIdx) const                             { return (m_cbf[0][absPartIdx] || ((m_chromaFormat != X265_CSP_I400) && (m_cbf[1][absPartIdx] || m_cbf[2][absPartIdx]))); }
     int8_t   getRefQP(uint32_t currAbsIdxInCTU) const;
     uint32_t getInterMergeCandidates(uint32_t absPartIdx, uint32_t puIdx, MVField (*candMvField)[2], uint8_t* candDir) const;
     void     clipMv(MV& outMV) const;
-    int      getPMV(InterNeighbourMV *neighbours, uint32_t reference_list, uint32_t refIdx, MV* amvpCand, MV* pmv) const;
+#if (ENABLE_MULTIVIEW || ENABLE_SCC_EXT)
+    int      getPMV(InterNeighbourMV* neighbours, uint32_t reference_list, uint32_t refIdx, MV* amvpCand, MV* pmv, uint32_t puIdx = 0, uint32_t absPartIdx = 0) const;
+#else
+    int      getPMV(InterNeighbourMV* neighbours, uint32_t reference_list, uint32_t refIdx, MV* amvpCand, MV* pmv) const;
+#endif
     void     getNeighbourMV(uint32_t puIdx, uint32_t absPartIdx, InterNeighbourMV* neighbours) const;
     void     getIntraTUQtDepthRange(uint32_t tuDepthRange[2], uint32_t absPartIdx) const;
     void     getInterTUQtDepthRange(uint32_t tuDepthRange[2], uint32_t absPartIdx) const;
     uint32_t getBestRefIdx(uint32_t subPartIdx) const { return ((m_interDir[subPartIdx] & 1) << m_refIdx[0][subPartIdx]) | 
                                                               (((m_interDir[subPartIdx] >> 1) & 1) << (m_refIdx[1][subPartIdx] + 16)); }
-    uint32_t getPUOffset(uint32_t puIdx, uint32_t absPartIdx) const { return (partAddrTable[(int)m_partSize[absPartIdx]][puIdx] << (g_unitSizeDepth - m_cuDepth[absPartIdx]) * 2) >> 4; }
+    uint32_t getPUOffset(uint32_t puIdx, uint32_t absPartIdx) const { return (partAddrTable[(int)m_partSize[absPartIdx]][puIdx] << (m_slice->m_param->unitSizeDepth - m_cuDepth[absPartIdx]) * 2) >> 4; }
 
     uint32_t getNumPartInter(uint32_t absPartIdx) const              { return nbPartsTable[(int)m_partSize[absPartIdx]]; }
     bool     isIntra(uint32_t absPartIdx) const   { return m_predMode[absPartIdx] == MODE_INTRA; }
@@ -270,7 +315,7 @@ public:
     void     getAllowedChromaDir(uint32_t absPartIdx, uint32_t* modeList) const;
     int      getIntraDirLumaPredictor(uint32_t absPartIdx, uint32_t* intraDirPred) const;
 
-    uint32_t getSCUAddr() const                  { return (m_cuAddr << g_unitSizeDepth * 2) + m_absIdxInCTU; }
+    uint32_t getSCUAddr() const                  { return (m_cuAddr << m_slice->m_param->unitSizeDepth * 2) + m_absIdxInCTU; }
     uint32_t getCtxSplitFlag(uint32_t absPartIdx, uint32_t depth) const;
     uint32_t getCtxSkipFlag(uint32_t absPartIdx) const;
     void     getTUEntropyCodingParameters(TUEntropyCodingParameters &result, uint32_t absPartIdx, uint32_t log2TrSize, bool bIsLuma) const;
@@ -286,6 +331,17 @@ public:
 
     const CUData* getPUAboveRightAdi(uint32_t& arPartUnitIdx, uint32_t curPartUnitIdx, uint32_t partUnitOffset) const;
     const CUData* getPUBelowLeftAdi(uint32_t& blPartUnitIdx, uint32_t curPartUnitIdx, uint32_t partUnitOffset) const;
+
+#if ENABLE_SCC_EXT
+    void     initSubCU(const CUData& ctu, const CUGeom& cuGeom, int qp, MV lastIntraBCMv[2] = 0);
+
+    void getIntraBCMVPsEncOnly(uint32_t absPartIdx, MV* MvPred, int& nbPred, int puIdx);
+    bool getDerivedBV(uint32_t absPartIdx, const MV& currentMv, MV& derivedMv, uint32_t width, uint32_t height);
+    bool isIntraBC(const CUData* cu, uint32_t absPartIdx) const;
+    bool getColMVPIBC(int ctuRsAddr, int partUnitIdx, MV& rcMv);
+    void roundMergeCandidates(MVField(*candMvField)[2], int iCount) const;
+    bool is8x8BipredRestriction(MV mvL0, MV mvL1, int iRefIdxL0, int iRefIdxL1) const;
+#endif
 
 protected:
 
@@ -323,7 +379,6 @@ struct TUEntropyCodingParameters
     const uint16_t *scan;
     const uint16_t *scanCG;
     ScanType        scanType;
-    uint32_t        log2TrSizeCG;
     uint32_t        firstSignificanceMapContext;
 };
 
@@ -332,20 +387,32 @@ struct CUDataMemPool
     uint8_t* charMemBlock;
     coeff_t* trCoeffMemBlock;
     MV*      mvMemBlock;
+    sse_t*   distortionMemBlock;
+    uint64_t* dynRefineRdBlock;
+    uint32_t* dynRefCntBlock;
+    uint32_t* dynRefVarBlock;
 
-    CUDataMemPool() { charMemBlock = NULL; trCoeffMemBlock = NULL; mvMemBlock = NULL; }
+    CUDataMemPool() { charMemBlock = NULL; trCoeffMemBlock = NULL; mvMemBlock = NULL; distortionMemBlock = NULL; 
+                      dynRefineRdBlock = NULL; dynRefCntBlock = NULL; dynRefVarBlock = NULL;}
 
-    bool create(uint32_t depth, uint32_t csp, uint32_t numInstances)
+    bool create(uint32_t depth, uint32_t csp, uint32_t numInstances, const x265_param& param)
     {
-        uint32_t numPartition = NUM_4x4_PARTITIONS >> (depth * 2);
-        uint32_t cuSize = g_maxCUSize >> depth;
+        uint32_t numPartition = param.num4x4Partitions >> (depth * 2);
+        uint32_t cuSize = param.maxCUSize >> depth;
         uint32_t sizeL = cuSize * cuSize;
-        uint32_t sizeC = sizeL >> (CHROMA_H_SHIFT(csp) + CHROMA_V_SHIFT(csp));
-        CHECKED_MALLOC(trCoeffMemBlock, coeff_t, (sizeL + sizeC * 2) * numInstances);
+        if (csp == X265_CSP_I400)
+        {
+            CHECKED_MALLOC(trCoeffMemBlock, coeff_t, (sizeL) * numInstances);
+        }
+        else
+        {            
+            uint32_t sizeC = sizeL >> (CHROMA_H_SHIFT(csp) + CHROMA_V_SHIFT(csp));
+            CHECKED_MALLOC(trCoeffMemBlock, coeff_t, (sizeL + sizeC * 2) * numInstances);
+        }
         CHECKED_MALLOC(charMemBlock, uint8_t, numPartition * numInstances * CUData::BytesPerPartition);
-        CHECKED_MALLOC(mvMemBlock, MV, numPartition * 4 * numInstances);
+        CHECKED_MALLOC_ZERO(mvMemBlock, MV, numPartition * 4 * numInstances);
+        CHECKED_MALLOC(distortionMemBlock, sse_t, numPartition * numInstances);
         return true;
-
     fail:
         return false;
     }
@@ -355,6 +422,7 @@ struct CUDataMemPool
         X265_FREE(trCoeffMemBlock);
         X265_FREE(mvMemBlock);
         X265_FREE(charMemBlock);
+        X265_FREE(distortionMemBlock);
     }
 };
 }

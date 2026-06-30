@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Deepthi Nandakumar <deepthi@multicorewareinc.com>
  *
@@ -41,24 +41,24 @@ bool ShortYuv::create(uint32_t size, int csp)
 {
     m_csp = csp;
     m_size = size;
-
+    m_hChromaShift = CHROMA_H_SHIFT(csp);
+    m_vChromaShift = CHROMA_V_SHIFT(csp);
     size_t sizeL = size * size;
-    size_t sizeC;
-    if (m_csp != X265_CSP_I400) {
-        m_hChromaShift = CHROMA_H_SHIFT(csp);
-        m_vChromaShift = CHROMA_V_SHIFT(csp);
+
+    if (csp != X265_CSP_I400)
+    {
         m_csize = size >> m_hChromaShift;
-        sizeC = sizeL >> (m_hChromaShift + m_vChromaShift);
+        size_t sizeC = sizeL >> (m_hChromaShift + m_vChromaShift);
         X265_CHECK((sizeC & 15) == 0, "invalid size");
-    } else {
-        m_csize = 0;
-        sizeC = 0;
-    }
-    
-    CHECKED_MALLOC(m_buf[0], int16_t, sizeL + sizeC * 2);
-    if (m_csp != X265_CSP_I400) {
+
+        CHECKED_MALLOC(m_buf[0], int16_t, sizeL + sizeC * 2);
         m_buf[1] = m_buf[0] + sizeL;
         m_buf[2] = m_buf[0] + sizeL + sizeC;
+    }
+    else
+    {
+        CHECKED_MALLOC(m_buf[0], int16_t, sizeL);
+        m_buf[1] = m_buf[2] = NULL;
     }
     return true;
 
@@ -74,17 +74,16 @@ void ShortYuv::destroy()
 void ShortYuv::clear()
 {
     memset(m_buf[0], 0, (m_size  * m_size) *  sizeof(int16_t));
-    if (m_csp != X265_CSP_I400) {
-        memset(m_buf[1], 0, (m_csize * m_csize) * sizeof(int16_t));
-        memset(m_buf[2], 0, (m_csize * m_csize) * sizeof(int16_t));
-    }
+    memset(m_buf[1], 0, (m_csize * m_csize) * sizeof(int16_t));
+    memset(m_buf[2], 0, (m_csize * m_csize) * sizeof(int16_t));
 }
 
-void ShortYuv::subtract(const Yuv& srcYuv0, const Yuv& srcYuv1, uint32_t log2Size)
+void ShortYuv::subtract(const Yuv& srcYuv0, const Yuv& srcYuv1, uint32_t log2Size, int picCsp)
 {
     const int sizeIdx = log2Size - 2;
     primitives.cu[sizeIdx].sub_ps(m_buf[0], m_size, srcYuv0.m_buf[0], srcYuv1.m_buf[0], srcYuv0.m_size, srcYuv1.m_size);
-    if (m_csp != X265_CSP_I400) {
+    if (m_csp != X265_CSP_I400 && picCsp != X265_CSP_I400)
+    {
         primitives.chroma[m_csp].cu[sizeIdx].sub_ps(m_buf[1], m_csize, srcYuv0.m_buf[1], srcYuv1.m_buf[1], srcYuv0.m_csize, srcYuv1.m_csize);
         primitives.chroma[m_csp].cu[sizeIdx].sub_ps(m_buf[2], m_csize, srcYuv0.m_buf[2], srcYuv1.m_buf[2], srcYuv0.m_csize, srcYuv1.m_csize);
     }

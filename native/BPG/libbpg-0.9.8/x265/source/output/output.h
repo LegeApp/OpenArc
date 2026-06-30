@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2015 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Xinyue Lu <i@7086.in>
@@ -42,7 +42,7 @@ public:
     ReconFile()           {}
 
     static ReconFile* open(const char *fname, int width, int height, uint32_t bitdepth,
-                           uint32_t fpsNum, uint32_t fpsDenom, int csp);
+                           uint32_t fpsNum, uint32_t fpsDenom, int csp, int sourceBitDepth);
 
     virtual bool isFail() const = 0;
 

@@ -1,7 +1,8 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
+ *          Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,6 +52,12 @@ private:
 
     int m_numRows;
 
+    int m_sLayerId;
+
+protected:
+    uint32_t *m_row_to_idx;
+    uint32_t *m_idx_to_row;
+
 public:
 
     WaveFront()
@@ -90,7 +97,9 @@ public:
 
     // Start or resume encode processing of this row, must be implemented by
     // derived classes.
-    virtual void processRow(int row, int threadId) = 0;
+    virtual void processRow(int row, int threadId, int layer) = 0;
+
+    void setLayerId(int layer);
 };
 } // end namespace X265_NS
 

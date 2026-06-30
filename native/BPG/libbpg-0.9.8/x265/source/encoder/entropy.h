@@ -1,7 +1,8 @@
 /*****************************************************************************
-* Copyright (C) 2013 x265 project
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Authors: Steve Borho <steve@borho.org>
+*          Min Chen <chenm003@163.com>
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -110,6 +111,7 @@ public:
     int           m_bitsLeft;
     uint64_t      m_fracBits;
     EstBitsSbac   m_estBitsSbac;
+    double        m_meanQP;
 
     Entropy();
 
@@ -139,16 +141,20 @@ public:
     void loadIntraDirModeLuma(const Entropy& src);
     void copyState(const Entropy& other);
 
+#if ENABLE_ALPHA || ENABLE_MULTIVIEW
+    void codeVPS(const VPS& vps, const SPS& sps);
+#else
     void codeVPS(const VPS& vps);
-    void codeSPS(const SPS& sps, const ScalingList& scalingList, const ProfileTierLevel& ptl);
-    void codePPS(const PPS& pps);
-    void codeVUI(const VUI& vui, int maxSubTLayers);
+#endif
+    void codeSPS(const SPS& sps, const ScalingList& scalingList, const ProfileTierLevel& ptl, int layer = 0);
+    void codePPS( const PPS& pps, bool filerAcross, int iPPSInitQpMinus26, int layer = 0);
+    void codeVUI(const VUI& vui, int maxSubTLayers, bool bEmitVUITimingInfo, bool bEmitVUIHRDInfo, int layer = 0);
     void codeAUD(const Slice& slice);
     void codeHrdParameters(const HRDInfo& hrd, int maxSubTLayers);
 
-    void codeSliceHeader(const Slice& slice, FrameData& encData);
-    void codeSliceHeaderWPPEntryPoints(const Slice& slice, const uint32_t *substreamSizes, uint32_t maxOffset);
-    void codeShortTermRefPicSet(const RPS& rps);
+    void codeSliceHeader(const Slice& slice, FrameData& encData, uint32_t slice_addr, uint32_t slice_addr_bits, int sliceQp, int layer = 0);
+    void codeSliceHeaderWPPEntryPoints(const uint32_t *substreamSizes, uint32_t numSubStreams, uint32_t maxOffset);
+    void codeShortTermRefPicSet(const RPS& rps, int idx);
     void finishSlice()                 { encodeBinTrm(1); finish(); dynamic_cast<Bitstream*>(m_bitIf)->writeByteAlignment(); }
 
     void encodeCTU(const CUData& cu, const CUGeom& cuGeom);
@@ -161,13 +167,13 @@ public:
 
     void codePartSize(const CUData& cu, uint32_t absPartIdx, uint32_t depth);
     void codePredInfo(const CUData& cu, uint32_t absPartIdx);
-    inline void codeQtCbfLuma(const CUData& cu, uint32_t absPartIdx, uint32_t tuDepth) { codeQtCbfLuma(cu.getCbf(absPartIdx, TEXT_LUMA, tuDepth), tuDepth); }
 
     void codeQtCbfChroma(const CUData& cu, uint32_t absPartIdx, TextType ttype, uint32_t tuDepth, bool lowestLevel);
     void codeCoeff(const CUData& cu, uint32_t absPartIdx, bool& bCodeDQP, const uint32_t depthRange[2]);
     void codeCoeffNxN(const CUData& cu, const coeff_t* coef, uint32_t absPartIdx, uint32_t log2TrSize, TextType ttype);
 
     inline void codeSaoMerge(uint32_t code)                          { encodeBin(code, m_contextState[OFF_SAO_MERGE_FLAG_CTX]); }
+    inline void codeSaoType(uint32_t code)                           { encodeBin(code, m_contextState[OFF_SAO_TYPE_IDX_CTX]); }
     inline void codeMVPIdx(uint32_t symbol)                          { encodeBin(symbol, m_contextState[OFF_MVP_IDX_CTX]); }
     inline void codeMergeFlag(const CUData& cu, uint32_t absPartIdx) { encodeBin(cu.m_mergeFlag[absPartIdx], m_contextState[OFF_MERGE_FLAG_EXT_CTX]); }
     inline void codeSkipFlag(const CUData& cu, uint32_t absPartIdx)  { encodeBin(cu.isSkipped(absPartIdx), m_contextState[OFF_SKIP_FLAG_CTX + cu.getCtxSkipFlag(absPartIdx)]); }
@@ -181,6 +187,8 @@ public:
     inline void codeTransformSkipFlags(uint32_t transformSkip, TextType ttype) { encodeBin(transformSkip, m_contextState[OFF_TRANSFORMSKIP_FLAG_CTX + (ttype ? NUM_TRANSFORMSKIP_FLAG_CTX : 0)]); }
     void codeDeltaQP(const CUData& cu, uint32_t absPartIdx);
     void codeSaoOffset(const SaoCtuParam& ctuParam, int plane);
+    void codeSaoOffsetEO(int *offset, int typeIdx, int plane);
+    void codeSaoOffsetBO(int *offset, int bandPos, int plane);
 
     /* RDO functions */
     void estBit(EstBitsSbac& estBitsSbac, uint32_t log2TrSize, bool bIsLuma) const;
@@ -230,7 +238,7 @@ private:
     void writeEpExGolomb(uint32_t symbol, uint32_t count);
     void writeCoefRemainExGolomb(uint32_t symbol, const uint32_t absGoRice);
 
-    void codeProfileTier(const ProfileTierLevel& ptl, int maxTempSubLayers);
+    void codeProfileTier(const ProfileTierLevel& ptl, int maxTempSubLayers, int layer = 0);
     void codeScalingList(const ScalingList&);
     void codeScalingList(const ScalingList& scalingList, uint32_t sizeId, uint32_t listId);
 
@@ -245,6 +253,8 @@ private:
     void codeLastSignificantXY(uint32_t posx, uint32_t posy, uint32_t log2TrSize, bool bIsLuma, uint32_t scanIdx);
 
     void encodeTransform(const CUData& cu, uint32_t absPartIdx, uint32_t tuDepth, uint32_t log2TrSize,
+                         bool& bCodeDQP, const uint32_t depthRange[2]);
+    void encodeTransformLuma(const CUData& cu, uint32_t absPartIdx, uint32_t tuDepth, uint32_t log2TrSize,
                          bool& bCodeDQP, const uint32_t depthRange[2]);
 
     void copyFrom(const Entropy& src);

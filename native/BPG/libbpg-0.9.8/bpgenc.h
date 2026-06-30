@@ -54,6 +54,8 @@ typedef struct {
     int lossless; /* 0-1 lossless mode */
     int sei_decoded_picture_hash; /* 0=no hash, 1=MD5 hash */
     int compress_level; /* 1-9 */
+    int aq_mode; /* x265 AQ mode selector */
+    float aq_strength; /* x265 AQ strength; <=0 keeps preset default */
     int verbose;
 } HEVCEncodeParams;
 
@@ -76,4 +78,3 @@ void save_yuv(Image *img, const char *filename);
 #ifdef __cplusplus
 }
 #endif
-

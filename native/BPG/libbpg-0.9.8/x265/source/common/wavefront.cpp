@@ -1,7 +1,8 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
+ *          Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,13 +43,24 @@ bool WaveFront::init(int numRows)
     if (m_externalDependencyBitmap)
         memset((void*)m_externalDependencyBitmap, 0, sizeof(uint32_t) * m_numWords);
 
+    m_row_to_idx = X265_MALLOC(uint32_t, m_numRows);
+    m_idx_to_row = X265_MALLOC(uint32_t, m_numRows);
+
     return m_internalDependencyBitmap && m_externalDependencyBitmap;
 }
 
 WaveFront::~WaveFront()
 {
+    x265_free((void*)m_row_to_idx);
+    x265_free((void*)m_idx_to_row);
+
     x265_free((void*)m_internalDependencyBitmap);
     x265_free((void*)m_externalDependencyBitmap);
+}
+
+void WaveFront::setLayerId(int layer)
+{
+    m_sLayerId = layer;
 }
 
 void WaveFront::clearEnabledRowMask()
@@ -96,7 +108,7 @@ void WaveFront::findJob(int threadId)
             if (ATOMIC_AND(&m_internalDependencyBitmap[w], ~bit) & bit)
             {
                 /* we cleared the bit, we get to process the row */
-                processRow(w * 32 + id, threadId);
+                processRow(w * 32 + id, threadId, m_sLayerId);
                 m_helpWanted = true;
                 return; /* check for a higher priority task */
             }

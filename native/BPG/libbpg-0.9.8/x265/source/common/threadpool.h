@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -85,7 +85,7 @@ public:
     int           m_numWorkers;
     void*         m_numaMask; // node mask in linux, cpu mask in windows
 #if defined(_WIN32_WINNT) && _WIN32_WINNT >= _WIN32_WINNT_WIN7 
-    DWORD         m_winCpuMask;
+    GROUP_AFFINITY m_groupAffinity;
 #endif
     bool          m_isActive;
 
@@ -95,18 +95,17 @@ public:
     ThreadPool();
     ~ThreadPool();
 
-    bool create(int numThreads, int maxProviders, uint32_t nodeMask);
+    bool create(int numThreads, int maxProviders, uint64_t nodeMask);
     bool start();
     void stopWorkers();
     void setCurrentThreadAffinity();
+    void setThreadNodeAffinity(void *numaMask);
     int  tryAcquireSleepingThread(sleepbitmap_t firstTryBitmap, sleepbitmap_t secondTryBitmap);
     int  tryBondPeers(int maxPeers, sleepbitmap_t peerBitmap, BondedTaskGroup& master);
-
-    static ThreadPool* allocThreadPools(x265_param* p, int& numPools);
-
+    static ThreadPool* allocThreadPools(x265_param* p, int& numPools, bool isThreadsReserved);
     static int  getCpuCount();
     static int  getNumaNodeCount();
-    static void setThreadNodeAffinity(void *numaMask);
+    static void getFrameThreadsCount(x265_param* p,int cpuCount);
 };
 
 /* Any worker thread may enlist the help of idle worker threads from the same
@@ -116,7 +115,7 @@ public:
  * called. If it returns non-zero then some number of slave worker threads are
  * already in the process of calling your processTasks() function. The master
  * thread should participate and call processTasks() itself. When
- * waitForExit() returns, all bonded peer threads are quarunteed to have
+ * waitForExit() returns, all bonded peer threads are guaranteed to have
  * exitied processTasks(). Since the thread count is small, it uses explicit
  * locking instead of atomic counters and bitmasks */
 class BondedTaskGroup

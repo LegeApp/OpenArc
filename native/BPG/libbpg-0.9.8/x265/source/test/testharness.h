@@ -1,7 +1,9 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
+ *          Min Chen <chenm003@163.com>
+ *          Yimeng Su <yimeng.su@huawei.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,7 +33,6 @@
 #pragma warning(disable: 4324) // structure was padded due to __declspec(align())
 #endif
 
-#define PIXEL_MAX ((1 << X265_DEPTH) - 1)
 #define PIXEL_MIN 0
 #define SHORT_MAX  32767
 #define SHORT_MIN -32767
@@ -68,23 +69,37 @@ protected:
 #include <intrin.h>
 #elif HAVE_RDTSC
 #include <intrin.h>
-#elif defined(__GNUC__)
+#elif (!defined(__APPLE__) && (defined (__GNUC__) && (defined(__x86_64__) || defined(__i386__))))
+#include <x86intrin.h>
+#elif ( !defined(__APPLE__) && defined (__GNUC__) && defined(__ARM_NEON__))
+#include <arm_neon.h>
+#else
 /* fallback for older GCC/MinGW */
 static inline uint32_t __rdtsc(void)
 {
     uint32_t a = 0;
 
+#if X265_ARCH_X86
     asm volatile("rdtsc" : "=a" (a) ::"edx");
+#elif X265_ARCH_ARM
+    // TOD-DO: verify following inline asm to get cpu Timestamp Counter for ARM arch
+    // asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(a));
+
+    // TO-DO: replace clock() function with appropriate ARM cpu instructions
+    a = clock();
+#elif  X265_ARCH_ARM64
+    asm volatile("isb" : : : "memory");
+    asm volatile("mrs %0, cntvct_el0" : "=r"(a));
+#endif
     return a;
 }
-
 #endif // ifdef _MSC_VER
 
-#define BENCH_RUNS 1000
+#define BENCH_RUNS 2000
 
-// Adapted from checkasm.c, runs each optimized primitive four times, measures rdtsc
-// and discards invalid times.  Repeats 1000 times to get a good average.  Then measures
-// the C reference with fewer runs and reports X factor and average cycles.
+/* Adapted from checkasm.c, runs each optimized primitive four times, measures rdtsc
+ * and discards invalid times. Repeats BENCH_RUNS times to get a good average.
+ * Then measures the C reference with BENCH_RUNS / 4 runs and reports X factor and average cycles.*/
 #define REPORT_SPEEDUP(RUNOPT, RUNREF, ...) \
     { \
         uint32_t cycles = 0; int runs = 0; \
@@ -112,8 +127,8 @@ static inline uint32_t __rdtsc(void)
         x265_emms(); \
         float optperf = (10.0f * cycles / runs) / 4; \
         float refperf = (10.0f * refcycles / refruns) / 4; \
-        printf("\t%3.2fx ", refperf / optperf); \
-        printf("\t %-8.2lf \t %-8.2lf\n", optperf, refperf); \
+        printf(" | \t%3.2fx | ", refperf / optperf); \
+        printf("\t %-8.2lf | \t %-8.2lf\n", optperf, refperf); \
     }
 
 extern "C" {
@@ -124,7 +139,7 @@ int PFX(stack_pagealign)(int (*func)(), int align);
  * needs an explicit asm check because it only sometimes crashes in normal use. */
 intptr_t PFX(checkasm_call)(intptr_t (*func)(), int *ok, ...);
 float PFX(checkasm_call_float)(float (*func)(), int *ok, ...);
-#else
+#elif (X265_ARCH_ARM == 0 && X265_ARCH_ARM64 == 0)
 #define PFX(stack_pagealign)(func, align) func()
 #endif
 

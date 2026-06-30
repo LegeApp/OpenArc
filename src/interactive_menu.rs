@@ -192,9 +192,7 @@ pub fn select_value(
                     KeyCode::Down | KeyCode::PageDown => {
                         current = (current - big_step).clamp(min, max)
                     }
-                    KeyCode::Up | KeyCode::PageUp => {
-                        current = (current + big_step).clamp(min, max)
-                    }
+                    KeyCode::Up | KeyCode::PageUp => current = (current + big_step).clamp(min, max),
                     KeyCode::Enter => break Ok(current),
                     KeyCode::Esc => break Err(anyhow!(CANCELLED)),
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -244,7 +242,9 @@ fn render_value(
         ResetColor,
         Print(describe(current)),
         SetForegroundColor(Color::DarkGrey),
-        Print(format!("  [{min}-{max}] \u{2190}/\u{2192} adjust \u{00b7} Enter confirm")),
+        Print(format!(
+            "  [{min}-{max}] \u{2190}/\u{2192} adjust \u{00b7} Enter confirm"
+        )),
         ResetColor,
         Print("\r\n"),
     )?;

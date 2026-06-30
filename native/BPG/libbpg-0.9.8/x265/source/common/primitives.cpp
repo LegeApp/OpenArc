@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -57,15 +57,32 @@ void setupFilterPrimitives_c(EncoderPrimitives &p);
 void setupIntraPrimitives_c(EncoderPrimitives &p);
 void setupLoopFilterPrimitives_c(EncoderPrimitives &p);
 void setupSaoPrimitives_c(EncoderPrimitives &p);
+void setupSeaIntegralPrimitives_c(EncoderPrimitives &p);
+void setupLowPassPrimitives_c(EncoderPrimitives& p);
 
 void setupCPrimitives(EncoderPrimitives &p)
 {
     setupPixelPrimitives_c(p);      // pixel.cpp
     setupDCTPrimitives_c(p);        // dct.cpp
+    setupLowPassPrimitives_c(p);    // lowpassdct.cpp
     setupFilterPrimitives_c(p);     // ipfilter.cpp
     setupIntraPrimitives_c(p);      // intrapred.cpp
     setupLoopFilterPrimitives_c(p); // loopfilter.cpp
     setupSaoPrimitives_c(p);        // sao.cpp
+    setupSeaIntegralPrimitives_c(p);  // framefilter.cpp
+}
+
+void enableLowpassDCTPrimitives(EncoderPrimitives &p)
+{
+    // update copies of the standard dct transform
+    p.cu[BLOCK_4x4].standard_dct = p.cu[BLOCK_4x4].dct;
+    p.cu[BLOCK_8x8].standard_dct = p.cu[BLOCK_8x8].dct;
+    p.cu[BLOCK_16x16].standard_dct = p.cu[BLOCK_16x16].dct;
+    p.cu[BLOCK_32x32].standard_dct = p.cu[BLOCK_32x32].dct;
+
+    // replace active dct by lowpass dct for high dct transforms
+    p.cu[BLOCK_16x16].dct = p.cu[BLOCK_16x16].lowpass_dct;
+    p.cu[BLOCK_32x32].dct = p.cu[BLOCK_32x32].lowpass_dct;
 }
 
 void setupAliasPrimitives(EncoderPrimitives &p)
@@ -97,9 +114,11 @@ void setupAliasPrimitives(EncoderPrimitives &p)
     for (int i = 0; i < NUM_PU_SIZES; i++)
     {
         p.chroma[X265_CSP_I444].pu[i].copy_pp = p.pu[i].copy_pp;
-        p.chroma[X265_CSP_I444].pu[i].addAvg  = p.pu[i].addAvg;
+        p.chroma[X265_CSP_I444].pu[i].addAvg[NONALIGNED]  = p.pu[i].addAvg[NONALIGNED];
+        p.chroma[X265_CSP_I444].pu[i].addAvg[ALIGNED] = p.pu[i].addAvg[ALIGNED];
         p.chroma[X265_CSP_I444].pu[i].satd    = p.pu[i].satd;
-        p.chroma[X265_CSP_I444].pu[i].p2s     = p.pu[i].convert_p2s;
+        p.chroma[X265_CSP_I444].pu[i].p2s[NONALIGNED]     = p.pu[i].convert_p2s[NONALIGNED];
+        p.chroma[X265_CSP_I444].pu[i].p2s[ALIGNED] = p.pu[i].convert_p2s[ALIGNED];
     }
 
     for (int i = 0; i < NUM_CU_SIZES; i++)
@@ -107,7 +126,8 @@ void setupAliasPrimitives(EncoderPrimitives &p)
         p.chroma[X265_CSP_I444].cu[i].sa8d    = p.cu[i].sa8d;
         p.chroma[X265_CSP_I444].cu[i].sse_pp  = p.cu[i].sse_pp;
         p.chroma[X265_CSP_I444].cu[i].sub_ps  = p.cu[i].sub_ps;
-        p.chroma[X265_CSP_I444].cu[i].add_ps  = p.cu[i].add_ps;
+        p.chroma[X265_CSP_I444].cu[i].add_ps[NONALIGNED]  = p.cu[i].add_ps[NONALIGNED];
+        p.chroma[X265_CSP_I444].cu[i].add_ps[ALIGNED] = p.cu[i].add_ps[ALIGNED];
         p.chroma[X265_CSP_I444].cu[i].copy_ps = p.cu[i].copy_ps;
         p.chroma[X265_CSP_I444].cu[i].copy_sp = p.cu[i].copy_sp;
         p.chroma[X265_CSP_I444].cu[i].copy_ss = p.cu[i].copy_ss;
@@ -195,7 +215,7 @@ void x265_report_simd(x265_param* param)
         int cpuid = param->cpuid;
 
         char buf[1000];
-        char *p = buf + sprintf(buf, "using cpu capabilities:");
+        char *p = buf + snprintf(buf, sizeof(buf), "using cpu capabilities:");
         char *none = p;
         for (int i = 0; X265_NS::cpu_names[i].flags; i++)
         {
@@ -216,11 +236,11 @@ void x265_report_simd(x265_param* param)
                 continue;
             if ((cpuid & X265_NS::cpu_names[i].flags) == X265_NS::cpu_names[i].flags
                 && (!i || X265_NS::cpu_names[i].flags != X265_NS::cpu_names[i - 1].flags))
-                p += sprintf(p, " %s", X265_NS::cpu_names[i].name);
+                p += snprintf(p, sizeof(buf) - (p - buf), " %s", X265_NS::cpu_names[i].name);
         }
 
         if (p == none)
-            sprintf(p, " none!");
+            snprintf(p, sizeof(buf) - (p - buf), " none!");
         x265_log(param, X265_LOG_INFO, "%s\n", buf);
     }
 }
@@ -238,18 +258,34 @@ void x265_setup_primitives(x265_param *param)
             primitives.cu[i].intra_pred_allangs = NULL;
 
 #if ENABLE_ASSEMBLY
-        setupInstrinsicPrimitives(primitives, param->cpuid);
+#if defined(X265_ARCH_X86) || defined(X265_ARCH_ARM64)
+        setupIntrinsicPrimitives(primitives, param->cpuid);
+#endif
         setupAssemblyPrimitives(primitives, param->cpuid);
+#endif
+#if HAVE_ALTIVEC
+        if (param->cpuid & X265_CPU_ALTIVEC)
+        {
+            setupPixelPrimitives_altivec(primitives);       // pixel_altivec.cpp, overwrite the initialization for altivec optimizated functions
+            setupDCTPrimitives_altivec(primitives);         // dct_altivec.cpp, overwrite the initialization for altivec optimizated functions
+            setupFilterPrimitives_altivec(primitives);      // ipfilter.cpp, overwrite the initialization for altivec optimizated functions
+            setupIntraPrimitives_altivec(primitives);       // intrapred_altivec.cpp, overwrite the initialization for altivec optimizated functions
+        }
 #endif
 
         setupAliasPrimitives(primitives);
+
+        if (param->bLowPassDct)
+        {
+            enableLowpassDCTPrimitives(primitives); 
+        }
     }
 
     x265_report_simd(param);
 }
 }
 
-#if ENABLE_ASSEMBLY
+#if ENABLE_ASSEMBLY && X265_ARCH_X86
 /* these functions are implemented in assembly. When assembly is not being
  * compiled, they are unnecessary and can be NOPs */
 #else
@@ -258,7 +294,10 @@ int PFX(cpu_cpuid_test)(void) { return 0; }
 void PFX(cpu_emms)(void) {}
 void PFX(cpu_cpuid)(uint32_t, uint32_t *eax, uint32_t *, uint32_t *, uint32_t *) { *eax = 0; }
 void PFX(cpu_xgetbv)(uint32_t, uint32_t *, uint32_t *) {}
+
+#if X265_ARCH_ARM == 0
 void PFX(cpu_neon_test)(void) {}
 int PFX(cpu_fast_neon_mrc_test)(void) { return 0; }
+#endif // X265_ARCH_ARM
 }
 #endif

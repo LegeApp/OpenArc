@@ -785,7 +785,7 @@ fn wfc_ari_decode(input: &[u8], size: usize) -> Result<Vec<u8>> {
 // Main block decompressor (C_GRZip.cpp: GRZip_DecompressBlock)
 // ---------------------------------------------------------------------------
 
-fn decompress_block(input: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn decompress_block(input: &[u8]) -> Result<Vec<u8>> {
     if input.len() < 28 {
         return Err(err_corrupt("block too short"));
     }
@@ -889,6 +889,40 @@ fn decompress_block(input: &[u8]) -> Result<Vec<u8>> {
     }
 }
 
+/// Decode a FreeArc GRZip byte stream.
+///
+/// FreeArc stores GRZip data as a concatenation of raw GRZip blocks. Each
+/// block carries its own 28-byte header whose `body_size` field determines
+/// how many following bytes belong to that block.
+pub(crate) fn decompress_stream(input: &[u8]) -> Result<Vec<u8>> {
+    let mut pos = 0usize;
+    let mut output = Vec::new();
+
+    while pos < input.len() {
+        if input.len() - pos < 28 {
+            return Err(err_corrupt("trailing partial block header"));
+        }
+
+        let body_size = i32::from_le_bytes(input[pos + 16..pos + 20].try_into().unwrap());
+        if body_size < 0 {
+            return Err(err_corrupt("negative body_size"));
+        }
+
+        let total = 28usize
+            .checked_add(body_size as usize)
+            .ok_or_else(|| err_corrupt("block size overflow"))?;
+        if pos + total > input.len() {
+            return Err(err_corrupt("block body out of bounds"));
+        }
+
+        let block = decompress_block(&input[pos..pos + total])?;
+        output.extend_from_slice(&block);
+        pos += total;
+    }
+
+    Ok(output)
+}
+
 // ---------------------------------------------------------------------------
 // GrzipCodec — implements Codec trait with native decompression
 // ---------------------------------------------------------------------------
@@ -979,3 +1013,30 @@ impl Codec for GrzipCodec {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stored_block(data: &[u8]) -> Vec<u8> {
+        let mut block = Vec::with_capacity(28 + data.len());
+        block.extend_from_slice(&(data.len() as i32).to_le_bytes());
+        block.extend_from_slice(&(-1i32).to_le_bytes());
+        block.extend_from_slice(&0i32.to_le_bytes());
+        block.extend_from_slice(&0i32.to_le_bytes());
+        block.extend_from_slice(&(data.len() as i32).to_le_bytes());
+        block.extend_from_slice(&0i32.to_le_bytes());
+        block.extend_from_slice(&0i32.to_le_bytes());
+        block.extend_from_slice(data);
+        block
+    }
+
+    #[test]
+    fn raw_stream_decodes_concatenated_stored_blocks() {
+        let mut stream = stored_block(b"hello ");
+        stream.extend_from_slice(&stored_block(b"world"));
+
+        let decoded = decompress_stream(&stream).unwrap();
+        assert_eq!(decoded, b"hello world");
+    }
+}

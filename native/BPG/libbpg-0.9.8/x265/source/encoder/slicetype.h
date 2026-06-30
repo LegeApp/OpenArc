@@ -1,7 +1,8 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
+ *          Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +30,7 @@
 #include "motion.h"
 #include "piclist.h"
 #include "threadpool.h"
+#include "temporalfilter.h"
 
 namespace X265_NS {
 // private namespace
@@ -39,12 +41,39 @@ class Lookahead;
 
 #define LOWRES_COST_MASK  ((1 << 14) - 1)
 #define LOWRES_COST_SHIFT 14
+#define AQ_EDGE_BIAS 0.5
+#define EDGE_INCLINATION 45
+#define TEMPORAL_SCENECUT_THRESHOLD 50
+
+#define X265_ABS(a)                        (((a) < 0) ? (-(a)) : (a))
+
+#define PICTURE_DIFF_VARIANCE_TH            390
+#define PICTURE_VARIANCE_TH                 1500
+#define LOW_VAR_SCENE_CHANGE_TH             2250
+#define HIGH_VAR_SCENE_CHANGE_TH            3500
+
+#define PICTURE_DIFF_VARIANCE_CHROMA_TH     10
+#define PICTURE_VARIANCE_CHROMA_TH          20
+#define LOW_VAR_SCENE_CHANGE_CHROMA_TH      2250/4
+#define HIGH_VAR_SCENE_CHANGE_CHROMA_TH     3500/4
+
+#define FLASH_TH                            1.5
+#define FADE_TH                             4
+#define INTENSITY_CHANGE_TH                 4
+
+#define NUM64x64INPIC(w,h)                  ((w*h)>> (MAX_LOG2_CU_SIZE<<1))
+
+#if HIGH_BIT_DEPTH
+#define EDGE_THRESHOLD 1023.0
+#else
+#define EDGE_THRESHOLD 255.0
+#endif
+#define PI 3.14159265
 
 /* Thread local data for lookahead tasks */
 struct LookaheadTLD
 {
     MotionEstimate  me;
-    ReferencePlanes weightedRef;
     pixel*          wbuffer[4];
     int             widthInCU;
     int             heightInCU;
@@ -60,8 +89,8 @@ struct LookaheadTLD
 
     LookaheadTLD()
     {
+        me.init(X265_CSP_I400);
         me.setQP(X265_LOOKAHEAD_QP);
-        me.init(X265_HEX_SEARCH, 1, X265_CSP_I400);
         for (int i = 0; i < 4; i++)
             wbuffer[i] = NULL;
         widthInCU = heightInCU = ncu = paddedLines = 0;
@@ -83,14 +112,39 @@ struct LookaheadTLD
 
     ~LookaheadTLD() { X265_FREE(wbuffer[0]); }
 
+    void collectPictureStatistics(Frame *curFrame);
+    void computeIntensityHistogramBinsLuma(Frame *curFrame, uint64_t *sumAvgIntensityTotalSegmentsLuma);
+
+    void computeIntensityHistogramBinsChroma(
+        Frame    *curFrame,
+        uint64_t *sumAverageIntensityCb,
+        uint64_t *sumAverageIntensityCr);
+
+    void calculateHistogram(
+        pixel    *inputSrc,
+        uint32_t  inputWidth,
+        uint32_t  inputHeight,
+        intptr_t  stride,
+        uint8_t   dsFactor,
+        uint32_t *histogram,
+        uint64_t *sum);
+
+    void computePictureStatistics(Frame *curFrame);
+
+    uint32_t calcVariance(pixel* src, intptr_t stride, intptr_t blockOffset, uint32_t plane);
+
     void calcAdaptiveQuantFrame(Frame *curFrame, x265_param* param);
-    void lowresIntraEstimate(Lowres& fenc);
+    void calcFrameSegment(Frame *curFrame);
+    void lowresIntraEstimate(Lowres& fenc, uint32_t qgSize);
 
     void weightsAnalyse(Lowres& fenc, Lowres& ref);
-
+    void xPreanalyze(Frame* curFrame);
+    void xPreanalyzeQp(Frame* curFrame);
 protected:
 
-    uint32_t acEnergyCu(Frame* curFrame, uint32_t blockX, uint32_t blockY, int csp);
+    uint32_t acEnergyCu(Frame* curFrame, uint32_t blockX, uint32_t blockY, int csp, uint32_t qgSize);
+    uint32_t edgeDensityCu(Frame* curFrame, uint32_t &avgAngle, uint32_t blockX, uint32_t blockY, uint32_t qgSize);
+    uint32_t lumaSumCu(Frame* curFrame, uint32_t blockX, uint32_t blockY, uint32_t qgSize);
     uint32_t weightCostLuma(Lowres& fenc, Lowres& ref, WeightParam& wp);
     bool     allocWeightedRef(Lowres& fenc);
 };
@@ -103,33 +157,56 @@ public:
     PicList       m_outputQueue;     // pictures to be encoded, in encode order
     Lock          m_inputLock;
     Lock          m_outputLock;
+    Event         m_outputSignal;
+    LookaheadTLD* m_tld;
+    x265_param*   m_param;
+    Lowres*       m_lastNonB;
+    int*          m_scratch;         // temp buffer for cutree propagate
 
     /* pre-lookahead */
     int           m_fullQueueSize;
+    int           m_lastKeyframe;
+    int           m_8x8Width;
+    int           m_8x8Height;
+    int           m_8x8Blocks;
+    int           m_cuCount;
+    int           m_numCoopSlices;
+    int           m_numRowsPerSlice;
+    int           m_inputCount;
+    double        m_cuTreeStrength;
+
+    /* HME */
+    int           m_4x4Width;
+    int           m_4x4Height;
+
     bool          m_isActive;
     bool          m_sliceTypeBusy;
     bool          m_bAdaptiveQuant;
     bool          m_outputSignalRequired;
     bool          m_bBatchMotionSearch;
     bool          m_bBatchFrameCosts;
-    Event         m_outputSignal;
-
-    LookaheadTLD* m_tld;
-    x265_param*   m_param;
-    Lowres*       m_lastNonB;
-    int*          m_scratch;         // temp buffer for cutree propagate
-    
-    int           m_histogram[X265_BFRAME_MAX + 1];
-    int           m_lastKeyframe;
-    int           m_8x8Width;
-    int           m_8x8Height;
-    int           m_8x8Blocks;
-    int           m_numCoopSlices;
-    int           m_numRowsPerSlice;
     bool          m_filled;
     bool          m_isSceneTransition;
-    Lookahead(x265_param *param, ThreadPool *pool);
+    int           m_numPools;
+    bool          m_extendGopBoundary;
+    double        m_frameVariance[X265_BFRAME_MAX + 4];
+    bool          m_isFadeIn;
+    uint64_t      m_fadeCount;
+    int           m_fadeStart;
 
+    uint32_t    **m_accHistDiffRunningAvgCb;
+    uint32_t    **m_accHistDiffRunningAvgCr;
+    uint32_t    **m_accHistDiffRunningAvg;
+
+    bool          m_resetRunningAvg;
+    uint32_t      m_segmentCountThreshold;
+
+    int8_t                  m_gopId;
+
+    OrigPicBuffer*          m_origPicBuf;
+    MotionEstimatorTLD*     m_metld;
+
+    Lookahead(x265_param *param, ThreadPool *pool);
 #if DETAILED_CU_STATS
     int64_t       m_slicetypeDecideElapsedTime;
     int64_t       m_preLookaheadElapsedTime;
@@ -143,10 +220,16 @@ public:
     void    stopJobs();
 
     void    addPicture(Frame&, int sliceType);
+    void    addPicture(Frame& curFrame);
+    void    checkLookaheadQueue(int &frameCnt);
     void    flush();
     Frame*  getDecidedPicture();
 
     void    getEstimatedPictureCost(Frame *pic);
+    void    setLookaheadQueue();
+    int     findSliceType(int poc);
+    bool    generatemcstf(Frame * frame, PicList refPic, int poclast);
+    bool    isFilterThisframe(uint8_t sliceTypeConfig, int curSliceType);
 
 
 protected:
@@ -158,19 +241,28 @@ protected:
     /* called by slicetypeAnalyse() to make slice decisions */
     bool    scenecut(Lowres **frames, int p0, int p1, bool bRealScenecut, int numFrames);
     bool    scenecutInternal(Lowres **frames, int p0, int p1, bool bRealScenecut);
+
+    bool    histBasedScenecut(Lowres **frames, int p0, int p1, int numFrames);
+    bool    detectHistBasedSceneChange(Lowres **frames, int p0, int p1, int p2);
+
     void    slicetypePath(Lowres **frames, int length, char(*best_paths)[X265_LOOKAHEAD_MAX + 1]);
     int64_t slicetypePathCost(Lowres **frames, char *path, int64_t threshold);
     int64_t vbvFrameCost(Lowres **frames, int p0, int p1, int b);
     void    vbvLookahead(Lowres **frames, int numFrames, int keyframes);
-
+    void    aqMotion(Lowres **frames, bool bintra);
+    void    calcMotionAdaptiveQuantFrame(Lowres **frames, int p0, int p1, int b);
     /* called by slicetypeAnalyse() to effect cuTree adjustments to adaptive
      * quant offsets */
     void    cuTree(Lowres **frames, int numframes, bool bintra);
     void    estimateCUPropagate(Lowres **frames, double average_duration, int p0, int p1, int b, int referenced);
     void    cuTreeFinish(Lowres *frame, double averageDuration, int ref0Distance);
+    void    computeCUTreeQpOffset(Lowres *frame, double averageDuration, int ref0Distance);
 
     /* called by getEstimatedPictureCost() to finalize cuTree costs */
     int64_t frameCostRecalculate(Lowres **frames, int p0, int p1, int b);
+    /*Compute index for positioning B-Ref frames*/
+    void     placeBref(Frame** frames, int start, int end, int num, int *brefs);
+    void     compCostBref(Lowres **frame, int start, int end, int num);
 };
 
 class PreLookaheadGroup : public BondedTaskGroup
@@ -233,11 +325,13 @@ protected:
     void    processTasks(int workerThreadID);
 
     int64_t estimateFrameCost(LookaheadTLD& tld, int p0, int p1, int b, bool intraPenalty);
-    void    estimateCUCost(LookaheadTLD& tld, int cux, int cuy, int p0, int p1, int b, bool bDoSearch[2], bool lastRow, int slice);
+    void    estimateCUCost(LookaheadTLD& tld, int cux, int cuy, int p0, int p1, int b, bool bDoSearch[2], bool lastRow, int slice, bool hme);
+
+    void    estimatelowresmotion(MotionEstimatorTLD& m_metld, Frame* curframe, int refId);
 
     CostEstimateGroup& operator=(const CostEstimateGroup&);
 };
 
+bool computeEdge(pixel* edgePic, pixel* refPic, pixel* edgeTheta, intptr_t stride, int height, int width, bool bcalcTheta, pixel whitePixel = EDGE_THRESHOLD);
 }
-
 #endif // ifndef X265_SLICETYPE_H

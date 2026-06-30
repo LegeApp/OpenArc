@@ -34,9 +34,9 @@ pub mod utils;
 pub mod error;
 
 /// Re-exported from the windows-rs crate, because it is used in our public API.<br/>
-pub use windows::core::Result as WindowsResult;
-/// Re-exported from the windows-rs crate, because it is used in our public API.<br/>
 pub use windows::core::Error as WindowsError;
+/// Re-exported from the windows-rs crate, because it is used in our public API.<br/>
+pub use windows::core::Result as WindowsResult;
 /// Re-exported from the windows-rs crate, because it is used in our public API.<br/>
 pub use windows::Win32::Devices::PortableDevices;
 /// Re-exported from the windows-rs crate, because it is used in our public API.<br/>

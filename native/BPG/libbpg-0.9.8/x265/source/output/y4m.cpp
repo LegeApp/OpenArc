@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -28,11 +28,13 @@
 using namespace X265_NS;
 using namespace std;
 
-Y4MOutput::Y4MOutput(const char *filename, int w, int h, uint32_t fpsNum, uint32_t fpsDenom, int csp)
+Y4MOutput::Y4MOutput(const char* filename, int w, int h, uint32_t bitdepth, uint32_t fpsNum, uint32_t fpsDenom, int csp, int inputdepth)
     : width(w)
     , height(h)
+    , bitDepth(bitdepth)
     , colorSpace(csp)
     , frameSize(0)
+    , inputDepth(inputdepth)
 {
     ofs.open(filename, ios::binary | ios::out);
     buf = new char[width];
@@ -41,7 +43,13 @@ Y4MOutput::Y4MOutput(const char *filename, int w, int h, uint32_t fpsNum, uint32
 
     if (ofs)
     {
-        ofs << "YUV4MPEG2 W" << width << " H" << height << " F" << fpsNum << ":" << fpsDenom << " Ip" << " C" << cf << "\n";
+        if (bitDepth == 10)
+            ofs << "YUV4MPEG2 W" << width << " H" << height << " F" << fpsNum << ":" << fpsDenom << " Ip" << " C" << cf << "p10" << " XYSCSS = " << cf << "P10" << "\n";
+        else if (bitDepth == 12)
+            ofs << "YUV4MPEG2 W" << width << " H" << height << " F" << fpsNum << ":" << fpsDenom << " Ip" << " C" << cf << "p12" << " XYSCSS = " << cf << "P12" << "\n";
+        else
+            ofs << "YUV4MPEG2 W" << width << " H" << height << " F" << fpsNum << ":" << fpsDenom << " Ip" << " C" << cf << "\n";
+
         header = ofs.tellp();
     }
 
@@ -58,52 +66,81 @@ Y4MOutput::~Y4MOutput()
 bool Y4MOutput::writePicture(const x265_picture& pic)
 {
     std::ofstream::pos_type outPicPos = header;
-    outPicPos += (uint64_t)pic.poc * (6 + frameSize);
+    if (pic.bitDepth > 8)
+        outPicPos += (uint64_t)(pic.poc * (6 + frameSize * 2));
+    else
+        outPicPos += (uint64_t)pic.poc * (6 + frameSize);
     ofs.seekp(outPicPos);
     ofs << "FRAME\n";
 
-#if HIGH_BIT_DEPTH
-    if (pic.bitDepth > 8 && pic.poc == 0)
-        x265_log(NULL, X265_LOG_WARNING, "y4m: down-shifting reconstructed pixels to 8 bits\n");
-#else
-    if (pic.bitDepth > 8 && pic.poc == 0)
-        x265_log(NULL, X265_LOG_WARNING, "y4m: forcing reconstructed pixels to 8 bits\n");
-#endif
-
-    X265_CHECK(pic.colorSpace == colorSpace, "invalid color space\n");
-
-#if HIGH_BIT_DEPTH
-
-    // encoder gave us short pixels, downshift, then write
-    X265_CHECK(pic.bitDepth > 8, "invalid bit depth\n");
-    int shift = pic.bitDepth - 8;
-    for (int i = 0; i < x265_cli_csps[colorSpace].planes; i++)
+    if (inputDepth > 8)
     {
-        uint16_t *src = (uint16_t*)pic.planes[i];
-        for (int h = 0; h < height >> x265_cli_csps[colorSpace].height[i]; h++)
-        {
-            for (int w = 0; w < width >> x265_cli_csps[colorSpace].width[i]; w++)
-                buf[w] = (char)(src[w] >> shift);
-
-            ofs.write(buf, width >> x265_cli_csps[colorSpace].width[i]);
-            src += pic.stride[i] / sizeof(*src);
-        }
+        if (pic.bitDepth == 8 && pic.poc == 0)
+            x265_log(NULL, X265_LOG_WARNING, "y4m: down-shifting reconstructed pixels to 8 bits\n");
     }
 
-#else // if HIGH_BIT_DEPTH
+    X265_CHECK(pic.colorSpace == colorSpace, "invalid chroma subsampling\n");
 
-    X265_CHECK(pic.bitDepth == 8, "invalid bit depth\n");
-    for (int i = 0; i < x265_cli_csps[colorSpace].planes; i++)
+    if (inputDepth > 8)//if HIGH_BIT_DEPTH
     {
-        char *src = (char*)pic.planes[i];
-        for (int h = 0; h < height >> x265_cli_csps[colorSpace].height[i]; h++)
+        if (pic.bitDepth == 8)
         {
-            ofs.write(src, width >> x265_cli_csps[colorSpace].width[i]);
-            src += pic.stride[i] / sizeof(*src);
+            // encoder gave us short pixels, downshift, then write
+            X265_CHECK(pic.bitDepth == 8, "invalid bit depth\n");
+            int shift = pic.bitDepth - 8;
+            for (int i = 0; i < x265_cli_csps[colorSpace].planes; i++)
+            {
+                char *src = (char*)pic.planes[i];
+                for (int h = 0; h < height >> x265_cli_csps[colorSpace].height[i]; h++)
+                {
+                    for (int w = 0; w < width >> x265_cli_csps[colorSpace].width[i]; w++)
+                        buf[w] = (char)(src[w] >> shift);
+
+                    ofs.write(buf, width >> x265_cli_csps[colorSpace].width[i]);
+                    src += pic.stride[i] / sizeof(*src);
+                }
+            }
+        }
+        else
+        {
+            X265_CHECK(pic.bitDepth > 8, "invalid bit depth\n");
+            for (int i = 0; i < x265_cli_csps[colorSpace].planes; i++)
+            {
+                uint16_t *src = (uint16_t*)pic.planes[i];
+                for (int h = 0; h < (height * 1) >> x265_cli_csps[colorSpace].height[i]; h++)
+                {
+                    ofs.write((const char*)src, (width * 2) >> x265_cli_csps[colorSpace].width[i]);
+                    src += pic.stride[i] / sizeof(*src);
+                }
+            }
         }
     }
-
-#endif // if HIGH_BIT_DEPTH
+    else if (inputDepth == 8 && pic.bitDepth > 8)
+    {
+        X265_CHECK(pic.bitDepth > 8, "invalid bit depth\n");
+        for (int i = 0; i < x265_cli_csps[colorSpace].planes; i++)
+        {
+            uint16_t* src = (uint16_t*)pic.planes[i];
+            for (int h = 0; h < (height * 1) >> x265_cli_csps[colorSpace].height[i]; h++)
+            {
+                ofs.write((const char*)src, (width * 2) >> x265_cli_csps[colorSpace].width[i]);
+                src += pic.stride[i] / sizeof(*src);
+            }
+        }
+    }
+    else
+    {
+        X265_CHECK(pic.bitDepth == 8, "invalid bit depth\n");
+        for (int i = 0; i < x265_cli_csps[colorSpace].planes; i++)
+        {
+            char *src = (char*)pic.planes[i];
+            for (int h = 0; h < height >> x265_cli_csps[colorSpace].height[i]; h++)
+            {
+                ofs.write(src, width >> x265_cli_csps[colorSpace].width[i]);
+                src += pic.stride[i] / sizeof(*src);
+            }
+        }
+    }
 
     return true;
 }

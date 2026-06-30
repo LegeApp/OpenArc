@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Gopu Govindaswamy <gopu@multicorewareinc.com>
  *
@@ -49,21 +49,44 @@ public:
 
     /** Push picture to end of the list */
     void pushBack(Frame& pic);
+    void pushBackMCSTF(Frame& pic);
+#if ENABLE_MULTIVIEW
+    void pushBackSubDPB(Frame& pic);
+#endif
 
     /** Push picture to beginning of the list */
     void pushFront(Frame& pic);
+    void pushFrontMCSTF(Frame& pic);
+#if ENABLE_MULTIVIEW
+    Frame* popFrontSubDPB();
+#endif
 
     /** Pop picture from end of the list */
     Frame* popBack();
+    Frame* popBackMCSTF();
 
     /** Pop picture from beginning of the list */
     Frame* popFront();
 
     /** Find frame with specified POC */
-    Frame* getPOC(int poc);
+    Frame* getPOC(int poc, int sLayerId = 0);
+    /* Find next MCSTF frame with specified POC */
+    Frame* getPOCMCSTF(int poc);
+
+    /** Get the current Frame from the list **/
+    Frame* getCurFrame(int sLayer);
 
     /** Remove picture from list */
     void remove(Frame& pic);
+
+    /** Remove picture from list */
+    Frame* removeFrame(Frame& pic);
+    /* Remove MCSTF picture from list */
+    void removeMCSTF(Frame& pic);
+#if ENABLE_MULTIVIEW
+    /** Remove picture from Sub list */
+    void removeSubDPB(Frame& pic);
+#endif
 
     Frame* first()        { return m_start;   }
 

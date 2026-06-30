@@ -2,6 +2,7 @@
  * intrapred.h: Intra Prediction metrics
  *****************************************************************************
  * Copyright (C) 2003-2013 x264 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Min Chen <chenm003@163.com> <min.chen@multicorewareinc.com>
  *          Praveen Kumar Tiwari <praveen@multicorewareinc.com>
@@ -75,7 +76,7 @@
 FUNCDEF_TU_S2(void, intra_pred_dc, sse2, pixel* dst, intptr_t dstStride, const pixel*srcPix, int, int filter);
 FUNCDEF_TU_S2(void, intra_pred_dc, sse4, pixel* dst, intptr_t dstStride, const pixel*srcPix, int, int filter);
 FUNCDEF_TU_S2(void, intra_pred_dc, avx2, pixel* dst, intptr_t dstStride, const pixel*srcPix, int, int filter);
-
+FUNCDEF_TU_S2(void, intra_pred_dc, avx512, pixel* dst, intptr_t dstStride, const pixel*srcPix, int, int filter);
 FUNCDEF_TU_S2(void, intra_pred_planar, sse2, pixel* dst, intptr_t dstStride, const pixel*srcPix, int, int filter);
 FUNCDEF_TU_S2(void, intra_pred_planar, sse4, pixel* dst, intptr_t dstStride, const pixel*srcPix, int, int filter);
 FUNCDEF_TU_S2(void, intra_pred_planar, avx2, pixel* dst, intptr_t dstStride, const pixel*srcPix, int, int filter);
@@ -84,7 +85,7 @@ DECL_ALL(sse2);
 DECL_ALL(ssse3);
 DECL_ALL(sse4);
 DECL_ALL(avx2);
-
+DECL_ALL(avx512);
 #undef DECL_ALL
 #undef DECL_ANGS
 #undef DECL_ANG

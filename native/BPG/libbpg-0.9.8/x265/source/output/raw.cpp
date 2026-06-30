@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2015 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Xinyue Lu <i@7086.in>
@@ -21,22 +21,30 @@
  * This program is also available under a commercial proprietary license.
  * For more information, contact us at license @ x265.com.
  *****************************************************************************/
-
 #include "raw.h"
+#if _WIN32
+#include <io.h>
+#include <fcntl.h>
+#if defined(_MSC_VER)
+#pragma warning(disable: 4996) // POSIX setmode and fileno deprecated
+#endif
+#endif
 
 using namespace X265_NS;
 using namespace std;
-
 RAWOutput::RAWOutput(const char* fname, InputFileInfo&)
 {
     b_fail = false;
     if (!strcmp(fname, "-"))
     {
-        ofs = &cout;
+        ofs = stdout;
+#if _WIN32
+        setmode(fileno(stdout), O_BINARY);
+#endif
         return;
     }
-    ofs = new ofstream(fname, ios::binary | ios::out);
-    if (ofs->fail())
+    ofs = x265_fopen(fname, "wb");
+    if (!ofs || ferror(ofs))
         b_fail = true;
 }
 
@@ -51,7 +59,7 @@ int RAWOutput::writeHeaders(const x265_nal* nal, uint32_t nalcount)
 
     for (uint32_t i = 0; i < nalcount; i++)
     {
-        ofs->write((const char*)nal->payload, nal->sizeBytes);
+        fwrite((const void*)nal->payload, 1, nal->sizeBytes, ofs);
         bytes += nal->sizeBytes;
         nal++;
     }
@@ -65,7 +73,7 @@ int RAWOutput::writeFrame(const x265_nal* nal, uint32_t nalcount, x265_picture&)
 
     for (uint32_t i = 0; i < nalcount; i++)
     {
-        ofs->write((const char*)nal->payload, nal->sizeBytes);
+        fwrite((const void*)nal->payload, 1, nal->sizeBytes, ofs);
         bytes += nal->sizeBytes;
         nal++;
     }
@@ -75,6 +83,6 @@ int RAWOutput::writeFrame(const x265_nal* nal, uint32_t nalcount, x265_picture&)
 
 void RAWOutput::closeFile(int64_t, int64_t)
 {
-    if (ofs != &cout)
-        delete ofs;
+    if (ofs != stdout)
+        fclose(ofs);
 }

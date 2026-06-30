@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2015 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -38,7 +38,6 @@ class PicYuv;
 class Yuv
 {
 public:
-
     pixel*   m_buf[3];
 
     uint32_t m_size;
@@ -48,6 +47,7 @@ public:
     int      m_csp;
     int      m_hChromaShift;
     int      m_vChromaShift;
+    uint32_t *m_integral[2][MAX_NUM_REF][INTEGRAL_PLANE_NUM];
 
     Yuv();
 
@@ -73,7 +73,7 @@ public:
     void   copyPartToYuv(Yuv& dstYuv, uint32_t absPartIdx) const;
 
     // Clip(srcYuv0 + srcYuv1) -> m_buf .. aka recon = clip(pred + residual)
-    void   addClip(const Yuv& srcYuv0, const ShortYuv& srcYuv1, uint32_t log2SizeL);
+    void   addClip(const Yuv& srcYuv0, const ShortYuv& srcYuv1, uint32_t log2SizeL, int picCsp);
 
     // (srcYuv0 + srcYuv1)/2 for YUV partition (bidir averaging)
     void   addAvg(const ShortYuv& srcYuv0, const ShortYuv& srcYuv1, uint32_t absPartIdx, uint32_t width, uint32_t height, bool bLuma, bool bChroma);

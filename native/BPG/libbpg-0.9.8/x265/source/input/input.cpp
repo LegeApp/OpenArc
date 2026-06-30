@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -27,12 +27,12 @@
 
 using namespace X265_NS;
 
-InputFile* InputFile::open(InputFileInfo& info, bool bForceY4m)
+InputFile* InputFile::open(InputFileInfo& info, bool bForceY4m, bool alpha, int format)
 {
     const char * s = strrchr(info.filename, '.');
 
     if (bForceY4m || (s && !strcmp(s, ".y4m")))
-        return new Y4MInput(info);
+        return new Y4MInput(info, alpha, format);
     else
-        return new YUVInput(info);
+        return new YUVInput(info, alpha, format);
 }

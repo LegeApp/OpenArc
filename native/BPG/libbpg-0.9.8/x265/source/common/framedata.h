@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright (C) 2013 x265 project
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Author: Steve Borho <steve@borho.org>
 *
@@ -55,12 +55,14 @@ struct FrameStats
     double      avgLumaDistortion;
     double      avgChromaDistortion;
     double      avgPsyEnergy;
+    double      avgSsimEnergy;
     double      avgResEnergy;
     double      percentIntraNxN;
     double      percentSkipCu[NUM_CU_DEPTH];
     double      percentMergeCu[NUM_CU_DEPTH];
     double      percentIntraDistribution[NUM_CU_DEPTH][INTRA_MODES];
     double      percentInterDistribution[NUM_CU_DEPTH][3];           // 2Nx2N, RECT, AMP modes percentage
+    double      ipCostRatio;
 
     uint64_t    cntIntraNxN;
     uint64_t    totalCu;
@@ -68,6 +70,7 @@ struct FrameStats
     uint64_t    lumaDistortion;
     uint64_t    chromaDistortion;
     uint64_t    psyEnergy;
+    int64_t     ssimEnergy;
     uint64_t    resEnergy;
     uint64_t    cntSkipCu[NUM_CU_DEPTH];
     uint64_t    cntMergeCu[NUM_CU_DEPTH];
@@ -75,6 +78,20 @@ struct FrameStats
     uint64_t    cntIntra[NUM_CU_DEPTH];
     uint64_t    cuInterDistribution[NUM_CU_DEPTH][INTER_MODES];
     uint64_t    cuIntraDistribution[NUM_CU_DEPTH][INTRA_MODES];
+
+
+    uint64_t    totalPu[NUM_CU_DEPTH + 1];
+    uint64_t    cntSkipPu[NUM_CU_DEPTH];
+    uint64_t    cntIntraPu[NUM_CU_DEPTH];
+    uint64_t    cntAmp[NUM_CU_DEPTH];
+    uint64_t    cnt4x4;
+    uint64_t    cntInterPu[NUM_CU_DEPTH][INTER_MODES - 1];
+    uint64_t    cntMergePu[NUM_CU_DEPTH][INTER_MODES - 1];
+
+    /* Feature values per row for dynamic refinement */
+    uint64_t       rowRdDyn[MAX_NUM_DYN_REFINE];
+    uint32_t       rowVarDyn[MAX_NUM_DYN_REFINE];
+    uint32_t       rowCntDyn[MAX_NUM_DYN_REFINE];
 
     FrameStats()
     {
@@ -98,13 +115,16 @@ public:
     const x265_param* m_param;
 
     FrameData*     m_freeListNext;
-    PicYuv*        m_reconPic;
+    PicYuv*        m_reconPic[NUM_RECON_VERSION];
     bool           m_bHasReferences;   /* used during DPB/RPS updates */
     int            m_frameEncoderID;   /* the ID of the FrameEncoder encoding this frame */
     JobProvider*   m_jobProvider;
 
     CUDataMemPool  m_cuMemPool;
     CUData*        m_picCTU;
+
+    RPS*           m_spsrps;
+    int            m_spsrpsIdx;
 
     /* Rate control data used during encode and by references */
     struct RCStatCU
@@ -123,10 +143,10 @@ public:
         uint32_t encodedBits;   /* sum of 'totalBits' of encoded CTUs */
         uint32_t satdForVbv;    /* sum of lowres (estimated) costs for entire row */
         uint32_t intraSatdForVbv; /* sum of lowres (estimated) intra costs for entire row */
-        uint32_t diagSatd;
-        uint32_t diagIntraSatd;
-        double   diagQp;
-        double   diagQpScale;
+        uint32_t rowSatd;
+        uint32_t rowIntraSatd;
+        double   rowQp;
+        double   rowQpScale;
         double   sumQpRc;
         double   sumQpAq;
     };
@@ -134,19 +154,30 @@ public:
     RCStatCU*      m_cuStat;
     RCStatRow*     m_rowStat;
     FrameStats     m_frameStats; // stats of current frame for multi-pass encodes
+    /* data needed for periodic intra refresh */
+    struct PeriodicIR
+    {
+        uint32_t   pirStartCol;
+        uint32_t   pirEndCol;
+        int        framesSinceLastPir;
+    };
 
+    PeriodicIR     m_pir;
     double         m_avgQpRc;    /* avg QP as decided by rate-control */
     double         m_avgQpAq;    /* avg QP as decided by AQ in addition to rate-control */
     double         m_rateFactor; /* calculated based on the Frame QP */
+    int            m_picCsp;
+
+    uint32_t*              m_meIntegral[INTEGRAL_PLANE_NUM];       // 12 integral planes for 32x32, 32x24, 32x8, 24x32, 16x16, 16x12, 16x4, 12x16, 8x32, 8x8, 4x16 and 4x4.
+    uint32_t*              m_meBuffer[INTEGRAL_PLANE_NUM];
 
     FrameData();
 
-    bool create(const x265_param& param, const SPS& sps);
+    bool create(const x265_param& param, const SPS& sps, int csp);
     void reinit(const SPS& sps);
     void destroy();
-
     inline CUData* getPicCTU(uint32_t ctuAddr) { return &m_picCTU[ctuAddr]; }
 };
-}
 
+}
 #endif // ifndef X265_FRAMEDATA_H

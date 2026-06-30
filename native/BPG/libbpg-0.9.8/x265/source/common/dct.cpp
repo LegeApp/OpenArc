@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Mandar Gurav <mandar@multicorewareinc.com>
  *          Deepthi Devaki Akkoorath <deepthidevaki@multicorewareinc.com>
@@ -439,7 +439,8 @@ static void partialButterfly4(const int16_t* src, int16_t* dst, int shift, int l
     }
 }
 
-static void dst4_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
+namespace X265_NS {
+void dst4_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
 {
     const int shift_1st = 1 + X265_DEPTH - 8;
     const int shift_2nd = 8;
@@ -456,7 +457,7 @@ static void dst4_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
     fastForwardDst(coef, dst, shift_2nd);
 }
 
-static void dct4_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
+void dct4_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
 {
     const int shift_1st = 1 + X265_DEPTH - 8;
     const int shift_2nd = 8;
@@ -473,7 +474,7 @@ static void dct4_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
     partialButterfly4(coef, dst, shift_2nd, 4);
 }
 
-static void dct8_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
+void dct8_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
 {
     const int shift_1st = 2 + X265_DEPTH - 8;
     const int shift_2nd = 9;
@@ -490,7 +491,7 @@ static void dct8_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
     partialButterfly8(coef, dst, shift_2nd, 8);
 }
 
-static void dct16_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
+void dct16_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
 {
     const int shift_1st = 3 + X265_DEPTH - 8;
     const int shift_2nd = 10;
@@ -507,7 +508,7 @@ static void dct16_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
     partialButterfly16(coef, dst, shift_2nd, 16);
 }
 
-static void dct32_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
+void dct32_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
 {
     const int shift_1st = 4 + X265_DEPTH - 8;
     const int shift_2nd = 11;
@@ -524,7 +525,7 @@ static void dct32_c(const int16_t* src, int16_t* dst, intptr_t srcStride)
     partialButterfly32(coef, dst, shift_2nd, 32);
 }
 
-static void idst4_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
+void idst4_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
 {
     const int shift_1st = 7;
     const int shift_2nd = 12 - (X265_DEPTH - 8);
@@ -541,7 +542,7 @@ static void idst4_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
     }
 }
 
-static void idct4_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
+void idct4_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
 {
     const int shift_1st = 7;
     const int shift_2nd = 12 - (X265_DEPTH - 8);
@@ -558,7 +559,7 @@ static void idct4_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
     }
 }
 
-static void idct8_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
+void idct8_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
 {
     const int shift_1st = 7;
     const int shift_2nd = 12 - (X265_DEPTH - 8);
@@ -575,7 +576,7 @@ static void idct8_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
     }
 }
 
-static void idct16_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
+void idct16_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
 {
     const int shift_1st = 7;
     const int shift_2nd = 12 - (X265_DEPTH - 8);
@@ -592,7 +593,7 @@ static void idct16_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
     }
 }
 
-static void idct32_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
+void idct32_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
 {
     const int shift_1st = 7;
     const int shift_2nd = 12 - (X265_DEPTH - 8);
@@ -608,6 +609,7 @@ static void idct32_c(const int16_t* src, int16_t* dst, intptr_t dstStride)
         memcpy(&dst[i * dstStride], &block[i * 32], 32 * sizeof(int16_t));
     }
 }
+} // namespace X265_NS
 
 static void dequant_normal_c(const int16_t* quantCoef, int16_t* coef, int num, int scale, int shift)
 {
@@ -703,7 +705,10 @@ static uint32_t nquant_c(const int16_t* coef, const int32_t* quantCoeff, int16_t
         if (level)
             ++numSig;
         level *= sign;
-        qCoef[blockpos] = (int16_t)x265_clip3(-32768, 32767, level);
+
+        // TODO: when we limit range to [-32767, 32767], we can get more performance with output change
+        //       But nquant is a little percent in rdoQuant, so I keep old dynamic range for compatible
+        qCoef[blockpos] = (int16_t)abs(x265_clip3(-32768, 32767, level));
     }
 
     return numSig;
@@ -784,11 +789,12 @@ static int scanPosLast_c(const uint16_t *scan, const coeff_t *coeff, uint16_t *c
     return scanPosLast - 1;
 }
 
+// NOTE: no defined value on lastNZPosInCG & absSumSign when ALL ZEROS block as input
 static uint32_t findPosFirstLast_c(const int16_t *dstCoeff, const intptr_t trSize, const uint16_t scanTbl[16])
 {
     int n;
 
-    for (n = SCAN_SET_SIZE - 1; n >= 0; --n)
+    for (n = SCAN_SET_SIZE - 1; n >= 0; n--)
     {
         const uint32_t idx = scanTbl[n];
         const uint32_t idxY = idx / MLS_CG_SIZE;
@@ -812,8 +818,17 @@ static uint32_t findPosFirstLast_c(const int16_t *dstCoeff, const intptr_t trSiz
 
     uint32_t firstNZPosInCG = (uint32_t)n;
 
+    uint32_t absSumSign = 0;
+    for (n = firstNZPosInCG; n <= (int)lastNZPosInCG; n++)
+    {
+        const uint32_t idx = scanTbl[n];
+        const uint32_t idxY = idx / MLS_CG_SIZE;
+        const uint32_t idxX = idx % MLS_CG_SIZE;
+        absSumSign += dstCoeff[idxY * trSize + idxX];
+    }
+
     // NOTE: when coeff block all ZERO, the lastNZPosInCG is undefined and firstNZPosInCG is 16
-    return ((lastNZPosInCG << 16) | firstNZPosInCG);
+    return ((absSumSign << 31) | (lastNZPosInCG << 8) | firstNZPosInCG);
 }
 
 
@@ -967,19 +982,110 @@ static uint32_t costC1C2Flag_c(uint16_t *absCoeff, intptr_t numC1Flag, uint8_t *
             sum += sbacGetEntropyBits(mstate, firstC2Flag);
         }
     }
-
     return (sum & 0x00FFFFFF) + (c1 << 26) + (firstC2Idx << 28);
+}
+template<int log2TrSize>
+static void nonPsyRdoQuant_c(int16_t *m_resiDctCoeff, int64_t *costUncoded, int64_t *totalUncodedCost, int64_t *totalRdCost, uint32_t blkPos)
+{
+    const int transformShift = MAX_TR_DYNAMIC_RANGE - X265_DEPTH - log2TrSize; /* Represents scaling through forward transform */
+    const int scaleBits = SCALE_BITS - 2 * transformShift;
+    const uint32_t trSize = 1 << log2TrSize;
+
+    for (int y = 0; y < MLS_CG_SIZE; y++)
+    {
+        for (int x = 0; x < MLS_CG_SIZE; x++)
+        {
+             int64_t signCoef = m_resiDctCoeff[blkPos + x];            /* pre-quantization DCT coeff */
+             costUncoded[blkPos + x] = static_cast<int64_t>((double)((signCoef * signCoef) << scaleBits));
+             *totalUncodedCost += costUncoded[blkPos + x];
+             *totalRdCost += costUncoded[blkPos + x];
+        }
+        blkPos += trSize;
+    }
+}
+template<int log2TrSize>
+static void psyRdoQuant_c(int16_t *m_resiDctCoeff, int16_t *m_fencDctCoeff, int64_t *costUncoded, int64_t *totalUncodedCost, int64_t *totalRdCost, int64_t *psyScale, uint32_t blkPos)
+{
+    const int transformShift = MAX_TR_DYNAMIC_RANGE - X265_DEPTH - log2TrSize; /* Represents scaling through forward transform */
+    const int scaleBits = SCALE_BITS - 2 * transformShift;
+    const uint32_t trSize = 1 << log2TrSize;
+    int max = X265_MAX(0, (2 * transformShift + 1));
+
+    for (int y = 0; y < MLS_CG_SIZE; y++)
+    {
+        for (int x = 0; x < MLS_CG_SIZE; x++)
+        {
+            int64_t signCoef = m_resiDctCoeff[blkPos + x];            /* pre-quantization DCT coeff */
+            int64_t predictedCoef = m_fencDctCoeff[blkPos + x] - signCoef; /* predicted DCT = source DCT - residual DCT*/
+
+            costUncoded[blkPos + x] = static_cast<int64_t>((double)((signCoef * signCoef) << scaleBits));
+
+            /* when no residual coefficient is coded, predicted coef == recon coef */
+            costUncoded[blkPos + x] -= static_cast<int64_t>((double)(((*psyScale) * predictedCoef) >> max));
+
+            *totalUncodedCost += costUncoded[blkPos + x];
+            *totalRdCost += costUncoded[blkPos + x];
+        }
+        blkPos += trSize;
+    }
+}
+template<int log2TrSize>
+static void psyRdoQuant_c_1(int16_t *m_resiDctCoeff, /*int16_t  *m_fencDctCoeff, */ int64_t *costUncoded, int64_t *totalUncodedCost, int64_t *totalRdCost, /* int64_t *psyScale,*/ uint32_t blkPos)
+{
+	const int transformShift = MAX_TR_DYNAMIC_RANGE - X265_DEPTH - log2TrSize; /* Represents scaling through forward transform */
+	const int scaleBits = SCALE_BITS - 2 * transformShift;
+	const uint32_t trSize = 1 << log2TrSize;
+
+	for (int y = 0; y < MLS_CG_SIZE; y++)
+	{
+		for (int x = 0; x < MLS_CG_SIZE; x++)
+		{
+			int64_t signCoef = m_resiDctCoeff[blkPos + x];            /* pre-quantization DCT coeff */
+			costUncoded[blkPos + x] = static_cast<int64_t>((double)((signCoef * signCoef) << scaleBits));
+			*totalUncodedCost += costUncoded[blkPos + x];
+			*totalRdCost += costUncoded[blkPos + x];
+		}
+		blkPos += trSize;
+	}
+}
+template<int log2TrSize>
+static void psyRdoQuant_c_2(int16_t *m_resiDctCoeff, int16_t *m_fencDctCoeff, int64_t *costUncoded, int64_t *totalUncodedCost, int64_t *totalRdCost, int64_t *psyScale, uint32_t blkPos)
+{
+	const int transformShift = MAX_TR_DYNAMIC_RANGE - X265_DEPTH - log2TrSize; /* Represents scaling through forward transform */
+
+	const uint32_t trSize = 1 << log2TrSize;
+	int max = X265_MAX(0, (2 * transformShift + 1));
+
+	for (int y = 0; y < MLS_CG_SIZE; y++)
+	{
+		for (int x = 0; x < MLS_CG_SIZE; x++)
+		{
+			int64_t signCoef = m_resiDctCoeff[blkPos + x];            /* pre-quantization DCT coeff */
+			int64_t predictedCoef = m_fencDctCoeff[blkPos + x] - signCoef; /* predicted DCT = source DCT - residual DCT*/
+			costUncoded[blkPos + x] -= static_cast<int64_t>((double)(((*psyScale) * predictedCoef) >> max));
+			*totalUncodedCost += costUncoded[blkPos + x];
+			*totalRdCost += costUncoded[blkPos + x];
+		}
+		blkPos += trSize;
+	}
 }
 
 namespace X265_NS {
 // x265 private namespace
-
 void setupDCTPrimitives_c(EncoderPrimitives& p)
 {
     p.dequant_scaling = dequant_scaling_c;
     p.dequant_normal = dequant_normal_c;
     p.quant = quant_c;
     p.nquant = nquant_c;
+    p.cu[BLOCK_4x4].nonPsyRdoQuant   = nonPsyRdoQuant_c<2>;
+    p.cu[BLOCK_8x8].nonPsyRdoQuant   = nonPsyRdoQuant_c<3>;
+    p.cu[BLOCK_16x16].nonPsyRdoQuant = nonPsyRdoQuant_c<4>;
+    p.cu[BLOCK_32x32].nonPsyRdoQuant = nonPsyRdoQuant_c<5>;
+    p.cu[BLOCK_4x4].psyRdoQuant = psyRdoQuant_c<2>;
+    p.cu[BLOCK_8x8].psyRdoQuant = psyRdoQuant_c<3>;
+    p.cu[BLOCK_16x16].psyRdoQuant = psyRdoQuant_c<4>;
+    p.cu[BLOCK_32x32].psyRdoQuant = psyRdoQuant_c<5>;
     p.dst4x4 = dst4_c;
     p.cu[BLOCK_4x4].dct   = dct4_c;
     p.cu[BLOCK_8x8].dct   = dct8_c;
@@ -1000,7 +1106,14 @@ void setupDCTPrimitives_c(EncoderPrimitives& p)
     p.cu[BLOCK_8x8].copy_cnt   = copy_count<8>;
     p.cu[BLOCK_16x16].copy_cnt = copy_count<16>;
     p.cu[BLOCK_32x32].copy_cnt = copy_count<32>;
-
+	p.cu[BLOCK_4x4].psyRdoQuant_1p = psyRdoQuant_c_1<2>;
+	p.cu[BLOCK_4x4].psyRdoQuant_2p = psyRdoQuant_c_2<2>;
+	p.cu[BLOCK_8x8].psyRdoQuant_1p = psyRdoQuant_c_1<3>;
+	p.cu[BLOCK_8x8].psyRdoQuant_2p = psyRdoQuant_c_2<3>;
+	p.cu[BLOCK_16x16].psyRdoQuant_1p = psyRdoQuant_c_1<4>;
+	p.cu[BLOCK_16x16].psyRdoQuant_2p = psyRdoQuant_c_2<4>;
+	p.cu[BLOCK_32x32].psyRdoQuant_1p = psyRdoQuant_c_1<5>;
+	p.cu[BLOCK_32x32].psyRdoQuant_2p = psyRdoQuant_c_2<5>;
     p.scanPosLast = scanPosLast_c;
     p.findPosFirstLast = findPosFirstLast_c;
     p.costCoeffNxN = costCoeffNxN_c;

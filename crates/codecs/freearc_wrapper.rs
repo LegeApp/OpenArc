@@ -1,5 +1,5 @@
 //! FreeArc compression wrapper for miscellaneous files
-//! 
+//!
 //! Provides a simplified interface to create FreeArc archives for files that
 //! don't benefit from specialized media codecs.
 
@@ -54,7 +54,7 @@ pub fn create_freearc_archive(
     let mut cmd = Command::new(arc_command);
     cmd.arg("a"); // Add to archive
     cmd.arg(format!("-m{}", settings.method)); // Compression method
-    
+
     // Add custom options
     for opt in &settings.options {
         cmd.arg(opt);
@@ -67,7 +67,8 @@ pub fn create_freearc_archive(
         cmd.arg(path.as_ref());
     }
 
-    let output = cmd.output()
+    let output = cmd
+        .output()
         .context("Failed to execute FreeArc - ensure it's installed")?;
 
     if !output.status.success() {
@@ -97,7 +98,8 @@ fn create_7z_archive(
         cmd.arg(path.as_ref());
     }
 
-    let output = cmd.output()
+    let output = cmd
+        .output()
         .context("Failed to execute 7z - ensure 7-Zip is installed")?;
 
     if !output.status.success() {
@@ -116,8 +118,12 @@ pub fn extract_freearc_archive(
     let archive_path = archive_path.as_ref();
     let output_dir = output_dir.as_ref();
 
-    std::fs::create_dir_all(output_dir)
-        .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
+    std::fs::create_dir_all(output_dir).with_context(|| {
+        format!(
+            "Failed to create output directory: {}",
+            output_dir.display()
+        )
+    })?;
 
     // Try FreeArc first
     let arc_command = if which::which("arc").is_ok() {
@@ -130,9 +136,8 @@ pub fn extract_freearc_archive(
         cmd.arg("x"); // Extract
         cmd.arg(archive_path);
         cmd.arg(format!("-o{}", output_dir.display()));
-        
-        let output = cmd.output()
-            .context("Failed to execute 7z")?;
+
+        let output = cmd.output().context("Failed to execute 7z")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -147,8 +152,7 @@ pub fn extract_freearc_archive(
     cmd.arg(archive_path);
     cmd.arg(format!("-dp{}", output_dir.display()));
 
-    let output = cmd.output()
-        .context("Failed to execute FreeArc")?;
+    let output = cmd.output().context("Failed to execute FreeArc")?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -161,14 +165,14 @@ pub fn extract_freearc_archive(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     #[ignore] // Requires FreeArc or 7-Zip to be installed
     fn test_create_and_extract() -> Result<()> {
         let temp = TempDir::new()?;
-        
+
         // Create test files
         let test_file1 = temp.path().join("test1.txt");
         let test_file2 = temp.path().join("test2.txt");

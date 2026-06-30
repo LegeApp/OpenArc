@@ -31,7 +31,9 @@ pub struct ArchiveTracker<'a> {
 impl<'a> ArchiveTracker<'a> {
     pub fn new(connection: &'a mut Connection) -> Result<Self> {
         let tracker = Self { conn: connection };
-        tracker.init_schema().context("Failed to initialize schema")?;
+        tracker
+            .init_schema()
+            .context("Failed to initialize schema")?;
         Ok(tracker)
     }
 
@@ -81,7 +83,7 @@ impl<'a> ArchiveTracker<'a> {
 
     pub fn record_archive(&mut self, mut record: ArchiveRecord) -> Result<i64> {
         let now = now_secs();
-        
+
         // Insert the archive record
         let archive_id = self.conn.query_row(
             "INSERT INTO archives 
@@ -106,12 +108,16 @@ impl<'a> ArchiveTracker<'a> {
         Ok(archive_id)
     }
 
-    pub fn record_archive_files(&mut self, archive_id: i64, files: Vec<ArchiveFileMapping>) -> Result<()> {
+    pub fn record_archive_files(
+        &mut self,
+        archive_id: i64,
+        files: Vec<ArchiveFileMapping>,
+    ) -> Result<()> {
         let tx = self
             .conn
             .transaction()
             .context("Failed to start transaction")?;
-            
+
         let now = now_secs();
 
         for mut file_mapping in files {
@@ -160,10 +166,12 @@ impl<'a> ArchiveTracker<'a> {
     pub fn get_archive_files(&self, archive_id: i64) -> Result<Vec<ArchiveFileMapping>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, archive_id, file_path, original_path, file_size, archived_at 
+            .prepare(
+                "SELECT id, archive_id, file_path, original_path, file_size, archived_at 
                       FROM archive_files 
                       WHERE archive_id = ?1 
-                      ORDER BY archived_at DESC")
+                      ORDER BY archived_at DESC",
+            )
             .context("Failed to prepare query")?;
 
         let mappings = stmt
@@ -212,7 +220,11 @@ impl<'a> ArchiveTracker<'a> {
         Ok(archives)
     }
 
-    pub fn update_archive_destination(&mut self, archive_path: &str, destination: &str) -> Result<()> {
+    pub fn update_archive_destination(
+        &mut self,
+        archive_path: &str,
+        destination: &str,
+    ) -> Result<()> {
         self.conn
             .execute(
                 "UPDATE archives SET destination_location = ?1 WHERE archive_path = ?2",
@@ -224,9 +236,11 @@ impl<'a> ArchiveTracker<'a> {
 
     pub fn export_json(&self, output_path: impl AsRef<Path>) -> Result<()> {
         let archives = self.get_all_archives()?;
-        let json = serde_json::to_string_pretty(&archives).context("Failed to serialize to JSON")?;
-        std::fs::write(output_path.as_ref(), json)
-            .with_context(|| format!("Failed to write JSON to {}", output_path.as_ref().display()))?;
+        let json =
+            serde_json::to_string_pretty(&archives).context("Failed to serialize to JSON")?;
+        std::fs::write(output_path.as_ref(), json).with_context(|| {
+            format!("Failed to write JSON to {}", output_path.as_ref().display())
+        })?;
         Ok(())
     }
 }
@@ -249,7 +263,7 @@ mod tests {
         let mut conn = Connection::open(db_file.path())?;
         conn.execute_batch("PRAGMA journal_mode = WAL;")
             .context("Failed to enable WAL mode")?;
-        
+
         let mut tracker = ArchiveTracker::new(&mut conn)?;
 
         // Create a test archive record
@@ -273,7 +287,10 @@ mod tests {
         let retrieved = retrieved.unwrap();
         assert_eq!(retrieved.archive_path, "/path/to/archive.oarc");
         assert_eq!(retrieved.archive_size, 1024);
-        assert_eq!(retrieved.destination_location, Some("/destination/location".to_string()));
+        assert_eq!(
+            retrieved.destination_location,
+            Some("/destination/location".to_string())
+        );
 
         // Add some files to the archive
         let files = vec![

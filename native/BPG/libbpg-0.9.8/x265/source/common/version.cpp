@@ -1,7 +1,8 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
+ *          Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,13 +71,13 @@
 #define ONOS    "[Unk-OS]"
 #endif
 
-#if X86_64
+#if defined(_LP64) || defined(_WIN64)
 #define BITS    "[64 bit]"
 #else
 #define BITS    "[32 bit]"
 #endif
 
-#if defined(ENABLE_ASSEMBLY)
+#if defined(ENABLE_ASSEMBLY) || HAVE_ALTIVEC
 #define ASM     ""
 #else
 #define ASM     "[noasm]"

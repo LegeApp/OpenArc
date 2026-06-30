@@ -1,7 +1,8 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Deepthi Nandakumar <deepthi@multicorewareinc.com>
+ *          Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,23 +71,25 @@
 #define NUM_INTRA_MODE 35
 
 #if defined(__GNUC__)
+#define ALIGN_VAR_4(T, var)  T var __attribute__((aligned(4)))
 #define ALIGN_VAR_8(T, var)  T var __attribute__((aligned(8)))
 #define ALIGN_VAR_16(T, var) T var __attribute__((aligned(16)))
 #define ALIGN_VAR_32(T, var) T var __attribute__((aligned(32)))
-
+#define ALIGN_VAR_64(T, var) T var __attribute__((aligned(64)))
 #if defined(__MINGW32__)
 #define fseeko fseeko64
+#define ftello ftello64
 #endif
-
 #elif defined(_MSC_VER)
 
+#define ALIGN_VAR_4(T, var)  __declspec(align(4)) T var
 #define ALIGN_VAR_8(T, var)  __declspec(align(8)) T var
 #define ALIGN_VAR_16(T, var) __declspec(align(16)) T var
 #define ALIGN_VAR_32(T, var) __declspec(align(32)) T var
+#define ALIGN_VAR_64(T, var) __declspec(align(64)) T var
 #define fseeko _fseeki64
-
+#define ftello _ftelli64
 #endif // if defined(__GNUC__)
-
 #if HAVE_INT_TYPES_H
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
@@ -126,18 +129,20 @@ typedef uint32_t sum_t;
 typedef uint64_t sum2_t;
 typedef uint64_t pixel4;
 typedef int64_t  ssum2_t;
+#define SHIFT_TO_BITPLANE 9
 #else
 typedef uint8_t  pixel;
 typedef uint16_t sum_t;
 typedef uint32_t sum2_t;
 typedef uint32_t pixel4;
 typedef int32_t  ssum2_t; // Signed sum
+#define SHIFT_TO_BITPLANE 7
 #endif // if HIGH_BIT_DEPTH
 
-#if X265_DEPTH <= 10
-typedef uint32_t sse_ret_t;
+#if X265_DEPTH < 10
+typedef uint32_t sse_t;
 #else
-typedef uint64_t sse_ret_t;
+typedef uint64_t sse_t;
 #endif
 
 #ifndef NULL
@@ -155,8 +160,9 @@ typedef uint64_t sse_ret_t;
 
 #define MIN_QPSCALE     0.21249999999999999
 #define MAX_MAX_QPSCALE 615.46574234477100
+#define FRAME_BRIGHTNESS_THRESHOLD  50.0 // Min % of pixels in a frame, that are above BRIGHTNESS_THRESHOLD for it to be considered a bright frame
+#define FRAME_EDGE_THRESHOLD  10.0 // Min % of edge pixels in a frame, for it to be considered to have high edge density
 
-#define BITS_FOR_POC 8
 
 template<typename T>
 inline T x265_min(T a, T b) { return a < b ? a : b; }
@@ -170,11 +176,17 @@ inline T x265_clip3(T minVal, T maxVal, T a) { return x265_min(x265_max(minVal, 
 template<typename T> /* clip to pixel range, 0..255 or 0..1023 */
 inline pixel x265_clip(T x) { return (pixel)x265_min<T>(T((1 << X265_DEPTH) - 1), x265_max<T>(T(0), x)); }
 
+/* get the sign of input variable */
+static inline int8_t x265_signOf(int32_t x)
+{
+    return (x >> 31) | ((int32_t)((((uint32_t) - x)) >> 31));
+}
+
 typedef int16_t  coeff_t;      // transform coefficient
 
 #define X265_MIN(a, b) ((a) < (b) ? (a) : (b))
 #define X265_MAX(a, b) ((a) > (b) ? (a) : (b))
-#define COPY1_IF_LT(x, y) if ((y) < (x)) (x) = (y);
+#define COPY1_IF_LT(x, y) {if ((y) < (x)) (x) = (y);}
 #define COPY2_IF_LT(x, y, a, b) \
     if ((y) < (x)) \
     { \
@@ -205,7 +217,6 @@ typedef int16_t  coeff_t;      // transform coefficient
 
 // arbitrary, but low because SATD scores are 1/4 normal
 #define X265_LOOKAHEAD_QP (12 + QP_BD_OFFSET)
-#define X265_LOOKAHEAD_MAX 250
 
 // Use the same size blocks as x264.  Using larger blocks seems to give artificially
 // high cost estimates (intra and inter both suffer)
@@ -214,6 +225,7 @@ typedef int16_t  coeff_t;      // transform coefficient
 
 #define X265_MALLOC(type, count)    (type*)x265_malloc(sizeof(type) * (count))
 #define X265_FREE(ptr)              x265_free(ptr)
+#define X265_FREE_ZERO(ptr)         { x265_free(ptr); (ptr) = NULL; }
 #define CHECKED_MALLOC(var, type, count) \
     { \
         var = (type*)x265_malloc(sizeof(type) * (count)); \
@@ -253,8 +265,9 @@ typedef int16_t  coeff_t;      // transform coefficient
 #define LOG2_UNIT_SIZE          2                           // log2(unitSize)
 #define UNIT_SIZE               (1 << LOG2_UNIT_SIZE)       // unit size of CU partition
 
-#define MAX_NUM_PARTITIONS      256
-#define NUM_4x4_PARTITIONS      (1U << (g_unitSizeDepth << 1)) // number of 4x4 units in max CU size
+#define LOG2_RASTER_SIZE        (MAX_LOG2_CU_SIZE - LOG2_UNIT_SIZE)
+#define RASTER_SIZE             (1 << LOG2_RASTER_SIZE)
+#define MAX_NUM_PARTITIONS      (RASTER_SIZE * RASTER_SIZE)
 
 #define MIN_PU_SIZE             4
 #define MIN_TU_SIZE             4
@@ -264,6 +277,9 @@ typedef int16_t  coeff_t;      // transform coefficient
 #define MAX_LOG2_TS_SIZE 2 // TODO: RExt
 #define MAX_TR_SIZE (1 << MAX_LOG2_TR_SIZE)
 #define MAX_TS_SIZE (1 << MAX_LOG2_TS_SIZE)
+
+#define RDCOST_BASED_RSKIP 1
+#define EDGE_BASED_RSKIP 2
 
 #define COEF_REMAIN_BIN_REDUCTION   3 // indicates the level at which the VLC
                                       // transitions from Golomb-Rice to TU+EG(k)
@@ -307,6 +323,7 @@ typedef int16_t  coeff_t;      // transform coefficient
 
 #define MAX_NUM_REF_PICS            16 // max. number of pictures used for reference
 #define MAX_NUM_REF                 16 // max. number of entries in picture reference list
+#define MAX_NUM_SHORT_TERM_RPS      64 // max. number of short term reference picture set in SPS
 
 #define REF_NOT_VALID               -1
 
@@ -319,6 +336,19 @@ typedef int16_t  coeff_t;      // transform coefficient
 
 #define MAX_NUM_TR_COEFFS           MAX_TR_SIZE * MAX_TR_SIZE // Maximum number of transform coefficients, for a 32x32 transform
 #define MAX_NUM_TR_CATEGORIES       16                        // 32, 16, 8, 4 transform categories each for luma and chroma
+
+#define PIXEL_MAX ((1 << X265_DEPTH) - 1)
+
+#define INTEGRAL_PLANE_NUM          12 // 12 integral planes for 32x32, 32x24, 32x8, 24x32, 16x16, 16x12, 16x4, 12x16, 8x32, 8x8, 4x16 and 4x4.
+
+#define NAL_TYPE_OVERHEAD 2
+#define START_CODE_OVERHEAD 3 
+#define FILLER_OVERHEAD (NAL_TYPE_OVERHEAD + START_CODE_OVERHEAD + 1)
+
+#define MAX_NUM_DYN_REFINE          (NUM_CU_DEPTH * X265_REFINE_INTER_LEVELS)
+#define X265_BYTE 8
+
+#define MAX_MCSTF_TEMPORAL_WINDOW_LENGTH 8
 
 namespace X265_NS {
 
@@ -369,25 +399,6 @@ struct SAOParam
         delete[] ctuParam[2];
     }
 };
-
-/* Stores inter analysis data for a single frame */
-struct analysis_inter_data
-{
-    int32_t*    ref;
-    uint8_t*    depth;
-    uint8_t*    modes;
-    uint32_t*   bestMergeCand;
-};
-
-/* Stores intra analysis data for a single frame. This struct needs better packing */
-struct analysis_intra_data
-{
-    uint8_t*  depth;
-    uint8_t*  modes;
-    char*     partSizes;
-    uint8_t*  chromaModes;
-};
-
 enum TextType
 {
     TEXT_LUMA     = 0,  // luma
@@ -419,7 +430,27 @@ void extendPicBorder(pixel* recon, intptr_t stride, int width, int height, int m
 /* located in common.cpp */
 int64_t  x265_mdate(void);
 #define  x265_log(param, ...) general_log(param, "x265", __VA_ARGS__)
+#define  x265_log_file(param, ...) general_log_file(param, "x265", __VA_ARGS__)
 void     general_log(const x265_param* param, const char* caller, int level, const char* fmt, ...);
+#if _WIN32
+void     general_log_file(const x265_param* param, const char* caller, int level, const char* fmt, ...);
+FILE*    x265_fopen(const char* fileName, const char* mode);
+int      x265_unlink(const char* fileName);
+int      x265_rename(const char* oldName, const char* newName);
+#else
+#define  general_log_file(param, caller, level, fmt, ...) general_log(param, caller, level, fmt, __VA_ARGS__)
+#define  x265_fopen(fileName, mode) fopen(fileName, mode)
+#define  x265_unlink(fileName) unlink(fileName)
+#define  x265_rename(oldName, newName) rename(oldName, newName)
+#endif
+/* Close a file */
+#define  x265_fclose(file) if (file != NULL) fclose(file); file=NULL;
+#define x265_fread(val, size, readSize, fileOffset,errorMessage)\
+    if (fread(val, size, readSize, fileOffset) != readSize)\
+    {\
+        x265_log(NULL, X265_LOG_ERROR, errorMessage); \
+        return; \
+    }
 int      x265_exp2fix8(double x);
 
 double   x265_ssim2dB(double ssim);

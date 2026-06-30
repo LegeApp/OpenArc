@@ -1,9 +1,9 @@
 // Image loading with zune-jpeg for JPEG optimization
 // Uses the image crate for all other formats (PNG, WebP, TIFF, etc.)
 
-use anyhow::{Context, Result, anyhow};
-use std::path::Path;
+use anyhow::{anyhow, Context, Result};
 use image::DynamicImage;
+use std::path::Path;
 
 /// Decoded image data (wraps image::DynamicImage)
 pub struct DecodedImage {
@@ -30,7 +30,12 @@ fn is_jpeg(path: &Path) -> bool {
 fn is_jpeg2000(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
-        .map(|e| matches!(e.to_lowercase().as_str(), "jp2" | "j2k" | "j2c" | "jpc" | "jpt" | "jph" | "jhc"))
+        .map(|e| {
+            matches!(
+                e.to_lowercase().as_str(),
+                "jp2" | "j2k" | "j2c" | "jpc" | "jpt" | "jph" | "jhc"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -59,15 +64,15 @@ pub fn load_image(path: &Path) -> Result<DecodedImage> {
 fn decode_jpeg_from_file(path: &Path) -> Result<DecodedImage> {
     use std::fs;
 
-    let data = fs::read(path)
-        .with_context(|| format!("Failed to read JPEG file: {}", path.display()))?;
+    let data =
+        fs::read(path).with_context(|| format!("Failed to read JPEG file: {}", path.display()))?;
 
     let (pixels, width, height) = crate::jpeg_decoder::decode_jpeg_rgb(&data)
         .map_err(|e| anyhow!("JPEG decode error: {}", e))?;
-    
+
     // Convert to RGB8 ImageBuffer and then to DynamicImage
     use image::{DynamicImage, RgbImage};
-    
+
     let rgb_buf = RgbImage::from_raw(width, height, pixels)
         .ok_or_else(|| anyhow!("Failed to create RGB image buffer"))?;
     let img = DynamicImage::ImageRgb8(rgb_buf);

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Min Chen <chenm003@163.com>
@@ -33,13 +33,6 @@
 namespace X265_NS {
 // private namespace
 
-enum SAOTypeLen
-{
-    SAO_EO_LEN = 4,
-    SAO_BO_LEN = 4,
-    SAO_NUM_BO_CLASSES = 32
-};
-
 enum SAOType
 {
     SAO_EO_0 = 0,
@@ -56,46 +49,42 @@ public:
 
     enum { SAO_MAX_DEPTH = 4 };
     enum { SAO_BO_BITS  = 5 };
-    enum { MAX_NUM_SAO_CLASS = 33 };
+    enum { MAX_NUM_SAO_CLASS = 32 };
     enum { SAO_BIT_INC = 0 }; /* in HM12.0, it wrote as X265_MAX(X265_DEPTH - 10, 0) */
     enum { OFFSET_THRESH = 1 << X265_MIN(X265_DEPTH - 5, 5) };
     enum { NUM_EDGETYPE = 5 };
     enum { NUM_PLANE = 3 };
-    enum { NUM_MERGE_MODE = 3 };
-
+    enum { SAO_DEPTHRATE_SIZE = 4 };
     static const uint32_t s_eoTable[NUM_EDGETYPE];
-
-    typedef int32_t (PerClass[MAX_NUM_SAO_TYPE][MAX_NUM_SAO_CLASS]);
-    typedef int32_t (PerPlane[NUM_PLANE][MAX_NUM_SAO_TYPE][MAX_NUM_SAO_CLASS]);
-
+    typedef int32_t PerClass[MAX_NUM_SAO_TYPE][MAX_NUM_SAO_CLASS];
+    typedef int32_t PerPlane[NUM_PLANE][MAX_NUM_SAO_TYPE][MAX_NUM_SAO_CLASS];
 protected:
 
     /* allocated per part */
-    PerClass*   m_count;
-    PerClass*   m_offset;
-    PerClass*   m_offsetOrg;
+    PerPlane    m_count;
+    PerPlane    m_offset;
+    PerPlane    m_offsetOrg;
 
     /* allocated per CTU */
     PerPlane*   m_countPreDblk;
     PerPlane*   m_offsetOrgPreDblk;
 
-    double      m_depthSaoRate[2][4];
-    int8_t      m_offsetBo[SAO_NUM_BO_CLASSES];
-    int8_t      m_offsetEo[NUM_EDGETYPE];
+    double*     m_depthSaoRate;
+    int8_t      m_offsetBo[NUM_PLANE][MAX_NUM_SAO_CLASS];
+    int8_t      m_offsetEo[NUM_PLANE][NUM_EDGETYPE];
 
+    int         m_chromaFormat;
     int         m_numCuInWidth;
     int         m_numCuInHeight;
-    int         m_numPlanes;
     int         m_hChromaShift;
     int         m_vChromaShift;
 
     pixel*      m_clipTable;
     pixel*      m_clipTableBase;
 
-    pixel*      m_tmpU1[3];
-    pixel*      m_tmpU2[3];
-    pixel*      m_tmpL1;
-    pixel*      m_tmpL2;
+    pixel*      m_tmpU[3];
+    pixel*      m_tmpL1[3];
+    pixel*      m_tmpL2[3];
 
 public:
 
@@ -114,39 +103,35 @@ public:
     int         m_refDepth;
     int         m_numNoSao[2];
 
-    double      m_lumaLambda;
-    double      m_chromaLambda;
-    /* TODO: No doubles for distortion */
-
     SAO();
 
-    bool create(x265_param* param);
-    void destroy();
+    bool create(x265_param* param, int initCommon);
+    void createFromRootNode(SAO *root);
+    void destroy(int destoryCommon);
 
     void allocSaoParam(SAOParam* saoParam) const;
 
-    void startSlice(Frame* pic, Entropy& initState, int qp);
+    void startSlice(Frame* pic, Entropy& initState);
     void resetStats();
-    void resetSaoUnit(SaoCtuParam* saoUnit);
 
     // CTU-based SAO process without slice granularity
-    void processSaoCu(int addr, int typeIdx, int plane);
+    void applyPixelOffsets(int addr, int typeIdx, int plane);
     void processSaoUnitRow(SaoCtuParam* ctuParam, int idxY, int plane);
+    void generateLumaOffsets(SaoCtuParam* ctuParam, int idxY, int idxX);
+    void generateChromaOffsets(SaoCtuParam* ctuParam[3], int idxY, int idxX);
 
-    void copySaoUnit(SaoCtuParam* saoUnitDst, const SaoCtuParam* saoUnitSrc);
-
-    void calcSaoStatsCu(int addr, int plane);
+    void calcSaoStatsCTU(int addr, int plane);
     void calcSaoStatsCu_BeforeDblk(Frame* pic, int idxX, int idxY);
 
-    void saoComponentParamDist(SAOParam* saoParam, int addr, int addrUp, int addrLeft, SaoCtuParam mergeSaoParam[2], double* mergeDist);
-    void sao2ChromaParamDist(SAOParam* saoParam, int addr, int addrUp, int addrLeft, SaoCtuParam mergeSaoParam[][2], double* mergeDist);
+    void saoLumaComponentParamDist(SAOParam* saoParam, int addr, int64_t& rateDist, int64_t* lambda, int64_t& bestCost);
+    void saoChromaComponentParamDist(SAOParam* saoParam, int addr, int64_t& rateDist, int64_t* lambda, int64_t& bestCost);
 
-    inline int estIterOffset(int typeIdx, int classIdx, double lambda, int offset, int32_t count, int32_t offsetOrg,
-                             int32_t* currentDistortionTableBo, double* currentRdCostTableBo);
-    inline int64_t estSaoTypeDist(int plane, int typeIdx, double lambda, int32_t* currentDistortionTableBo, double* currentRdCostTableBo);
-
+    void estIterOffset(int typeIdx, int64_t lambda, int32_t count, int32_t offsetOrg, int32_t& offset, int32_t& distClasses, int64_t& costClasses);
     void rdoSaoUnitRowEnd(const SAOParam* saoParam, int numctus);
-    void rdoSaoUnitRow(SAOParam* saoParam, int idxY);
+    void rdoSaoUnitCu(SAOParam* saoParam, int rowBaseAddr, int idxX, int addr);
+    int64_t calcSaoRdoCost(int64_t distortion, uint32_t bits, int64_t lambda);
+    void saoStatsInitialOffset(int addr, int planes);
+    friend class FrameFilter;
 };
 
 }

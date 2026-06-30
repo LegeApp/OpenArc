@@ -1,9 +1,10 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Author: Shazeb Nawaz Khan <shazeb@multicorewareinc.com>
  *         Steve Borho <steve@borho.org>
  *         Kavitha Sampas <kavitha@multicorewareinc.com>
+ *         Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +31,7 @@
 #include "slice.h"
 #include "mv.h"
 #include "bitstream.h"
+#include "threading.h"
 
 using namespace X265_NS;
 namespace {
@@ -67,20 +69,20 @@ void mcLuma(pixel* mcout, Lowres& ref, const MV * mvs)
     for (int y = 0; y < ref.lines; y += cuSize)
     {
         intptr_t pixoff = y * stride;
-        mvmin.y = (int16_t)((-y - 8) * mvshift);
-        mvmax.y = (int16_t)((ref.lines - y - 1 + 8) * mvshift);
+        mvmin.y = (int32_t)((-y - 8) * mvshift);
+        mvmax.y = (int32_t)((ref.lines - y - 1 + 8) * mvshift);
 
         for (int x = 0; x < ref.width; x += cuSize, pixoff += cuSize, cu++)
         {
             ALIGN_VAR_16(pixel, buf8x8[8 * 8]);
             intptr_t bstride = 8;
-            mvmin.x = (int16_t)((-x - 8) * mvshift);
-            mvmax.x = (int16_t)((ref.width - x - 1 + 8) * mvshift);
+            mvmin.x = (int32_t)((-x - 8) * mvshift);
+            mvmax.x = (int32_t)((ref.width - x - 1 + 8) * mvshift);
 
             /* clip MV to available pixels */
             MV mv = mvs[cu];
             mv = mv.clipped(mvmin, mvmax);
-            pixel *tmp = ref.lowresMC(pixoff, mv, buf8x8, bstride);
+            pixel *tmp = ref.lowresMC(pixoff, mv, buf8x8, bstride, 0);
             primitives.cu[BLOCK_8x8].copy_pp(mcout + pixoff, stride, tmp, bstride);
         }
     }
@@ -111,8 +113,8 @@ void mcChroma(pixel *      mcout,
          * into the lowres structures */
         int cu = y * cache.lowresWidthInCU;
         intptr_t pixoff = y * stride;
-        mvmin.y = (int16_t)((-y - 8) * mvshift);
-        mvmax.y = (int16_t)((height - y - 1 + 8) * mvshift);
+        mvmin.y = (int32_t)((-y - 8) * mvshift);
+        mvmax.y = (int32_t)((height - y - 1 + 8) * mvshift);
 
         for (int x = 0; x < width; x += bw, cu++, pixoff += bw)
         {
@@ -124,32 +126,32 @@ void mcChroma(pixel *      mcout,
                 mv.y >>= cache.vshift;
 
                 /* clip MV to available pixels */
-                mvmin.x = (int16_t)((-x - 8) * mvshift);
-                mvmax.x = (int16_t)((width - x - 1 + 8) * mvshift);
+                mvmin.x = (int32_t)((-x - 8) * mvshift);
+                mvmax.x = (int32_t)((width - x - 1 + 8) * mvshift);
                 mv = mv.clipped(mvmin, mvmax);
 
                 intptr_t fpeloffset = (mv.y >> 2) * stride + (mv.x >> 2);
                 pixel *temp = src + pixoff + fpeloffset;
 
-                int xFrac = mv.x & 0x7;
-                int yFrac = mv.y & 0x7;
-                if ((yFrac | xFrac) == 0)
+                int xFrac = mv.x & 7;
+                int yFrac = mv.y & 7;
+                if (!(yFrac | xFrac))
                 {
                     primitives.chroma[csp].pu[LUMA_16x16].copy_pp(mcout + pixoff, stride, temp, stride);
                 }
-                else if (yFrac == 0)
+                else if (!yFrac)
                 {
                     primitives.chroma[csp].pu[LUMA_16x16].filter_hpp(temp, stride, mcout + pixoff, stride, xFrac);
                 }
-                else if (xFrac == 0)
+                else if (!xFrac)
                 {
                     primitives.chroma[csp].pu[LUMA_16x16].filter_vpp(temp, stride, mcout + pixoff, stride, yFrac);
                 }
                 else
                 {
-                    ALIGN_VAR_16(int16_t, imm[16 * (16 + NTAPS_CHROMA)]);
-                    primitives.chroma[csp].pu[LUMA_16x16].filter_hps(temp, stride, imm, bw, xFrac, 1);
-                    primitives.chroma[csp].pu[LUMA_16x16].filter_vsp(imm + ((NTAPS_CHROMA >> 1) - 1) * bw, bw, mcout + pixoff, stride, yFrac);
+                    ALIGN_VAR_16(int16_t, immed[16 * (16 + NTAPS_CHROMA - 1)]);
+                    primitives.chroma[csp].pu[LUMA_16x16].filter_hps(temp, stride, immed, bw, xFrac, 1);
+                    primitives.chroma[csp].pu[LUMA_16x16].filter_vsp(immed + ((NTAPS_CHROMA >> 1) - 1) * bw, bw, mcout + pixoff, stride, yFrac);
                 }
             }
             else
@@ -182,8 +184,7 @@ uint32_t weightCost(pixel *         fenc,
         int denom = w->log2WeightDenom;
         int round = denom ? 1 << (denom - 1) : 0;
         int correction = IF_INTERNAL_PREC - X265_DEPTH; /* intermediate interpolation depth */
-        int pwidth = ((width + 15) >> 4) << 4;
-
+        int pwidth = ((width + 31) >> 5) << 5;
         primitives.weight_pp(ref, weightTemp, stride, pwidth, height,
                              weight, round << correction, denom + correction, offset);
         ref = weightTemp;
@@ -231,7 +232,7 @@ void weightAnalyse(Slice& slice, Frame& frame, x265_param& param)
     cache.numPredDir = slice.isInterP() ? 1 : 2;
     cache.lowresWidthInCU = fenc.width >> 3;
     cache.lowresHeightInCU = fenc.lines >> 3;
-    cache.csp = fencPic->m_picCsp;
+    cache.csp = param.internalCsp;
     cache.hshift = CHROMA_H_SHIFT(cache.csp);
     cache.vshift = CHROMA_V_SHIFT(cache.csp);
 
@@ -265,7 +266,7 @@ void weightAnalyse(Slice& slice, Frame& frame, x265_param& param)
 
         /* prepare estimates */
         float guessScale[3], fencMean[3], refMean[3];
-        for (int plane = 0; plane < 3; plane++)
+        for (int plane = 0; plane < (param.internalCsp != X265_CSP_I400 ? 3 : 1); plane++)
         {
             SET_WEIGHT(weights[plane], false, 1, 0, 0);
             uint64_t fencVar = fenc.wp_ssd[plane] + !refLowres.wp_ssd[plane];
@@ -289,10 +290,10 @@ void weightAnalyse(Slice& slice, Frame& frame, x265_param& param)
 
         MV *mvs = NULL;
 
-        for (int plane = 0; plane < 3; plane++)
+        for (int plane = 0; plane < (param.internalCsp != X265_CSP_I400 ? 3 : 1); plane++)
         {
             denom = plane ? chromaDenom : lumaDenom;
-            if (plane && !weights[0].bPresentFlag)
+            if (plane && !weights[0].wtPresent)
                 break;
 
             /* Early termination */
@@ -321,14 +322,14 @@ void weightAnalyse(Slice& slice, Frame& frame, x265_param& param)
 
             if (!plane && diffPoc <= param.bframes + 1)
             {
-                mvs = fenc.lowresMvs[list][diffPoc - 1];
+                mvs = fenc.lowresMvs[list][diffPoc];
 
                 /* test whether this motion search was performed by lookahead */
                 if (mvs[0].x != 0x7FFF)
                 {
                     /* reference chroma planes must be extended prior to being
                      * used as motion compensation sources */
-                    if (!refFrame->m_bChromaExtended)
+                    if (!refFrame->m_bChromaExtended && param.internalCsp != X265_CSP_I400 && frame.m_fencPic->m_picCsp != X265_CSP_I400)
                     {
                         refFrame->m_bChromaExtended = true;
                         PicYuv *refPic = refFrame->m_fencPic;
@@ -455,10 +456,13 @@ void weightAnalyse(Slice& slice, Frame& frame, x265_param& param)
             /* Use a smaller luma denominator if possible */
             if (!(plane || list))
             {
-                while (mindenom > 0 && !(minscale & 1))
+                if (mindenom > 0 && !(minscale & 1))
                 {
-                    mindenom--;
-                    minscale >>= 1;
+                    unsigned long idx;
+                    CTZ(idx, minscale);
+                    int shift = X265_MIN((int)idx, mindenom);
+                    mindenom -= shift;
+                    minscale >>= shift;
                 }
             }
 
@@ -472,12 +476,12 @@ void weightAnalyse(Slice& slice, Frame& frame, x265_param& param)
             }
         }
 
-        if (weights[0].bPresentFlag)
+        if (weights[0].wtPresent)
         {
             // Make sure both chroma channels match
-            if (weights[1].bPresentFlag != weights[2].bPresentFlag)
+            if (weights[1].wtPresent != weights[2].wtPresent)
             {
-                if (weights[1].bPresentFlag)
+                if (weights[1].wtPresent)
                     weights[2] = weights[1];
                 else
                     weights[1] = weights[2];
@@ -487,8 +491,10 @@ void weightAnalyse(Slice& slice, Frame& frame, x265_param& param)
         lumaDenom = weights[0].log2WeightDenom;
         chromaDenom = weights[1].log2WeightDenom;
 
+        int numIdx = slice.m_numRefIdx[list];
+
         /* reset weight states */
-        for (int ref = 1; ref < slice.m_numRefIdx[list]; ref++)
+        for (int ref = 1; ref < numIdx; ref++)
         {
             SET_WEIGHT(wp[list][ref][0], false, 1 << lumaDenom, lumaDenom, 0);
             SET_WEIGHT(wp[list][ref][1], false, 1 << chromaDenom, chromaDenom, 0);
@@ -506,29 +512,29 @@ void weightAnalyse(Slice& slice, Frame& frame, x265_param& param)
         int p = 0;
         bool bWeighted = false;
 
-        p = sprintf(buf, "poc: %d weights:", slice.m_poc);
+        p = snprintf(buf, sizeof(buf), "poc: %d weights:", slice.m_poc);
         int numPredDir = slice.isInterP() ? 1 : 2;
         for (int list = 0; list < numPredDir; list++)
         {
             WeightParam* w = &wp[list][0][0];
-            if (w[0].bPresentFlag || w[1].bPresentFlag || w[2].bPresentFlag)
+            if (w[0].wtPresent || w[1].wtPresent || w[2].wtPresent)
             {
                 bWeighted = true;
-                p += sprintf(buf + p, " [L%d:R0 ", list);
-                if (w[0].bPresentFlag)
-                    p += sprintf(buf + p, "Y{%d/%d%+d}", w[0].inputWeight, 1 << w[0].log2WeightDenom, w[0].inputOffset);
-                if (w[1].bPresentFlag)
-                    p += sprintf(buf + p, "U{%d/%d%+d}", w[1].inputWeight, 1 << w[1].log2WeightDenom, w[1].inputOffset);
-                if (w[2].bPresentFlag)
-                    p += sprintf(buf + p, "V{%d/%d%+d}", w[2].inputWeight, 1 << w[2].log2WeightDenom, w[2].inputOffset);
-                p += sprintf(buf + p, "]");
+                p += snprintf(buf + p, sizeof(buf) - p, " [L%d:R0 ", list);
+                if (w[0].wtPresent)
+                    p += snprintf(buf + p, sizeof(buf) - p, "Y{%d/%d%+d}", w[0].inputWeight, 1 << w[0].log2WeightDenom, w[0].inputOffset);
+                if (w[1].wtPresent)
+                    p += snprintf(buf + p, sizeof(buf) - p, "U{%d/%d%+d}", w[1].inputWeight, 1 << w[1].log2WeightDenom, w[1].inputOffset);
+                if (w[2].wtPresent)
+                    p += snprintf(buf + p, sizeof(buf) - p, "V{%d/%d%+d}", w[2].inputWeight, 1 << w[2].log2WeightDenom, w[2].inputOffset);
+                p += snprintf(buf + p, sizeof(buf) - p, "]");
             }
         }
 
         if (bWeighted)
         {
             if (p < 80) // pad with spaces to ensure progress line overwritten
-                sprintf(buf + p, "%*s", 80 - p, " ");
+                snprintf(buf + p, sizeof(buf) - p, "%*s", 80 - p, " ");
             x265_log(&param, X265_LOG_FULL, "%s\n", buf);
         }
     }

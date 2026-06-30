@@ -140,8 +140,12 @@ fn stage_from_filesystem(phone: &DetectedPhone) -> Result<StagedPhoneInput> {
     let stage_root = phone_stage_dir(&device_key);
     fs::create_dir_all(&state_dir)
         .with_context(|| format!("Failed to create state directory {}", state_dir.display()))?;
-    fs::create_dir_all(&stage_root)
-        .with_context(|| format!("Failed to create staging directory {}", stage_root.display()))?;
+    fs::create_dir_all(&stage_root).with_context(|| {
+        format!(
+            "Failed to create staging directory {}",
+            stage_root.display()
+        )
+    })?;
 
     let manifest_path = state_dir.join("staging_manifest.json");
     let old_manifest = load_manifest(&manifest_path)?;
@@ -211,7 +215,8 @@ fn stage_from_mtp(phone: &DetectedPhone) -> Result<StagedPhoneInput> {
     use widestring::U16CString;
     use winmtp::Provider;
 
-    let provider = Provider::new().map_err(|e| anyhow!("Failed to initialize MTP provider: {e:?}"))?;
+    let provider =
+        Provider::new().map_err(|e| anyhow!("Failed to initialize MTP provider: {e:?}"))?;
     let devices = provider
         .enumerate_devices()
         .map_err(|e| anyhow!("Failed to enumerate MTP devices: {e:?}"))?;
@@ -245,8 +250,12 @@ fn stage_from_mtp(phone: &DetectedPhone) -> Result<StagedPhoneInput> {
     let stage_root = phone_stage_dir(&device_key);
     fs::create_dir_all(&state_dir)
         .with_context(|| format!("Failed to create state directory {}", state_dir.display()))?;
-    fs::create_dir_all(&stage_root)
-        .with_context(|| format!("Failed to create staging directory {}", stage_root.display()))?;
+    fs::create_dir_all(&stage_root).with_context(|| {
+        format!(
+            "Failed to create staging directory {}",
+            stage_root.display()
+        )
+    })?;
 
     let manifest_path = state_dir.join("staging_manifest.json");
     let old_manifest = load_manifest(&manifest_path)?;
@@ -284,7 +293,11 @@ fn stage_from_mtp(phone: &DetectedPhone) -> Result<StagedPhoneInput> {
             let mut output = fs::File::create(&dst)
                 .with_context(|| format!("Failed to create staged file {}", dst.display()))?;
             io::copy(&mut stream, &mut output).with_context(|| {
-                format!("Failed to copy MTP object '{}' to {}", file.object_id, dst.display())
+                format!(
+                    "Failed to copy MTP object '{}' to {}",
+                    file.object_id,
+                    dst.display()
+                )
             })?;
             copied_files += 1;
         } else {
@@ -377,7 +390,8 @@ fn collect_mtp_files_recursive(
 fn detect_windows_mtp_phones() -> Result<Vec<DetectedPhone>> {
     use winmtp::Provider;
 
-    let provider = Provider::new().map_err(|e| anyhow!("Failed to initialize MTP provider: {e:?}"))?;
+    let provider =
+        Provider::new().map_err(|e| anyhow!("Failed to initialize MTP provider: {e:?}"))?;
     let devices = provider
         .enumerate_devices()
         .map_err(|e| anyhow!("Failed to enumerate MTP devices: {e:?}"))?;
@@ -407,6 +421,13 @@ fn detect_mounted_phones() -> Result<Vec<DetectedPhone>> {
 
     for root in linux_mount_roots() {
         if !root.exists() {
+            continue;
+        }
+
+        // GVFS roots enumerate connected MTP/PTP phones directly: any immediate
+        // child named `mtp:...` / `gphoto2:...` is an attached phone/camera.
+        if root.file_name().and_then(|n| n.to_str()) == Some("gvfs") {
+            detect_gvfs_phones(&root, &mut phones, &mut seen);
             continue;
         }
 
@@ -452,27 +473,98 @@ fn detect_mounted_phones() -> Result<Vec<DetectedPhone>> {
 }
 
 #[cfg(not(windows))]
+fn detect_gvfs_phones(
+    gvfs_root: &Path,
+    phones: &mut Vec<DetectedPhone>,
+    seen: &mut HashSet<String>,
+) {
+    let entries = match fs::read_dir(gvfs_root) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name,
+            None => continue,
+        };
+        if !(name.starts_with("mtp:") || name.starts_with("gphoto2:")) {
+            continue;
+        }
+
+        let canonical = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        let id = format!("fs:{}", canonical.to_string_lossy());
+        if seen.insert(id.clone()) {
+            phones.push(DetectedPhone {
+                id,
+                display_name: gvfs_display_name(name),
+                source_kind: PhoneSourceKind::MountedFilesystem,
+                root_hint: Some(canonical),
+            });
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn gvfs_display_name(mount_name: &str) -> String {
+    // GVFS mount names look like `mtp:host=Google_Pixel_..._serial` or
+    // `gphoto2:host=Canon...`. Derive a friendlier name from the host portion.
+    let host = mount_name
+        .split_once("host=")
+        .map(|(_, host)| host)
+        .unwrap_or(mount_name);
+    let cleaned = host.replace(['_', '%'], " ");
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() {
+        mount_name.to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+#[cfg(not(windows))]
 fn linux_mount_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
+
+    // Only the current user's removable-media auto-mount roots. We intentionally
+    // do NOT scan /mnt (where users manually mount permanent/internal drives) nor
+    // the bare /media and /run/media roots (which enumerate every user's mounts).
     if let Ok(user) = std::env::var("USER") {
         roots.push(PathBuf::from(format!("/run/media/{user}")));
         roots.push(PathBuf::from(format!("/media/{user}")));
     }
-    roots.push(PathBuf::from("/run/media"));
-    roots.push(PathBuf::from("/media"));
-    roots.push(PathBuf::from("/mnt"));
+
+    // GVFS roots for phones/cameras connected over MTP/PTP without mass-storage.
+    // These appear as directories like `mtp:host=...` / `gphoto2:host=...` under
+    // /run/user/<uid>/gvfs. Discover the per-user dirs by reading /run/user.
+    if let Ok(entries) = fs::read_dir("/run/user") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                roots.push(path.join("gvfs"));
+            }
+        }
+    }
+
     roots
 }
 
 fn locate_media_root(base: &Path) -> Option<PathBuf> {
-    if has_phone_media_dirs(base) {
+    // Detection requires a DCIM directory: it is the universal marker created by
+    // every phone/camera, whereas Pictures/Documents/Downloads folders are common
+    // on ordinary backup drives and would cause false positives.
+    if has_dcim_dir(base) {
         return Some(base.to_path_buf());
     }
 
     let entries = fs::read_dir(base).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() && has_phone_media_dirs(&path) {
+        if path.is_dir() && has_dcim_dir(&path) {
             return Some(path);
         }
     }
@@ -509,8 +601,9 @@ fn collect_filesystem_phone_files(root: &Path) -> Result<Vec<FsSourceFile>> {
                 .unwrap_or(entry.path())
                 .to_path_buf();
 
-            let metadata = fs::metadata(&source_path)
-                .with_context(|| format!("Failed to read metadata for {}", source_path.display()))?;
+            let metadata = fs::metadata(&source_path).with_context(|| {
+                format!("Failed to read metadata for {}", source_path.display())
+            })?;
             let mtime_secs = metadata
                 .modified()
                 .ok()
@@ -531,7 +624,11 @@ fn collect_filesystem_phone_files(root: &Path) -> Result<Vec<FsSourceFile>> {
     Ok(files)
 }
 
-fn prune_stale_staged_files(old: &StageManifest, new: &StageManifest, stage_root: &Path) -> Result<()> {
+fn prune_stale_staged_files(
+    old: &StageManifest,
+    new: &StageManifest,
+    stage_root: &Path,
+) -> Result<()> {
     for old_key in old.files.keys() {
         if new.files.contains_key(old_key) {
             continue;
@@ -561,24 +658,26 @@ fn save_manifest(path: &Path, manifest: &StageManifest) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create manifest directory {}", parent.display()))?;
     }
-    let json = serde_json::to_string_pretty(manifest).context("Failed to serialize staging manifest")?;
+    let json =
+        serde_json::to_string_pretty(manifest).context("Failed to serialize staging manifest")?;
     fs::write(path, json)
         .with_context(|| format!("Failed to write staging manifest {}", path.display()))?;
     Ok(())
 }
 
-fn has_phone_media_dirs(path: &Path) -> bool {
+fn has_dcim_dir(path: &Path) -> bool {
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
         Err(_) => return false,
     };
 
     entries.flatten().any(|entry| {
-        entry
-            .file_name()
-            .to_str()
-            .map(is_phone_media_dir_name)
-            .unwrap_or(false)
+        entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+            && entry
+                .file_name()
+                .to_str()
+                .map(|name| name.eq_ignore_ascii_case("dcim"))
+                .unwrap_or(false)
     })
 }
 

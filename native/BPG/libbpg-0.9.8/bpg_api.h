@@ -26,6 +26,11 @@ typedef struct {
     int chroma_format;        /* 0=grayscale, 1=4:2:0, 2=4:2:2, 3=4:4:4 */
     int encoder_type;         /* 0=x265, 1=JCTVC (if available) */
     int compress_level;       /* 1-9, compression effort (default: 8) */
+    int aq_mode;              /* 0=off, 1=variance, 2=auto variance, 3=auto variance biased, 6=strong auto variance */
+    float aq_strength;        /* x265 AQ strength; <=0 uses preset default */
+    uint8_t aq_clamp;         /* currently reserved for bpg-rs compatibility */
+    uint8_t two_pass_gate;    /* currently reserved for bpg-rs compatibility */
+    uint8_t _reserved[2];     /* keep following ints aligned with Rust repr(C) */
     int color_space;          /* 0=YCbCr (BT.601), 1=RGB, 2=YCgCo, 3=YCbCr (BT.709), 4=YCbCr (BT.2020) */
     int limited_range;        /* 1=limited/video range, 0=full range */
 } BPGEncoderConfig;

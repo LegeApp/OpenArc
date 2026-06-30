@@ -1,6 +1,6 @@
 //! OpenArc - Media archiver for phone/camera files
 
-use anyhow::{anyhow, Result, Context};
+use anyhow::{Context, Result, anyhow};
 
 #[cfg(windows)]
 fn enable_ansi_support() {
@@ -19,22 +19,22 @@ fn enable_ansi_support() {
         }
     }
 }
+use arcmax::codec::lzma::LzmaOptions;
+use arcmax::{CompressionOptions, Method, compress_with, decompress};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use openarc::orchestrator::{
-    create_archive, extract_archive_with_decoding, list_archive_contents, ExtractionSettings,
-    OrchestratorSettings,
-};
-use arcmax::{compress_with, decompress, CompressionOptions, Method};
-use arcmax::codec::lzma::LzmaOptions;
-use openarc::bpg_wrapper::{BpgConfig, BpgEffort};
+use openarc::bpg_wrapper::{BpgAq, BpgConfig, BpgEffort};
 use openarc::cli::{Cli, Commands};
 use openarc::interactive;
+use openarc::orchestrator::FileClass;
+use openarc::orchestrator::{
+    ExtractionSettings, OrchestratorSettings, create_archive, extract_archive_with_decoding,
+    list_archive_contents,
+};
 use openarc::phone_backup;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use openarc::orchestrator::FileClass;
 
 const CODEC_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
 
@@ -136,6 +136,8 @@ fn main() -> Result<()> {
             output,
             inputs,
             bpg_effort,
+            #[cfg(feature = "bpg-rs")]
+            bpg_aq,
             bpg_quality,
             bpg_lossless,
             compression_level,
@@ -144,8 +146,13 @@ fn main() -> Result<()> {
             no_dedup,
             no_tracking,
             no_reencode,
+            no_zip,
         } => {
-            println!("OpenArc - Creating archive: {}", output.display());
+            println!(
+                "OpenArc - Creating {}: {}",
+                if no_zip { "folder" } else { "archive" },
+                output.display()
+            );
             println!("Input sources: {} items", inputs.len());
             println!();
 
@@ -165,12 +172,20 @@ fn main() -> Result<()> {
             }
 
             let bpg_effort = BpgEffort::parse(&bpg_effort)?;
+            #[cfg(feature = "bpg-rs")]
+            let bpg_aq = BpgAq::parse(&bpg_aq)?;
+            // C/x265 backend: AQ is not user-selectable; force x265's default
+            // auto-variance AQ (BpgAq::Perceptual).
+            #[cfg(not(feature = "bpg-rs"))]
+            let bpg_aq: BpgAq = openarc::bpg_wrapper::AQ_CLI_DEFAULT;
+            bpg_aq.validate_for_effort(bpg_effort)?;
             let bpg_quality = bpg_quality.unwrap_or_else(|| bpg_effort.default_quality() as i32);
 
             let settings = OrchestratorSettings {
                 bpg_quality,
                 bpg_lossless,
                 bpg_effort,
+                bpg_aq,
                 bpg_bit_depth: 8,
                 bpg_chroma_format: 1,
                 bpg_encoder_type: bpg_effort.encoder_type() as i32,
@@ -185,14 +200,13 @@ fn main() -> Result<()> {
                 jpeg_quality: 92,
                 enable_tracking: !no_tracking,
                 reencode_media: !no_reencode,
+                output_folder_without_archive: no_zip,
             };
 
             println!("Settings:");
             println!(
-                "  BPG: {} (lossless: {}, internal QP: {})",
-                bpg_effort,
-                bpg_lossless,
-                bpg_quality
+                "  BPG: {} (AQ: {}, lossless: {}, internal QP: {})",
+                bpg_effort, bpg_aq, bpg_lossless, bpg_quality
             );
             println!(
                 "  BPG bit depth: adaptive (8-bit sources stay 8-bit, high-depth sources up to 12-bit)"
@@ -203,6 +217,7 @@ fn main() -> Result<()> {
             println!("  Deduplication: {}", !no_dedup);
             println!("  File tracking: {}", !no_tracking);
             println!("  Re-encode media: {}", !no_reencode);
+            println!("  Final archive container: {}", !no_zip);
             println!();
 
             let (pb, progress_fn) = make_progress_callback("Discovering files...");
@@ -211,16 +226,27 @@ fn main() -> Result<()> {
             let archive_inputs = inputs.clone();
             let archive_output = output.clone();
             let result = run_with_codec_stack("openarc-create", move || {
-                create_archive(&archive_inputs, &archive_output, settings, Some(progress_fn))
+                create_archive(
+                    &archive_inputs,
+                    &archive_output,
+                    settings,
+                    Some(progress_fn),
+                )
             })?;
 
             pb.finish_with_message("Complete");
             println!();
-            println!("Archive creation complete!");
+            println!(
+                "{} creation complete!",
+                if no_zip { "Folder" } else { "Archive" }
+            );
             println!("  Discovered: {} files", result.discovered_files.len());
             println!("  Processed: {} files", result.processed.len());
             println!("  Failed: {} files", result.failed.len());
-            println!("  Skipped (catalog): {} files", result.skipped_by_catalog.len());
+            println!(
+                "  Skipped (catalog): {} files",
+                result.skipped_by_catalog.len()
+            );
             if result.dedup_groups > 0 {
                 println!("  Dedup groups: {}", result.dedup_groups);
             }
@@ -233,8 +259,13 @@ fn main() -> Result<()> {
 
             let total_original: u64 = result.processed.iter().map(|p| p.original_size).sum();
             let total_compressed: u64 = result.processed.iter().map(|p| p.output_size).sum();
-            let raw_count = result.processed.iter().filter(|p| p.class == FileClass::Raw).count();
-            let raw_total: u64 = result.processed
+            let raw_count = result
+                .processed
+                .iter()
+                .filter(|p| p.class == FileClass::Raw)
+                .count();
+            let raw_total: u64 = result
+                .processed
                 .iter()
                 .filter(|p| p.class == FileClass::Raw)
                 .map(|p| p.original_size)
@@ -257,6 +288,22 @@ fn main() -> Result<()> {
                     raw_total / 1_000_000
                 );
             }
+            if result.jpeg2000_fallback.replaced_files > 0 {
+                println!(
+                    "  JPEG 2000 fallback: {} files encoded to JP2 q85 after BPG bitrate criteria flagged them and JP2 was smaller",
+                    result.jpeg2000_fallback.replaced_files
+                );
+                println!(
+                    "  JPEG 2000 average savings: {} KB/file ({:.2}% average across replaced files)",
+                    result.jpeg2000_fallback.average_saved_bytes() / 1_000,
+                    result.jpeg2000_fallback.average_saved_percent()
+                );
+            } else if result.jpeg2000_fallback.flagged_files > 0 {
+                println!(
+                    "  JPEG 2000 fallback: {} files flagged by BPG bitrate criteria, but BPG remained smaller",
+                    result.jpeg2000_fallback.flagged_files
+                );
+            }
 
             println!();
             println!("Output: {}", output.display());
@@ -275,7 +322,9 @@ fn main() -> Result<()> {
                 {
                     println!("Stage folder: {}", stage_root.display());
                 }
-                println!("Next step: encode these videos externally (HandBrake/ffmpeg/etc.), then merge them into this archive.");
+                println!(
+                    "Next step: encode these videos externally (HandBrake/ffmpeg/etc.), then merge them into this archive."
+                );
                 print!("Encoded video folder to merge (leave empty to skip now): ");
                 io::stdout().flush()?;
                 let mut encoded_dir = String::new();
@@ -296,8 +345,16 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Extract { input, output, no_reencode } => {
-            println!("Extracting archive: {} to {}", input.display(), output.display());
+        Commands::Extract {
+            input,
+            output,
+            no_reencode,
+        } => {
+            println!(
+                "Extracting archive: {} to {}",
+                input.display(),
+                output.display()
+            );
 
             let (pb, progress_fn) = make_progress_callback("Extracting archive...");
 
@@ -368,10 +425,24 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::ConvertBpg { input, output, effort, quality, lossless } => {
+        Commands::ConvertBpg {
+            input,
+            output,
+            effort,
+            #[cfg(feature = "bpg-rs")]
+            aq,
+            quality,
+            lossless,
+        } => {
             let effort = BpgEffort::parse(&effort)?;
+            #[cfg(feature = "bpg-rs")]
+            let aq = BpgAq::parse(&aq)?;
+            #[cfg(not(feature = "bpg-rs"))]
+            let aq: BpgAq = openarc::bpg_wrapper::AQ_CLI_DEFAULT;
+            aq.validate_for_effort(effort)?;
             let cfg = BpgConfig {
                 effort,
+                aq,
                 lossless,
                 bit_depth: 8,
                 quality_override: quality,
@@ -389,10 +460,24 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::BatchBpg { input, output, effort, quality, lossless } => {
+        Commands::BatchBpg {
+            input,
+            output,
+            effort,
+            #[cfg(feature = "bpg-rs")]
+            aq,
+            quality,
+            lossless,
+        } => {
             let effort = BpgEffort::parse(&effort)?;
-            std::fs::create_dir_all(&output)
-                .with_context(|| format!("Failed to create output directory {}", output.display()))?;
+            #[cfg(feature = "bpg-rs")]
+            let aq = BpgAq::parse(&aq)?;
+            #[cfg(not(feature = "bpg-rs"))]
+            let aq: BpgAq = openarc::bpg_wrapper::AQ_CLI_DEFAULT;
+            aq.validate_for_effort(effort)?;
+            std::fs::create_dir_all(&output).with_context(|| {
+                format!("Failed to create output directory {}", output.display())
+            })?;
             let images = find_images(&input)?;
             let pb = ProgressBar::new(images.len() as u64);
             pb.set_style(
@@ -403,6 +488,7 @@ fn main() -> Result<()> {
             );
             let cfg = BpgConfig {
                 effort,
+                aq,
                 lossless,
                 bit_depth: 8,
                 quality_override: quality,
@@ -411,7 +497,12 @@ fn main() -> Result<()> {
                 let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
                 let out_path = output.join(format!("{}.bpg", stem));
                 pb.set_position(idx as u64);
-                pb.set_message(path.file_name().and_then(|s| s.to_str()).unwrap_or("image").to_string());
+                pb.set_message(
+                    path.file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("image")
+                        .to_string(),
+                );
                 openarc::bpg_wrapper::encode_image_to_bpg(path, &out_path, &cfg)
                     .with_context(|| format!("Failed to encode {}", path.display()))?;
             }
@@ -421,13 +512,22 @@ fn main() -> Result<()> {
         }
 
         // === ArcMax Commands ===
-        Commands::ArcCompress { input, output, method, level, dict_size } => {
+        Commands::ArcCompress {
+            input,
+            output,
+            method,
+            level,
+            dict_size,
+        } => {
             use std::io::{Read, Write};
 
             println!("ArcMax: Compressing with LZMA2/Zstd");
             println!("  Input: {:?}", input);
             println!("  Output: {}", output.display());
-            println!("  Method: {} (level: {}, dict: {} bytes)", method, level, dict_size);
+            println!(
+                "  Method: {} (level: {}, dict: {} bytes)",
+                method, level, dict_size
+            );
             println!();
 
             let mut input_data = Vec::new();
@@ -446,8 +546,11 @@ fn main() -> Result<()> {
                 }),
             };
 
-            let compressed = compress_with(&input_data, CompressionOptions::default().with_method(arc_method))
-                .context("Compression failed")?;
+            let compressed = compress_with(
+                &input_data,
+                CompressionOptions::default().with_method(arc_method),
+            )
+            .context("Compression failed")?;
 
             std::fs::File::create(&output)
                 .with_context(|| format!("Failed to create output file: {}", output.display()))?
@@ -467,12 +570,19 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::ArcExtract { archive, output, password: _ } => {
+        Commands::ArcExtract {
+            archive,
+            output,
+            password: _,
+        } => {
             use std::io::{Read, Write};
 
             println!("ArcMax: Extracting compressed file");
             println!("  Archive: {}", archive.display());
-            println!("  Output: {}", output.as_ref().unwrap_or(&PathBuf::from(".")).display());
+            println!(
+                "  Output: {}",
+                output.as_ref().unwrap_or(&PathBuf::from(".")).display()
+            );
             println!();
 
             let mut input_data = Vec::new();
@@ -480,12 +590,13 @@ fn main() -> Result<()> {
                 .with_context(|| format!("Failed to open archive: {}", archive.display()))?
                 .read_to_end(&mut input_data)?;
 
-            let decompressed = decompress(&input_data)
-                .context("Decompression failed")?;
+            let decompressed = decompress(&input_data).context("Decompression failed")?;
 
             let output_path = output.unwrap_or_else(|| PathBuf::from("output.bin"));
             std::fs::File::create(&output_path)
-                .with_context(|| format!("Failed to create output file: {}", output_path.display()))?
+                .with_context(|| {
+                    format!("Failed to create output file: {}", output_path.display())
+                })?
                 .write_all(&decompressed)?;
 
             println!("Extraction complete!");
@@ -514,16 +625,21 @@ fn main() -> Result<()> {
                 }),
             };
 
-            let compressed = compress_with(test_data, CompressionOptions::default().with_method(arc_method))
-                .context("Compression test failed")?;
+            let compressed = compress_with(
+                test_data,
+                CompressionOptions::default().with_method(arc_method),
+            )
+            .context("Compression test failed")?;
 
             println!("Compression test:");
             println!("  Original: {} bytes", test_data.len());
             println!("  Compressed: {} bytes", compressed.len());
-            println!("  Ratio: {:.2}%", (compressed.len() as f64 / test_data.len() as f64) * 100.0);
+            println!(
+                "  Ratio: {:.2}%",
+                (compressed.len() as f64 / test_data.len() as f64) * 100.0
+            );
 
-            let decompressed = decompress(&compressed)
-                .context("Decompression test failed")?;
+            let decompressed = decompress(&compressed).context("Decompression test failed")?;
 
             if test_data == decompressed.as_slice() {
                 println!("  Round-trip: OK");

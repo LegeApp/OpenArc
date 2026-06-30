@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -47,39 +47,37 @@ protected:
 
     uint32_t framesize;
 
+    bool alphaAvailable;
+
     bool threadActive;
 
     ThreadSafeInteger readCount;
 
     ThreadSafeInteger writeCount;
-
     char* buf[QUEUE_SIZE];
-
-    std::istream *ifs;
-
+    FILE *ifs;
     int guessFrameCount();
-
     void threadMain();
 
     bool populateFrameQueue();
 
 public:
 
-    YUVInput(InputFileInfo& info);
+    YUVInput(InputFileInfo& info, bool alpha, int format);
 
     virtual ~YUVInput();
-
     void release();
-
-    bool isEof() const                            { return ifs && ifs->eof();  }
-
-    bool isFail()                                 { return !(ifs && !ifs->fail() && threadActive); }
-
+    bool isEof() const                            { return ifs && feof(ifs); }
+    bool isFail()                                 { return !(ifs && !ferror(ifs) && threadActive); }
     void startReader();
 
     bool readPicture(x265_picture&);
 
     const char *getName() const                   { return "yuv"; }
+
+    int getWidth() const                          { return width; }
+
+    int getHeight() const                         { return height; }
 };
 }
 

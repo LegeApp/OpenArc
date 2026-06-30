@@ -1,7 +1,8 @@
 /*****************************************************************************
- * Copyright (C) 2015 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
+ *          Min Chen <chenm003@163.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,7 +73,11 @@ namespace Profile {
         MAIN10 = 2,
         MAINSTILLPICTURE = 3,
         MAINREXT = 4,
-        HIGHTHROUGHPUTREXT = 5
+        HIGHTHROUGHPUTREXT = 5,
+        MULTIVIEWMAIN = 6,
+        SCALABLEMAIN = 7,
+        SCALABLEMAIN10 = 8,
+        MAINSCC = 9
     };
 }
 
@@ -105,6 +110,12 @@ namespace Level {
 
 struct ProfileTierLevel
 {
+    int      profileIdc[MAX_LAYERS];
+    int      levelIdc;
+    uint32_t minCrForLevel;
+    uint32_t maxLumaSrForLevel;
+    uint32_t bitDepthConstraint;
+    int      chromaFormatConstraint;
     bool     tierFlag;
     bool     progressiveSourceFlag;
     bool     interlacedSourceFlag;
@@ -114,12 +125,6 @@ struct ProfileTierLevel
     bool     intraConstraintFlag;
     bool     onePictureOnlyConstraintFlag;
     bool     lowerBitRateConstraintFlag;
-    int      profileIdc;
-    int      levelIdc;
-    uint32_t minCrForLevel;
-    uint32_t maxLumaSrForLevel;
-    uint32_t bitDepthConstraint;
-    int      chromaFormatConstraint;
 };
 
 struct HRDInfo
@@ -152,21 +157,42 @@ struct TimingInfo
 
 struct VPS
 {
-    uint32_t         maxTempSubLayers;
-    uint32_t         numReorderPics;
-    uint32_t         maxDecPicBuffering;
-    uint32_t         maxLatencyIncrease;
     HRDInfo          hrdParameters;
     ProfileTierLevel ptl;
+    uint32_t         maxTempSubLayers;
+    uint32_t         numReorderPics[MAX_T_LAYERS];
+    uint32_t         maxDecPicBuffering[MAX_T_LAYERS];
+    uint32_t         maxLatencyIncrease[MAX_T_LAYERS];
+    int              m_numLayers;
+    int              m_numViews;
+    bool             vps_extension_flag;
+
+#if (ENABLE_ALPHA || ENABLE_MULTIVIEW)
+    bool             splitting_flag;
+    int              m_scalabilityMask[MAX_VPS_NUM_SCALABILITY_TYPES];
+    int              scalabilityTypes;
+    uint8_t          m_dimensionIdLen[MAX_VPS_NUM_SCALABILITY_TYPES];
+    uint8_t          m_dimensionId[MAX_VPS_LAYER_ID_PLUS1][MAX_VPS_NUM_SCALABILITY_TYPES];
+    bool             m_nuhLayerIdPresentFlag;
+    uint8_t          m_layerIdInNuh[MAX_VPS_LAYER_ID_PLUS1];
+    uint8_t          m_layerIdInVps[MAX_VPS_LAYER_ID_PLUS1];
+    int              m_viewIdLen;
+    int              m_vpsNumLayerSetsMinus1;
+    int              m_numLayersInIdList[1023];
+#endif
+
+#if ENABLE_MULTIVIEW
+    int              m_layerIdIncludedFlag;
+#endif
 };
 
 struct Window
 {
-    bool bEnabled;
     int  leftOffset;
     int  rightOffset;
     int  topOffset;
     int  bottomOffset;
+    bool bEnabled;
 
     Window()
     {
@@ -176,35 +202,29 @@ struct Window
 
 struct VUI
 {
-    bool       aspectRatioInfoPresentFlag;
     int        aspectRatioIdc;
     int        sarWidth;
     int        sarHeight;
-
-    bool       overscanInfoPresentFlag;
-    bool       overscanAppropriateFlag;
-
-    bool       videoSignalTypePresentFlag;
     int        videoFormat;
-    bool       videoFullRangeFlag;
-
-    bool       colourDescriptionPresentFlag;
     int        colourPrimaries;
     int        transferCharacteristics;
     int        matrixCoefficients;
-
-    bool       chromaLocInfoPresentFlag;
     int        chromaSampleLocTypeTopField;
     int        chromaSampleLocTypeBottomField;
 
-    Window     defaultDisplayWindow;
-
+    bool       aspectRatioInfoPresentFlag;
+    bool       overscanInfoPresentFlag;
+    bool       overscanAppropriateFlag;
+    bool       videoSignalTypePresentFlag;
+    bool       videoFullRangeFlag;
+    bool       colourDescriptionPresentFlag;
+    bool       chromaLocInfoPresentFlag;
     bool       frameFieldInfoPresentFlag;
     bool       fieldSeqFlag;
-
     bool       hrdParametersPresentFlag;
-    HRDInfo    hrdParameters;
 
+    HRDInfo    hrdParameters;
+    Window     defaultDisplayWindow;
     TimingInfo timingInfo;
 };
 
@@ -229,6 +249,7 @@ struct SPS
 
     int      log2MinCodingBlockSize;
     int      log2DiffMaxMinCodingBlockSize;
+    int      log2MaxPocLsb;
 
     uint32_t quadtreeTULog2MaxSize;
     uint32_t quadtreeTULog2MinSize;
@@ -236,20 +257,34 @@ struct SPS
     uint32_t quadtreeTUMaxDepthInter; // use param
     uint32_t quadtreeTUMaxDepthIntra; // use param
 
-    bool     bUseSAO; // use param
-    bool     bUseAMP; // use param
     uint32_t maxAMPDepth;
 
     uint32_t maxTempSubLayers;   // max number of Temporal Sub layers
-    uint32_t maxDecPicBuffering; // these are dups of VPS values
-    uint32_t maxLatencyIncrease;
-    int      numReorderPics;
+    uint32_t maxDecPicBuffering[MAX_T_LAYERS]; // these are dups of VPS values
+    uint32_t maxLatencyIncrease[MAX_T_LAYERS];
+    int      numReorderPics[MAX_T_LAYERS];
 
+    RPS      spsrps[MAX_NUM_SHORT_TERM_RPS];
+    int      spsrpsNum;
+    int      numGOPBegin;
+
+    bool     bUseSAO; // use param
+    bool     bUseAMP; // use param
     bool     bUseStrongIntraSmoothing; // use param
     bool     bTemporalMVPEnabled;
+    bool     bEmitVUITimingInfo;
+    bool     bEmitVUIHRDInfo;
 
     Window   conformanceWindow;
     VUI      vuiParameters;
+    bool     sps_extension_flag;
+
+#if ENABLE_MULTIVIEW
+    int      setSpsExtOrMaxSubLayersMinus1;
+    int      spsInferScalingListFlag;
+    int      maxViews;
+    bool     vui_parameters_present_flag;
+#endif
 
     SPS()
     {
@@ -270,6 +305,8 @@ struct PPS
     uint32_t maxCuDQPDepth;
 
     int      chromaQpOffset[2];      // use param
+    int      deblockingFilterBetaOffsetDiv2;
+    int      deblockingFilterTcOffsetDiv2;
 
     bool     bUseWeightPred;         // use param
     bool     bUseWeightedBiPred;     // use param
@@ -283,17 +320,23 @@ struct PPS
 
     bool     bDeblockingFilterControlPresent;
     bool     bPicDisableDeblockingFilter;
-    int      deblockingFilterBetaOffsetDiv2;
-    int      deblockingFilterTcOffsetDiv2;
+
+    int      numRefIdxDefault[2];
+    bool     pps_slice_chroma_qp_offsets_present_flag;
+
+    bool     pps_extension_flag;
+    int      maxViews;
+
+    int      profileIdc;
 };
 
 struct WeightParam
 {
     // Explicit weighted prediction parameters parsed in slice header,
-    bool     bPresentFlag;
     uint32_t log2WeightDenom;
     int      inputWeight;
     int      inputOffset;
+    int      wtPresent;
 
     /* makes a non-h265 weight (i.e. fix7), into an h265 weight */
     void setFromWeightAndOffset(int w, int o, int denom, bool bNormalize)
@@ -316,7 +359,7 @@ struct WeightParam
         (w).inputWeight = (s); \
         (w).log2WeightDenom = (d); \
         (w).inputOffset = (o); \
-        (w).bPresentFlag = (b); \
+        (w).wtPresent = (b); \
     }
 
 class Slice
@@ -325,29 +368,47 @@ public:
 
     const SPS*  m_sps;
     const PPS*  m_pps;
+    Frame*      m_refFrameList[2][MAX_NUM_REF + 1];
+    PicYuv*     m_refReconPicList[2][MAX_NUM_REF + 1];
+
     WeightParam m_weightPredTable[2][MAX_NUM_REF][3]; // [list][refIdx][0:Y, 1:U, 2:V]
     MotionReference (*m_mref)[MAX_NUM_REF + 1];
     RPS         m_rps;
 
     NalUnitType m_nalUnitType;
     SliceType   m_sliceType;
+    SliceType   m_origSliceType;
     int         m_sliceQp;
+    int         m_chromaQpOffset[2];
     int         m_poc;
-    
     int         m_lastIDR;
+    int         m_rpsIdx;
 
-    bool        m_bCheckLDC;       // TODO: is this necessary?
-    bool        m_sLFaseFlag;      // loop filter boundary flag
-    bool        m_colFromL0Flag;   // collocated picture from List0 or List1 flag
     uint32_t    m_colRefIdx;       // never modified
-    
+
     int         m_numRefIdx[2];
-    Frame*      m_refFrameList[2][MAX_NUM_REF + 1];
-    PicYuv*     m_refReconPicList[2][MAX_NUM_REF + 1];
     int         m_refPOCList[2][MAX_NUM_REF + 1];
 
     uint32_t    m_maxNumMergeCand; // use param
     uint32_t    m_endCUAddr;
+
+    bool        m_bCheckLDC;       // TODO: is this necessary?
+    bool        m_sLFaseFlag;      // loop filter boundary flag
+    bool        m_colFromL0Flag;   // collocated picture from List0 or List1 flag
+    int         m_bUseSao;
+
+    int         m_iPPSQpMinus26;
+    int         numRefIdxDefault[2];
+    int         m_iNumRPSInSPS;
+    const x265_param *m_param;
+    int         m_fieldNum;
+    Frame*      m_mcstfRefFrameList[2][MAX_MCSTF_TEMPORAL_WINDOW_LENGTH];
+
+#if  ENABLE_SCC_EXT
+    Frame*      m_lastEncPic;
+    bool        m_useIntegerMv;
+#endif
+    bool        m_bTemporalMvp;
 
     Slice()
     {
@@ -358,23 +419,43 @@ public:
         memset(m_refReconPicList, 0, sizeof(m_refReconPicList));
         memset(m_refPOCList, 0, sizeof(m_refPOCList));
         disableWeights();
+        m_iPPSQpMinus26 = 0;
+        numRefIdxDefault[0] = 1;
+        numRefIdxDefault[1] = 1;
+        m_rpsIdx = -1;
+        m_chromaQpOffset[0] = m_chromaQpOffset[1] = 0;
+        m_fieldNum = 0;
+#if  ENABLE_SCC_EXT
+        m_lastEncPic = NULL;
+        m_useIntegerMv = false;
+#endif
+        m_bTemporalMvp = false;
     }
 
     void disableWeights();
 
-    void setRefPicList(PicList& picList);
+#if ENABLE_MULTIVIEW
+    void setRefPicList(PicList& picList, int viewId, PicList& refPicSetInterLayer0, PicList& refPicSetInterLayer1);
+    void createInterLayerReferencePictureSet(PicList& picList, PicList& refPicSetInterLayer0, PicList& refPicSetInterLayer1);
+#else
+    void setRefPicList(PicList& picList, int viewId);
+#endif
+
+#if  ENABLE_SCC_EXT
+    bool isOnlyCurrentPictureAsReference() const;
+#endif
 
     bool getRapPicFlag() const
     {
         return m_nalUnitType == NAL_UNIT_CODED_SLICE_IDR_W_RADL
+            || m_nalUnitType == NAL_UNIT_CODED_SLICE_IDR_N_LP
             || m_nalUnitType == NAL_UNIT_CODED_SLICE_CRA;
     }
-
     bool getIdrPicFlag() const
     {
-        return m_nalUnitType == NAL_UNIT_CODED_SLICE_IDR_W_RADL;
+        return m_nalUnitType == NAL_UNIT_CODED_SLICE_IDR_W_RADL
+            || m_nalUnitType == NAL_UNIT_CODED_SLICE_IDR_N_LP;
     }
-
     bool isIRAP() const   { return m_nalUnitType >= 16 && m_nalUnitType <= 23; }
 
     bool isIntra()  const { return m_sliceType == I_SLICE; }

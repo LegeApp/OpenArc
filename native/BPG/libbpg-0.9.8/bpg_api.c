@@ -27,6 +27,12 @@ void bpg_encoder_get_default_config(BPGEncoderConfig* config) {
     config->chroma_format = 1;  /* 4:2:0 */
     config->encoder_type = 0;   /* x265 */
     config->compress_level = 8;
+    config->aq_mode = 2;        /* x265 auto-variance AQ (SSIM tune) */
+    config->aq_strength = 1.0f;
+    config->aq_clamp = 2;
+    config->two_pass_gate = 1;
+    config->_reserved[0] = 0;
+    config->_reserved[1] = 0;
     config->color_space = 3;    /* YCbCr BT.709 (better for HEIC/HEIF sources) */
     config->limited_range = 0;  /* full range */
 }
@@ -49,7 +55,10 @@ BPGEncoderContext* bpg_encoder_create_ex(const BPGEncoderConfig* config) {
     if (!ctx) return NULL;
     
     if (config) {
-        memcpy(&ctx->config, config, sizeof(BPGEncoderConfig));
+        if (bpg_encoder_set_config(ctx, config) != BPG_OK) {
+            free(ctx);
+            return NULL;
+        }
     }
     
     return ctx;
@@ -80,8 +89,29 @@ int bpg_encoder_set_config(BPGEncoderContext* ctx, const BPGEncoderConfig* confi
         ctx->has_error = 1;
         return BPG_ERROR_INVALID_PARAM;
     }
-    
-    memcpy(&ctx->config, config, sizeof(BPGEncoderConfig));
+
+    if (config->aq_mode < 0 || config->aq_mode > 6) {
+        snprintf(ctx->error_msg, sizeof(ctx->error_msg),
+                 "Invalid aq_mode: %d (must be 0-6)", config->aq_mode);
+        ctx->has_error = 1;
+        return BPG_ERROR_INVALID_PARAM;
+    }
+
+    if (config->aq_strength < 0.0f) {
+        snprintf(ctx->error_msg, sizeof(ctx->error_msg),
+                 "Invalid aq_strength: %g (must be non-negative)", config->aq_strength);
+        ctx->has_error = 1;
+        return BPG_ERROR_INVALID_PARAM;
+    }
+
+    /* Only x265 is built in this path. OpenArc's Rust-facing encoder_type is
+       shared with the bpg-rs effort selector, so coerce any non-zero value back
+       to x265 instead of dispatching past libbpg's encoder table. */
+    {
+        BPGEncoderConfig normalized = *config;
+        normalized.encoder_type = 0;
+        memcpy(&ctx->config, &normalized, sizeof(BPGEncoderConfig));
+    }
     return BPG_OK;
 }
 
@@ -136,7 +166,8 @@ extern int bpgenc_encode_from_memory_buffer(
     int width, int height, int stride,
     int input_format,
     int quality, int bit_depth, int lossless, int chroma_format,
-    int compress_level, int encoder_type, int color_space, int limited_range,
+    int compress_level, int encoder_type, int aq_mode, float aq_strength,
+    int color_space, int limited_range,
     uint8_t **output_data, size_t *output_size);
 extern int bpgenc_encode_from_planar_u8_buffer(
     const uint8_t *y_plane, int y_stride,
@@ -144,7 +175,8 @@ extern int bpgenc_encode_from_planar_u8_buffer(
     const uint8_t *cr_plane, int cr_stride,
     int width, int height, int input_format,
     int quality, int bit_depth, int lossless, int chroma_format,
-    int compress_level, int encoder_type, int color_space, int limited_range,
+    int compress_level, int encoder_type, int aq_mode, float aq_strength,
+    int color_space, int limited_range,
     uint8_t **output_data, size_t *output_size);
 extern int bpgenc_encode_from_planar_u16_buffer(
     const uint16_t *y_plane, int y_stride,
@@ -152,7 +184,8 @@ extern int bpgenc_encode_from_planar_u16_buffer(
     const uint16_t *cr_plane, int cr_stride,
     int width, int height, int input_format,
     int quality, int bit_depth, int lossless, int chroma_format,
-    int compress_level, int encoder_type, int color_space, int limited_range,
+    int compress_level, int encoder_type, int aq_mode, float aq_strength,
+    int color_space, int limited_range,
     uint8_t **output_data, size_t *output_size);
 
 /* Encode from file - loads the file and encodes in memory */
@@ -221,6 +254,8 @@ int bpg_encode_from_memory(
         ctx->config.chroma_format,
         ctx->config.compress_level,
         ctx->config.encoder_type,
+        ctx->config.aq_mode,
+        ctx->config.aq_strength,
         ctx->config.color_space,
         ctx->config.limited_range,
         output_data, output_size);
@@ -275,6 +310,8 @@ int bpg_encode_from_planar_u8(
         ctx->config.chroma_format,
         ctx->config.compress_level,
         ctx->config.encoder_type,
+        ctx->config.aq_mode,
+        ctx->config.aq_strength,
         ctx->config.color_space,
         ctx->config.limited_range,
         output_data, output_size);
@@ -329,6 +366,8 @@ int bpg_encode_from_planar_u16(
         ctx->config.chroma_format,
         ctx->config.compress_level,
         ctx->config.encoder_type,
+        ctx->config.aq_mode,
+        ctx->config.aq_strength,
         ctx->config.color_space,
         ctx->config.limited_range,
         output_data, output_size);

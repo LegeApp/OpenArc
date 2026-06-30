@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -59,7 +59,7 @@ void setupIntrinsicDCT_ssse3(EncoderPrimitives&);
 void setupIntrinsicDCT_sse41(EncoderPrimitives&);
 
 /* Use primitives for the best available vector architecture */
-void setupInstrinsicPrimitives(EncoderPrimitives &p, int cpuMask)
+void setupIntrinsicPrimitives(EncoderPrimitives &p, int cpuMask)
 {
 #ifdef HAVE_SSE3
     if (cpuMask & X265_CPU_SSE3)

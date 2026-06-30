@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -35,7 +35,18 @@ class BitCost
 {
 public:
 
-    BitCost() : m_cost_mvx(0), m_cost_mvy(0), m_cost(0), m_mvp(0) {}
+    BitCost()
+        : m_cost_mvx(0)
+        , m_cost_mvy(0)
+        , m_cost(0)
+        , m_mvp(0)
+        , s_bitsizes(NULL)
+    {
+        memset(m_fpelMvCosts, 0, sizeof(m_fpelMvCosts));
+        memset(s_costs, 0, sizeof(s_costs));
+        memset(s_fpelMvCosts, 0, sizeof(s_fpelMvCosts));
+    }
+    ~BitCost() { destroy(); }
 
     void setQP(unsigned int qp);
 
@@ -47,17 +58,17 @@ public:
     // return bit cost of motion vector difference, without lambda
     inline uint32_t bitcost(const MV& mv) const
     {
-        return (uint32_t)(s_bitsizes[abs(mv.x - m_mvp.x)] +
-                          s_bitsizes[abs(mv.y - m_mvp.y)] + 0.5f);
+        return (uint32_t)(s_bitsizes[mv.x - m_mvp.x] +
+                          s_bitsizes[mv.y - m_mvp.y] + 0.5f);
     }
 
-    static inline uint32_t bitcost(const MV& mv, const MV& mvp)
+    inline uint32_t bitcost(const MV& mv, const MV& mvp) const
     {
-        return (uint32_t)(s_bitsizes[abs(mv.x - mvp.x)] +
-                          s_bitsizes[abs(mv.y - mvp.y)] + 0.5f);
+        return (uint32_t)(s_bitsizes[mv.x - mvp.x] +
+                          s_bitsizes[mv.y - mvp.y] + 0.5f);
     }
 
-    static void destroy();
+    void destroy();
 
 protected:
 
@@ -66,6 +77,8 @@ protected:
     uint16_t *m_cost_mvy;
 
     uint16_t *m_cost;
+
+    uint16_t *m_fpelMvCosts[4];
 
     MV        m_mvp;
 
@@ -80,13 +93,15 @@ private:
 
     enum { BC_MAX_QP = 82 };
 
-    static float *s_bitsizes;
+    float *s_bitsizes;
 
-    static uint16_t *s_costs[BC_MAX_QP];
+    uint16_t *s_costs[BC_MAX_QP];
 
-    static Lock s_costCalcLock;
+    uint16_t *s_fpelMvCosts[BC_MAX_QP][4];
 
-    static void CalculateLogs();
+    Lock s_costCalcLock;
+
+    void CalculateLogs();
 };
 }
 

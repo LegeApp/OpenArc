@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright (C) 2013 x265 project
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Authors: Steve Borho <steve@borho.org>
 *
@@ -34,7 +34,12 @@ class Bitstream;
 
 class NALList
 {
+public:
+#if ENABLE_MULTIVIEW || ENABLE_ALPHA
+    static const int MAX_NAL_UNITS = 32;
+#else
     static const int MAX_NAL_UNITS = 16;
+#endif
 
 public:
 
@@ -55,7 +60,7 @@ public:
 
     void takeContents(NALList& other);
 
-    void serialize(NalUnitType nalUnitType, const Bitstream& bs);
+    void serialize(NalUnitType nalUnitType, const Bitstream& bs, int layerId = 0, uint8_t temporalID = 1);
 
     uint32_t serializeSubstreams(uint32_t* streamSizeBytes, uint32_t streamCount, const Bitstream* streams);
 };

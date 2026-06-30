@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -66,7 +66,7 @@ public:
 
     InputFile()           {}
 
-    static InputFile* open(InputFileInfo& info, bool bForceY4m);
+    static InputFile* open(InputFileInfo& info, bool bForceY4m, bool alpha, int format);
 
     virtual void startReader() = 0;
 
@@ -79,6 +79,10 @@ public:
     virtual bool isFail() = 0;
 
     virtual const char *getName() const = 0;
+
+    virtual int getWidth() const = 0;
+
+    virtual int getHeight() const = 0;
 };
 }
 

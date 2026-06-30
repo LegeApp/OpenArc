@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright (C) 2013 x265 project
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Authors: Steve Borho <steve@borho.org>
 *
@@ -35,29 +35,41 @@ const uint8_t SEIuserDataUnregistered::m_uuid_iso_iec_11578[16] = {
 };
 
 /* marshal a single SEI message sei, storing the marshalled representation
- * in bitstream bs */
-void SEI::write(Bitstream& bs, const SPS& sps)
+* in bitstream bs */
+void SEI::writeSEImessages(Bitstream& bs, const SPS& sps, NalUnitType nalUnitType, NALList& list, int isNested, int layer)
 {
-    BitCounter count;
-    m_bitIf = &count;
+    if (!isNested)
+        bs.resetBits();
 
-    /* virtual writeSEI method, write to bit counter */
+    BitCounter counter;
+    m_bitIf = &counter;
     writeSEI(sps);
+    /* count the size of the payload and return the size in bits */
+    X265_CHECK(0 == (counter.getNumberOfWrittenBits() & 7), "payload unaligned\n");
+    uint32_t payloadData = counter.getNumberOfWrittenBits() >> 3;
 
+    // set bitstream
     m_bitIf = &bs;
-    uint32_t type = payloadType();
-    for (; type >= 0xff; type -= 0xff)
-        WRITE_CODE(0xff, 8, "payload_type");
-    WRITE_CODE(type, 8, "payload_type");
 
-    X265_CHECK(0 == (count.getNumberOfWrittenBits() & 7), "payload unaligned\n");
-    uint32_t payloadSize = count.getNumberOfWrittenBits() >> 3;
+    uint32_t payloadType = m_payloadType;
+    for (; payloadType >= 0xff; payloadType -= 0xff)
+        WRITE_CODE(0xff, 8, "payload_type");
+    WRITE_CODE(payloadType, 8, "payload_type");
+
+    uint32_t payloadSize = payloadData;
     for (; payloadSize >= 0xff; payloadSize -= 0xff)
         WRITE_CODE(0xff, 8, "payload_size");
     WRITE_CODE(payloadSize, 8, "payload_size");
 
-    /* virtual writeSEI method, write to bs */
+    // virtual writeSEI method, write to bs 
     writeSEI(sps);
+
+    if (!isNested)
+    {
+        if (nalUnitType != NAL_UNIT_UNSPECIFIED)
+            bs.writeByteAlignment();
+        list.serialize(nalUnitType, bs, layer, (1 + (nalUnitType == NAL_UNIT_CODED_SLICE_TSA_N)));
+    }
 }
 
 void SEI::writeByteAlign()
@@ -72,3 +84,62 @@ void SEI::writeByteAlign()
         }
     }
 }
+
+void SEI::setSize(uint32_t size)
+{
+    m_payloadSize = size;
+}
+
+/* charSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" */
+
+char* SEI::base64Decode(char encodedString[], int base64EncodeLength, char* decodedString)
+{
+    int i, j, k = 0;
+    // stores the bitstream
+    int bitstream = 0;
+    // countBits stores the current number of bits in bitstream
+    int countBits = 0;
+
+    for (i = 0; i < base64EncodeLength; i += 4)
+    {
+        bitstream = 0;
+        countBits = 0;
+
+        for (j = 0; j < 4; j++)
+        {
+            if (encodedString[i + j] != '=')
+            {
+                int value = 0;
+                if (encodedString[i + j] >= 'A' && encodedString[i + j] <= 'Z')
+                    value = encodedString[i + j] - 'A';
+                else if (encodedString[i + j] >= 'a' && encodedString[i + j] <= 'z')
+                    value = encodedString[i + j] - 'a' + 26;
+                else if (encodedString[i + j] >= '0' && encodedString[i + j] <= '9')
+                    value = encodedString[i + j] - '0' + 52;
+                else if (encodedString[i + j] == '+')
+                    value = 62;
+                else if (encodedString[i + j] == '/')
+                    value = 63;
+                else
+                    value = 0;
+
+                bitstream = (bitstream << 6) | value;
+                countBits += 6;
+            }
+        }
+
+        while (countBits >= 8)
+        {
+            countBits -= 8;
+            decodedString[k++] = (bitstream >> countBits) & 0xFF;
+        }
+    }
+
+    if (k < base64EncodeLength)
+    {
+        decodedString[k] = '\0';
+    }
+
+    return decodedString;
+}
+

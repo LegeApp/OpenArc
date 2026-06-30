@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2015 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Xinyue Lu <i@7086.in>
@@ -35,7 +35,7 @@ class RAWOutput : public OutputFile
 {
 protected:
 
-    std::ostream* ofs;
+    FILE* ofs;
 
     bool b_fail;
 

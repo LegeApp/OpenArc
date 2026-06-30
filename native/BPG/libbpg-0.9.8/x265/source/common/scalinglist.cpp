@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2015 x265 project
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -29,56 +29,6 @@ namespace {
 // file-anonymous namespace
 
 /* Strings for scaling list file parsing */
-const char MatrixType[4][6][20] =
-{
-    {
-        "INTRA4X4_LUMA",
-        "INTRA4X4_CHROMAU",
-        "INTRA4X4_CHROMAV",
-        "INTER4X4_LUMA",
-        "INTER4X4_CHROMAU",
-        "INTER4X4_CHROMAV"
-    },
-    {
-        "INTRA8X8_LUMA",
-        "INTRA8X8_CHROMAU",
-        "INTRA8X8_CHROMAV",
-        "INTER8X8_LUMA",
-        "INTER8X8_CHROMAU",
-        "INTER8X8_CHROMAV"
-    },
-    {
-        "INTRA16X16_LUMA",
-        "INTRA16X16_CHROMAU",
-        "INTRA16X16_CHROMAV",
-        "INTER16X16_LUMA",
-        "INTER16X16_CHROMAU",
-        "INTER16X16_CHROMAV"
-    },
-    {
-        "INTRA32X32_LUMA",
-        "INTER32X32_LUMA",
-    },
-};
-const char MatrixType_DC[4][12][22] =
-{
-    {
-    },
-    {
-    },
-    {
-        "INTRA16X16_LUMA_DC",
-        "INTRA16X16_CHROMAU_DC",
-        "INTRA16X16_CHROMAV_DC",
-        "INTER16X16_LUMA_DC",
-        "INTER16X16_CHROMAU_DC",
-        "INTER16X16_CHROMAV_DC"
-    },
-    {
-        "INTRA32X32_LUMA_DC",
-        "INTER32X32_LUMA_DC",
-    },
-};
 
 static int quantTSDefault4x4[16] =
 {
@@ -116,6 +66,64 @@ static int quantInterDefault8x8[64] =
 
 namespace X265_NS {
 // private namespace
+    const char ScalingList::MatrixType[4][6][20] =
+    {
+        {
+            "INTRA4X4_LUMA",
+            "INTRA4X4_CHROMAU",
+            "INTRA4X4_CHROMAV",
+            "INTER4X4_LUMA",
+            "INTER4X4_CHROMAU",
+            "INTER4X4_CHROMAV"
+        },
+        {
+            "INTRA8X8_LUMA",
+            "INTRA8X8_CHROMAU",
+            "INTRA8X8_CHROMAV",
+            "INTER8X8_LUMA",
+            "INTER8X8_CHROMAU",
+            "INTER8X8_CHROMAV"
+        },
+        {
+            "INTRA16X16_LUMA",
+            "INTRA16X16_CHROMAU",
+            "INTRA16X16_CHROMAV",
+            "INTER16X16_LUMA",
+            "INTER16X16_CHROMAU",
+            "INTER16X16_CHROMAV"
+        },
+        {
+            "INTRA32X32_LUMA",
+            "",
+            "",
+            "INTER32X32_LUMA",
+            "",
+            "",
+        },
+    };
+    const char ScalingList::MatrixType_DC[4][12][22] =
+    {
+        {
+        },
+        {
+        },
+        {
+            "INTRA16X16_LUMA_DC",
+            "INTRA16X16_CHROMAU_DC",
+            "INTRA16X16_CHROMAV_DC",
+            "INTER16X16_LUMA_DC",
+            "INTER16X16_CHROMAU_DC",
+            "INTER16X16_CHROMAV_DC"
+        },
+        {
+            "INTRA32X32_LUMA_DC",
+            "",
+            "",
+            "INTER32X32_LUMA_DC",
+            "",
+            "",
+        },
+    };
 
 const int     ScalingList::s_numCoefPerSize[NUM_SIZES] = { 16, 64, 256, 1024 };
 const int32_t ScalingList::s_quantScales[NUM_REM] = { 26214, 23302, 20560, 18396, 16384, 14564 };
@@ -237,30 +245,30 @@ void ScalingList::setDefaultScalingList()
 
 bool ScalingList::parseScalingList(const char* filename)
 {
-    FILE *fp = fopen(filename, "r");
+    FILE *fp = x265_fopen(filename, "r");
     if (!fp)
     {
-        x265_log(NULL, X265_LOG_ERROR, "can't open scaling list file %s\n", filename);
+        x265_log_file(NULL, X265_LOG_ERROR, "can't open scaling list file %s\n", filename);
         return true;
     }
 
     char line[1024];
     int32_t *src = NULL;
+    fseek(fp, 0, 0);
 
     for (int sizeIdc = 0; sizeIdc < NUM_SIZES; sizeIdc++)
     {
         int size = X265_MIN(MAX_MATRIX_COEF_NUM, s_numCoefPerSize[sizeIdc]);
-        for (int listIdc = 0; listIdc < NUM_LISTS; listIdc++)
+        for (int listIdc = 0; listIdc < NUM_LISTS;  listIdc += (sizeIdc == 3) ? 3 : 1)
         {
             src = m_scalingListCoef[sizeIdc][listIdc];
 
-            fseek(fp, 0, 0);
             do
             {
                 char *ret = fgets(line, 1024, fp);
                 if (!ret || (!strstr(line, MatrixType[sizeIdc][listIdc]) && feof(fp)))
                 {
-                    x265_log(NULL, X265_LOG_ERROR, "can't read matrix from %s\n", filename);
+                    x265_log_file(NULL, X265_LOG_ERROR, "can't read matrix from %s\n", filename);
                     return true;
                 }
             }
@@ -271,7 +279,7 @@ bool ScalingList::parseScalingList(const char* filename)
                 int data;
                 if (fscanf(fp, "%d,", &data) != 1)
                 {
-                    x265_log(NULL, X265_LOG_ERROR, "can't read matrix from %s\n", filename);
+                    x265_log_file(NULL, X265_LOG_ERROR, "can't read matrix from %s\n", filename);
                     return true;
                 }
                 src[i] = data;
@@ -282,13 +290,12 @@ bool ScalingList::parseScalingList(const char* filename)
 
             if (sizeIdc > BLOCK_8x8)
             {
-                fseek(fp, 0, 0);
                 do
                 {
                     char *ret = fgets(line, 1024, fp);
                     if (!ret || (!strstr(line, MatrixType_DC[sizeIdc][listIdc]) && feof(fp)))
                     {
-                        x265_log(NULL, X265_LOG_ERROR, "can't read DC from %s\n", filename);
+                        x265_log_file(NULL, X265_LOG_ERROR, "can't read DC from %s\n", filename);
                         return true;
                     }
                 }
@@ -297,7 +304,7 @@ bool ScalingList::parseScalingList(const char* filename)
                 int data;
                 if (fscanf(fp, "%d,", &data) != 1)
                 {
-                    x265_log(NULL, X265_LOG_ERROR, "can't read matrix from %s\n", filename);
+                    x265_log_file(NULL, X265_LOG_ERROR, "can't read matrix from %s\n", filename);
                     return true;
                 }
 
@@ -305,18 +312,34 @@ bool ScalingList::parseScalingList(const char* filename)
                 m_scalingListDC[sizeIdc][listIdc] = data;
             }
         }
+        if (sizeIdc == 3)
+        {
+            for (int listIdc = 1; listIdc < NUM_LISTS; listIdc++)
+            {
+                if (listIdc % 3 != 0)
+                {
+                    src = m_scalingListCoef[sizeIdc][listIdc];
+                    const int *srcNextSmallerSize = m_scalingListCoef[sizeIdc - 1][listIdc];
+                    for (int i = 0; i < size; i++)
+                    {
+                        src[i] = srcNextSmallerSize[i];
+                    }
+                    m_scalingListDC[sizeIdc][listIdc] = m_scalingListDC[sizeIdc - 1][listIdc];
+                }
+            }
+        }
     }
 
     fclose(fp);
 
     m_bEnabled = true;
-    m_bDataPresent = !checkDefaultScalingList();
+    m_bDataPresent = true;
 
     return false;
 }
 
 /** set quantized matrix coefficient for encode */
-void ScalingList::setupQuantMatrices()
+void ScalingList::setupQuantMatrices(int internalCsp)
 {
     for (int size = 0; size < NUM_SIZES; size++)
     {
@@ -337,6 +360,21 @@ void ScalingList::setupQuantMatrices()
 
                 if (m_bEnabled)
                 {
+                    if (internalCsp == X265_CSP_I444)
+                    {
+                        for (int i = 0; i < 64; i++)
+                        {
+                            m_scalingListCoef[BLOCK_32x32][1][i] = m_scalingListCoef[BLOCK_16x16][1][i];
+                            m_scalingListCoef[BLOCK_32x32][2][i] = m_scalingListCoef[BLOCK_16x16][2][i];
+                            m_scalingListCoef[BLOCK_32x32][4][i] = m_scalingListCoef[BLOCK_16x16][4][i];
+                            m_scalingListCoef[BLOCK_32x32][5][i] = m_scalingListCoef[BLOCK_16x16][5][i];
+                        }
+
+                        m_scalingListDC[BLOCK_32x32][1] = m_scalingListDC[BLOCK_16x16][1];
+                        m_scalingListDC[BLOCK_32x32][2] = m_scalingListDC[BLOCK_16x16][2];
+                        m_scalingListDC[BLOCK_32x32][4] = m_scalingListDC[BLOCK_16x16][4];
+                        m_scalingListDC[BLOCK_32x32][5] = m_scalingListDC[BLOCK_16x16][5];
+                    }
                     processScalingListEnc(coeff, quantCoeff, s_quantScales[rem] << 4, width, width, ratio, stride, dc);
                     processScalingListDec(coeff, dequantCoeff, s_invQuantScales[rem], width, width, ratio, stride, dc);
                 }

@@ -2221,6 +2221,8 @@ typedef struct BPGEncoderParameters {
     BPGImageFormatEnum preferred_chroma_format;
     int sei_decoded_picture_hash; /* 0, 1 */
     int compress_level; /* 1 ... 9 */
+    int aq_mode; /* x265 AQ mode selector */
+    float aq_strength; /* x265 AQ strength; <=0 keeps preset default */
     int verbose;
     HEVCEncoderEnum encoder_type;
     int animated; /* 0 ... 1: if true, encode as animated image */
@@ -2446,6 +2448,8 @@ int bpg_encoder_encode(BPGEncoderContext *s, Image *img,
         ep->lossless = p->lossless;
         ep->sei_decoded_picture_hash = p->sei_decoded_picture_hash;
         ep->compress_level = p->compress_level;
+        ep->aq_mode = p->aq_mode;
+        ep->aq_strength = p->aq_strength;
         ep->verbose = p->verbose;
 
         s->enc_ctx = s->encoder->open(ep);
@@ -2658,7 +2662,7 @@ static int mem_write_func(void *opaque, const uint8_t *buf, int buf_len)
 static int bpgenc_encode_image_to_memory(
     Image *img,
     int quality, int lossless, int chroma_format,
-    int compress_level, int encoder_type,
+    int compress_level, int encoder_type, int aq_mode, float aq_strength,
     uint8_t **output_data, size_t *output_size)
 {
     BPGEncoderParameters *p;
@@ -2677,6 +2681,8 @@ static int bpgenc_encode_image_to_memory(
                         compress_level : DEFAULT_COMPRESS_LEVEL;
     p->preferred_chroma_format = chroma_format;
     p->encoder_type = encoder_type;
+    p->aq_mode = aq_mode;
+    p->aq_strength = aq_strength;
 
     enc_ctx = bpg_encoder_open(p);
     if (!enc_ctx) {
@@ -2753,7 +2759,8 @@ int bpgenc_encode_from_memory_buffer(
     int width, int height, int stride,
     int input_format,
     int quality, int bit_depth, int lossless, int chroma_format,
-    int compress_level, int encoder_type, int color_space, int limited_range,
+    int compress_level, int encoder_type, int aq_mode, float aq_strength,
+    int color_space, int limited_range,
     uint8_t **output_data, size_t *output_size)
 {
     Image *img = NULL;
@@ -2880,6 +2887,8 @@ int bpgenc_encode_from_memory_buffer(
         chroma_format,
         compress_level,
         encoder_type,
+        aq_mode,
+        aq_strength,
         output_data,
         output_size);
 }
@@ -2890,7 +2899,8 @@ int bpgenc_encode_from_planar_u8_buffer(
     const uint8_t *cr_plane, int cr_stride,
     int width, int height, int input_format,
     int quality, int bit_depth, int lossless, int chroma_format,
-    int compress_level, int encoder_type, int color_space, int limited_range,
+    int compress_level, int encoder_type, int aq_mode, float aq_strength,
+    int color_space, int limited_range,
     uint8_t **output_data, size_t *output_size)
 {
     Image *img = NULL;
@@ -2947,6 +2957,8 @@ int bpgenc_encode_from_planar_u8_buffer(
         chroma_format,
         compress_level,
         encoder_type,
+        aq_mode,
+        aq_strength,
         output_data,
         output_size);
 }
@@ -2957,7 +2969,8 @@ int bpgenc_encode_from_planar_u16_buffer(
     const uint16_t *cr_plane, int cr_stride,
     int width, int height, int input_format,
     int quality, int bit_depth, int lossless, int chroma_format,
-    int compress_level, int encoder_type, int color_space, int limited_range,
+    int compress_level, int encoder_type, int aq_mode, float aq_strength,
+    int color_space, int limited_range,
     uint8_t **output_data, size_t *output_size)
 {
     Image *img = NULL;
@@ -3019,6 +3032,8 @@ int bpgenc_encode_from_planar_u16_buffer(
         chroma_format,
         compress_level,
         encoder_type,
+        aq_mode,
+        aq_strength,
         output_data,
         output_size);
 }
