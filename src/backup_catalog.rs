@@ -1,9 +1,9 @@
+use crate::hash;
 use anyhow::{anyhow, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use crate::hash;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BackupEntry {
@@ -30,7 +30,9 @@ impl BackupCatalog {
             .context("Failed to enable WAL mode")?;
 
         let mut catalog = Self { conn, db_path };
-        catalog.init_schema().context("Failed to initialize schema")?;
+        catalog
+            .init_schema()
+            .context("Failed to initialize schema")?;
         Ok(catalog)
     }
 
@@ -116,11 +118,13 @@ impl BackupCatalog {
             .query_row(
                 "SELECT size, mtime_secs, sha256 FROM backed_up_files WHERE path = ?1",
                 params![&path_str],
-                |row| Ok((
-                    row.get::<_, i64>(0)? as u64,
-                    row.get::<_, i64>(1)? as u64,
-                    row.get::<_, Option<String>>(2)?,
-                )),
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)? as u64,
+                        row.get::<_, i64>(1)? as u64,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
             )
             .optional()
             .context("Failed to query catalog")?;
@@ -142,7 +146,10 @@ impl BackupCatalog {
         }))
     }
 
-    pub fn filter_files_to_backup(&self, file_paths: Vec<PathBuf>) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
+    pub fn filter_files_to_backup(
+        &self,
+        file_paths: Vec<PathBuf>,
+    ) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
         let mut skip = Vec::new();
         let mut backup = Vec::new();
 
@@ -188,8 +195,9 @@ impl BackupCatalog {
     pub fn export_json(&self, output_path: impl AsRef<Path>) -> Result<()> {
         let entries = self.list_all()?;
         let json = serde_json::to_string_pretty(&entries).context("Failed to serialize to JSON")?;
-        fs::write(output_path.as_ref(), json)
-            .with_context(|| format!("Failed to write JSON to {}", output_path.as_ref().display()))?;
+        fs::write(output_path.as_ref(), json).with_context(|| {
+            format!("Failed to write JSON to {}", output_path.as_ref().display())
+        })?;
         Ok(())
     }
 

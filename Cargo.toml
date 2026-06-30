@@ -104,7 +104,9 @@ authors.workspace = true
 description = "OpenArc media archiver - library and CLI"
 
 [features]
-default = []
+default = ["bpg-c"]
+bpg-c = ["codecs/bpg-c"]
+bpg-rs = ["codecs/bpg-rs"]
 # heif feature removed - we use pure Rust heic-decoder-rs instead of libheif
 
 [dependencies]
@@ -133,7 +135,7 @@ serde_json.workspace = true
 
 # Workspace crates
 arcmax = { path = "vendor/arcmax" }
-codecs = { path = "crates/codecs" }
+codecs = { path = "crates/codecs", default-features = false }
 
 # System
 parking_lot.workspace = true

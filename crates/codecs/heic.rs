@@ -102,6 +102,21 @@ pub struct DecodedHeicYuv {
     pub alpha_stride: Option<u32>,
 }
 
+/// Lightweight HEIC header info read without decoding pixel data.
+///
+/// Backed by `bpg_decode::heic::get_heic_image_info`, which parses the
+/// ISOBMFF/HEIF container (`ispe`/`hvcC` boxes) only. Useful for sizing work
+/// (e.g. memory reservation) before committing to a full decode — the `image`
+/// crate cannot read HEIC, so this is the way to learn real dimensions up front.
+#[derive(Debug, Clone, Copy)]
+pub struct HeicInfo {
+    pub width: u32,
+    pub height: u32,
+    pub bit_depth: u8,
+    pub chroma_format: HeicChromaFormat,
+    pub has_alpha: bool,
+}
+
 /// HEIC encoder configuration (kept for API compatibility)
 #[derive(Debug, Clone)]
 pub struct HeicEncoderConfig {
@@ -134,6 +149,27 @@ impl HeicCodec {
 
     pub fn get_version() -> Option<String> {
         Some("bpg-decode (pure Rust HEVC decoder, HEIF container parser)".to_string())
+    }
+
+    /// Read HEIC dimensions and basic properties from the container headers
+    /// without decoding pixel data.
+    pub fn read_info(path: &Path) -> Result<HeicInfo> {
+        let data = std::fs::read(path)
+            .with_context(|| format!("Failed to read HEIC file: {}", path.display()))?;
+        Self::read_info_from_memory(&data)
+    }
+
+    /// Like [`read_info`](Self::read_info) but from an in-memory buffer.
+    pub fn read_info_from_memory(buffer: &[u8]) -> Result<HeicInfo> {
+        let info = get_heic_image_info(buffer)
+            .map_err(|e| anyhow!("Failed to read HEIC image info: {e:?}"))?;
+        Ok(HeicInfo {
+            width: info.width,
+            height: info.height,
+            bit_depth: info.bit_depth,
+            chroma_format: HeicChromaFormat::from_decoder_value(info.chroma_format)?,
+            has_alpha: info.has_alpha,
+        })
     }
 
     pub fn decode_file(&mut self, path: &Path) -> Result<DecodedHeicImage> {
@@ -235,9 +271,12 @@ impl HeicCodec {
             .ok_or_else(|| anyhow!("Failed to create RGBA image buffer"))?;
             DynamicImage::ImageRgba8(rgba_buf)
         } else {
-            let rgb_buf =
-                ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(decoded.width, decoded.height, decoded.data)
-                    .ok_or_else(|| anyhow!("Failed to create RGB image buffer"))?;
+            let rgb_buf = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(
+                decoded.width,
+                decoded.height,
+                decoded.data,
+            )
+            .ok_or_else(|| anyhow!("Failed to create RGB image buffer"))?;
             DynamicImage::ImageRgb8(rgb_buf)
         };
 
@@ -267,8 +306,7 @@ impl HeicCodec {
 
         let rgb_img = dynamic_img.into_rgb8();
         let mut output_file = std::fs::File::create(output_path)?;
-        let encoder =
-            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output_file, quality);
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output_file, quality);
         rgb_img.write_with_encoder(encoder)?;
         Ok(())
     }
@@ -308,41 +346,41 @@ impl HeicCodec {
             height,
         );
 
-        let (cb_plane, cr_plane, cb_stride, cr_stride) = if chroma_format == HeicChromaFormat::Monochrome
-        {
-            (Vec::new(), Vec::new(), 0, 0)
-        } else {
-            let crop_left_c = frame.crop_left / chroma_format.horizontal_divisor();
-            let crop_right_c = frame.crop_right / chroma_format.horizontal_divisor();
-            let crop_top_c = frame.crop_top / chroma_format.vertical_divisor();
-            let crop_bottom_c = frame.crop_bottom / chroma_format.vertical_divisor();
-            let (full_c_width, full_c_height) =
-                chroma_format.plane_dimensions(frame.width, frame.height);
-            let crop_width_c = full_c_width - crop_left_c - crop_right_c;
-            let crop_height_c = full_c_height - crop_top_c - crop_bottom_c;
-            let c_stride = frame.c_stride();
+        let (cb_plane, cr_plane, cb_stride, cr_stride) =
+            if chroma_format == HeicChromaFormat::Monochrome {
+                (Vec::new(), Vec::new(), 0, 0)
+            } else {
+                let crop_left_c = frame.crop_left / chroma_format.horizontal_divisor();
+                let crop_right_c = frame.crop_right / chroma_format.horizontal_divisor();
+                let crop_top_c = frame.crop_top / chroma_format.vertical_divisor();
+                let crop_bottom_c = frame.crop_bottom / chroma_format.vertical_divisor();
+                let (full_c_width, full_c_height) =
+                    chroma_format.plane_dimensions(frame.width, frame.height);
+                let crop_width_c = full_c_width - crop_left_c - crop_right_c;
+                let crop_height_c = full_c_height - crop_top_c - crop_bottom_c;
+                let c_stride = frame.c_stride();
 
-            (
-                crop_plane_u16(
-                    &frame.cb_plane,
-                    c_stride,
-                    crop_left_c,
-                    crop_top_c,
+                (
+                    crop_plane_u16(
+                        &frame.cb_plane,
+                        c_stride,
+                        crop_left_c,
+                        crop_top_c,
+                        crop_width_c,
+                        crop_height_c,
+                    ),
+                    crop_plane_u16(
+                        &frame.cr_plane,
+                        c_stride,
+                        crop_left_c,
+                        crop_top_c,
+                        crop_width_c,
+                        crop_height_c,
+                    ),
                     crop_width_c,
-                    crop_height_c,
-                ),
-                crop_plane_u16(
-                    &frame.cr_plane,
-                    c_stride,
-                    crop_left_c,
-                    crop_top_c,
                     crop_width_c,
-                    crop_height_c,
-                ),
-                crop_width_c,
-                crop_width_c,
-            )
-        };
+                )
+            };
 
         let alpha_plane = frame.alpha_plane.as_ref().map(|alpha| {
             crop_plane_u16(
@@ -438,15 +476,17 @@ fn resize_decoded_image(
     let new_width = ((decoded.width as f32) * scale).round().max(1.0) as u32;
     let new_height = ((decoded.height as f32) * scale).round().max(1.0) as u32;
 
-    use image::{DynamicImage, ImageBuffer, Rgb, Rgba, imageops::FilterType};
+    use image::{imageops::FilterType, DynamicImage, ImageBuffer, Rgb, Rgba};
 
     let resized = if decoded.has_alpha {
-        let rgba = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(decoded.width, decoded.height, decoded.data)
-            .ok_or_else(|| anyhow!("Failed to create RGBA preview buffer"))?;
+        let rgba =
+            ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(decoded.width, decoded.height, decoded.data)
+                .ok_or_else(|| anyhow!("Failed to create RGBA preview buffer"))?;
         DynamicImage::ImageRgba8(rgba).resize(new_width, new_height, FilterType::Triangle)
     } else {
-        let rgb = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(decoded.width, decoded.height, decoded.data)
-            .ok_or_else(|| anyhow!("Failed to create RGB preview buffer"))?;
+        let rgb =
+            ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(decoded.width, decoded.height, decoded.data)
+                .ok_or_else(|| anyhow!("Failed to create RGB preview buffer"))?;
         DynamicImage::ImageRgb8(rgb).resize(new_width, new_height, FilterType::Triangle)
     };
 
@@ -467,10 +507,10 @@ fn resize_decoded_image(
 /// Map HEVC matrix coefficients to the BPG encoder's color-space enum.
 pub fn matrix_coeffs_to_bpg_color_space(matrix_coeffs: u8) -> i32 {
     match matrix_coeffs {
-        1 => 3,       // BT.709
-        5 | 6 => 0,   // BT.601
-        9 => 4,       // BT.2020
-        _ => 3,       // Unspecified is most commonly camera-style BT.709 in practice
+        1 => 3,     // BT.709
+        5 | 6 => 0, // BT.601
+        9 => 4,     // BT.2020
+        _ => 3,     // Unspecified is most commonly camera-style BT.709 in practice
     }
 }
 
@@ -526,7 +566,10 @@ mod tests {
 
     #[test]
     fn test_availability() {
-        assert!(HeicCodec::is_available(), "Pure Rust decoder should always be available");
+        assert!(
+            HeicCodec::is_available(),
+            "Pure Rust decoder should always be available"
+        );
         assert!(HeicCodec::get_version().is_some());
     }
 

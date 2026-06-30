@@ -1,9 +1,9 @@
 // BPG JavaScript decoder fallback for portability.
 
+use anyhow::{anyhow, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use anyhow::{Result, anyhow, Context};
 use tempfile::TempDir;
 
 /// BPG JavaScript decoder configuration
@@ -65,7 +65,10 @@ impl BpgJsDecoder {
 
     /// Check if Node.js is available
     pub fn is_available(&self) -> bool {
-        let node = self.config.node_path.as_ref()
+        let node = self
+            .config
+            .node_path
+            .as_ref()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "node".to_string());
 
@@ -80,7 +83,10 @@ impl BpgJsDecoder {
 
     /// Get Node.js version
     pub fn get_node_version(&self) -> Option<String> {
-        let node = self.config.node_path.as_ref()
+        let node = self
+            .config
+            .node_path
+            .as_ref()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "node".to_string());
 
@@ -108,7 +114,10 @@ impl BpgJsDecoder {
             return Err(anyhow!("Input file not found: {:?}", input_path));
         }
 
-        let node = self.config.node_path.as_ref()
+        let node = self
+            .config
+            .node_path
+            .as_ref()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "node".to_string());
 
@@ -207,7 +216,11 @@ fn parse_ppm_to_rgba(data: &[u8]) -> Result<DecodedBpgImage> {
     let expected_size = (width * height * 3) as usize;
 
     if rgb_data.len() < expected_size {
-        return Err(anyhow!("PPM data too short: expected {} bytes, got {}", expected_size, rgb_data.len()));
+        return Err(anyhow!(
+            "PPM data too short: expected {} bytes, got {}",
+            expected_size,
+            rgb_data.len()
+        ));
     }
 
     // Convert RGB to RGBA
@@ -216,7 +229,7 @@ fn parse_ppm_to_rgba(data: &[u8]) -> Result<DecodedBpgImage> {
         rgba.push(chunk[0]); // R
         rgba.push(chunk[1]); // G
         rgba.push(chunk[2]); // B
-        rgba.push(255);      // A
+        rgba.push(255); // A
     }
 
     Ok(DecodedBpgImage {

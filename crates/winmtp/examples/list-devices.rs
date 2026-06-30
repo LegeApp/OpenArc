@@ -1,8 +1,8 @@
 use std::error::Error;
 
-use winmtp::Provider;
-use winmtp::device::BasicDevice;
 use winmtp::device::device_values::AppIdentifiers;
+use winmtp::device::BasicDevice;
+use winmtp::Provider;
 
 // Note: the integration tests of this crate also provide examples about how to use this crate
 

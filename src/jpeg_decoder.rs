@@ -103,8 +103,12 @@ pub fn decode_jpeg_ycbcr(data: &[u8]) -> Result<YCbCrImage, String> {
                         }
                     }
 
-                    cb_plane.push((cb_sum / count) as u8);
-                    cr_plane.push((cr_sum / count) as u8);
+                    // Round-to-nearest when decimating chroma to 4:2:0 (zune
+                    // hands us full-resolution YCbCr). Truncating biased every
+                    // chroma sample downward; rounding keeps the averaged value
+                    // closest to the source.
+                    cb_plane.push(((cb_sum + count / 2) / count) as u8);
+                    cr_plane.push(((cr_sum + count / 2) / count) as u8);
                 }
             }
 
@@ -135,6 +139,8 @@ pub fn decode_jpeg_ycbcr(data: &[u8]) -> Result<YCbCrImage, String> {
                 cr_stride: chroma_w,
             })
         }
-        other => Err(format!("Unexpected colorspace from YCbCr decode: {other:?}")),
+        other => Err(format!(
+            "Unexpected colorspace from YCbCr decode: {other:?}"
+        )),
     }
 }

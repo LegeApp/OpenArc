@@ -4,7 +4,38 @@ use std::path::Path;
 
 use anyhow::{anyhow, bail, Context, Result};
 use image::{DynamicImage, GrayImage, RgbImage};
-use jp2lam::{ColorSpace, Component, Image};
+use jp2lam::{ColorSpace, Component, EncodeOptions, Image, OutputFormat};
+
+/// Encode a [`DynamicImage`] to JP2 bytes using `jp2lam`.
+pub fn encode_dynamic_image_to_jpeg2000(image: &DynamicImage, quality: u8) -> Result<Vec<u8>> {
+    let jp2_image = dynamic_image_to_jp2lam(image)?;
+    jp2lam::encode(
+        &jp2_image,
+        &EncodeOptions {
+            quality,
+            format: OutputFormat::Jp2,
+        },
+    )
+    .map_err(|err| anyhow!("{err}"))
+}
+
+fn dynamic_image_to_jp2lam(image: &DynamicImage) -> Result<Image> {
+    match image {
+        DynamicImage::ImageLuma8(gray) => {
+            Image::from_gray_bytes(gray.width(), gray.height(), gray.as_raw())
+                .map_err(|err| anyhow!("{err}"))
+        }
+        DynamicImage::ImageRgb8(rgb) => {
+            Image::from_rgb_bytes(rgb.width(), rgb.height(), rgb.as_raw())
+                .map_err(|err| anyhow!("{err}"))
+        }
+        _ => {
+            let rgb = image.to_rgb8();
+            Image::from_rgb_bytes(rgb.width(), rgb.height(), rgb.as_raw())
+                .map_err(|err| anyhow!("{err}"))
+        }
+    }
+}
 
 /// Decode a JP2/J2K/… file to a [`DynamicImage`].
 pub fn decode_jpeg2000_file(path: &Path) -> Result<DynamicImage> {
@@ -70,7 +101,11 @@ fn component_to_u8(component: &Component, width: u32, height: u32) -> Result<Vec
         );
     }
 
-    Ok(component.data.iter().map(|&sample| sample_to_u8(sample)).collect())
+    Ok(component
+        .data
+        .iter()
+        .map(|&sample| sample_to_u8(sample))
+        .collect())
 }
 
 fn pixel_count(width: u32, height: u32) -> Result<usize> {

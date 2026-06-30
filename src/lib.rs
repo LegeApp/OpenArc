@@ -2,17 +2,17 @@
 //!
 //! This crate provides both a library and CLI binary for archiving media files.
 
-pub mod cli;
 pub mod archive_tracker;
 pub mod backup_catalog;
+pub mod bpg_wrapper;
+pub mod cli;
 pub mod file_tracker;
 pub mod hash;
-pub mod orchestrator;
-pub mod bpg_wrapper;
 pub mod image_loader;
-pub mod jpeg_decoder;
 pub mod interactive;
 pub mod interactive_menu;
+pub mod jpeg_decoder;
+pub mod orchestrator;
 pub mod phone_backup;
 
 // Re-export codecs for FFI use

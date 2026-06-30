@@ -15,7 +15,9 @@ pub fn sha256_reader_hex<R: Read>(reader: &mut R) -> Result<String> {
     let mut h = Sha256::new();
     let mut buf = [0u8; 1024 * 1024];
     loop {
-        let n = reader.read(&mut buf).context("Failed to read while hashing")?;
+        let n = reader
+            .read(&mut buf)
+            .context("Failed to read while hashing")?;
         if n == 0 {
             break;
         }
@@ -26,7 +28,8 @@ pub fn sha256_reader_hex<R: Read>(reader: &mut R) -> Result<String> {
 
 pub fn sha256_file_hex(path: impl AsRef<Path>) -> Result<String> {
     let path = path.as_ref();
-    let mut file = File::open(path).with_context(|| format!("Failed to open {}", path.display()))?;
+    let mut file =
+        File::open(path).with_context(|| format!("Failed to open {}", path.display()))?;
     sha256_reader_hex(&mut file).with_context(|| format!("Failed to hash {}", path.display()))
 }
 
@@ -54,7 +57,8 @@ pub fn write_hashes_file(hashes: &[(String, String)], output_path: impl AsRef<Pa
 
 pub fn read_hashes_file(path: impl AsRef<Path>) -> Result<Vec<(String, String)>> {
     let path = path.as_ref();
-    let f = std::fs::File::open(path).with_context(|| format!("Failed to open {}", path.display()))?;
+    let f =
+        std::fs::File::open(path).with_context(|| format!("Failed to open {}", path.display()))?;
     let r = BufReader::new(f);
     let mut out = Vec::new();
 
@@ -76,7 +80,10 @@ pub fn read_hashes_file(path: impl AsRef<Path>) -> Result<Vec<(String, String)>>
     Ok(out)
 }
 
-pub fn verify_dir_against_hashes(root_dir: impl AsRef<Path>, hashes_file: impl AsRef<Path>) -> Result<()> {
+pub fn verify_dir_against_hashes(
+    root_dir: impl AsRef<Path>,
+    hashes_file: impl AsRef<Path>,
+) -> Result<()> {
     let root_dir = root_dir.as_ref();
     let hashes_file = hashes_file.as_ref();
 

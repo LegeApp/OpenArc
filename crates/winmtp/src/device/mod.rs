@@ -1,7 +1,7 @@
-use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
-use windows::core::{GUID, PCWSTR} ;
-use windows::Win32::Devices::PortableDevices::{PortableDeviceFTM, IPortableDevice};
 use widestring::U16CString;
+use windows::core::{GUID, PCWSTR};
+use windows::Win32::Devices::PortableDevices::{IPortableDevice, PortableDeviceFTM};
+use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
 
 use crate::device::device_values::AppIdentifiers;
 
@@ -21,7 +21,10 @@ pub struct BasicDevice {
 
 impl BasicDevice {
     pub(crate) fn new(device_id: U16CString, friendly_name: String) -> Self {
-        Self{ device_id, friendly_name }
+        Self {
+            device_id,
+            friendly_name,
+        }
     }
 
     pub fn device_id(&self) -> String {
@@ -38,22 +41,22 @@ impl BasicDevice {
     /// Some devices (e.g. ones that are backed by a FAT filesystem) use case-insensitive paths. In this case, you want to set `case_sensitive` to false.
     /// Otherwise, you would often get `Err`s, e.g. when you try to create or replace a file (or folder) with a similar name but different casing.<br/>
     /// Unfortunately, the Windows API does not look to be able to give this info.
-    pub fn open(&self, app_identifiers: &AppIdentifiers, case_sensitive_fs: bool) -> crate::WindowsResult<Device> {
+    pub fn open(
+        &self,
+        app_identifiers: &AppIdentifiers,
+        case_sensitive_fs: bool,
+    ) -> crate::WindowsResult<Device> {
         // Fill out information about your application, so the device knows
         // who they are speaking to.
         let device_values = device_values::make_values_for_open_device(app_identifiers)?;
 
-        let com_device: IPortableDevice = unsafe {
-            CoCreateInstance(
-                &PortableDeviceFTM as *const GUID,
-                None,
-                CLSCTX_ALL
-            )
-        }?;
+        let com_device: IPortableDevice =
+            unsafe { CoCreateInstance(&PortableDeviceFTM as *const GUID, None, CLSCTX_ALL) }?;
 
-        unsafe { com_device.Open(PCWSTR::from_raw(self.device_id.as_ptr()), &device_values) }.unwrap();
+        unsafe { com_device.Open(PCWSTR::from_raw(self.device_id.as_ptr()), &device_values) }
+            .unwrap();
 
-        Ok(Device{
+        Ok(Device {
             com_device,
             case_sensitive_fs,
         })

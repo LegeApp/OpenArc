@@ -1,16 +1,17 @@
 //! Interactive CLI wizard for OpenArc
 //! Provides a friendly, guided interface with drag-and-drop support
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::bpg_wrapper::BpgEffort;
+use crate::bpg_wrapper::{BpgAq, BpgEffort};
 use crate::orchestrator::{
-    append_external_video_bundle, create_archive, extract_archive_with_decoding, ExtractionSettings, OrchestratorSettings,
+    ExtractionSettings, OrchestratorSettings, append_external_video_bundle, create_archive,
+    extract_archive_with_decoding,
 };
 use crate::phone_backup;
 
@@ -52,6 +53,7 @@ pub enum ProcessingMode {
 enum StartAction {
     ArchiveNoReencode,
     ArchiveWithReencode,
+    FolderWithReencode,
     ExtractNoReencode,
     ExtractWithReencode,
 }
@@ -59,6 +61,7 @@ enum StartAction {
 pub struct InteractiveConfig {
     pub bpg_effort: BpgEffort,
     pub bpg_lossless: bool,
+    pub bpg_aq: BpgAq,
     pub bpg_bit_depth: u8,
     /// Advanced/testing numeric override. Normal interactive mode leaves this as None.
     pub bpg_quality_override: Option<i32>,
@@ -74,6 +77,7 @@ pub struct InteractiveConfig {
     pub output_path: PathBuf,
     pub input_paths: Vec<PathBuf>,
     pub reencode_media: bool,
+    pub output_folder_without_archive: bool,
     pub catalog_db_path: Option<PathBuf>,
 }
 
@@ -82,6 +86,7 @@ impl Default for InteractiveConfig {
         Self {
             bpg_effort: BpgEffort::Good,
             bpg_lossless: false,
+            bpg_aq: BpgAq::default(),
             bpg_bit_depth: 8,
             bpg_quality_override: None,
             compression_level: 3,
@@ -93,6 +98,7 @@ impl Default for InteractiveConfig {
             output_path: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             input_paths: Vec::new(),
             reencode_media: true,
+            output_folder_without_archive: false,
             catalog_db_path: None,
         }
     }
@@ -125,7 +131,11 @@ pub fn run_interactive() -> Result<()> {
     }
 
     let mut config = InteractiveConfig::default();
-    config.reencode_media = matches!(action, StartAction::ArchiveWithReencode);
+    config.reencode_media = matches!(
+        action,
+        StartAction::ArchiveWithReencode | StartAction::FolderWithReencode
+    );
+    config.output_folder_without_archive = matches!(action, StartAction::FolderWithReencode);
 
     // Step 1: Collect input paths (or auto-stage phone if detected)
     println!(
@@ -218,7 +228,7 @@ pub fn run_interactive() -> Result<()> {
         COLORS.highlight, COLORS.reset
     );
     config.mode = ProcessingMode::EncodeAndArchive;
-    config.output_path = prompt_output_location(&config.mode)?;
+    config.output_path = prompt_output_location(&config)?;
 
     // Summary and confirmation
     print_summary(&config, &media_files)?;
@@ -247,21 +257,26 @@ fn prompt_start_action() -> Result<StartAction> {
         COLORS.highlight, COLORS.reset
     );
     println!(
-        "[3] {}Extract (No Re-encode){} - Keep archived encoded files",
+        "[3] {}Encode to Folder (No Zip){} - Re-encode media into an OpenArc folder layout",
         COLORS.highlight, COLORS.reset
     );
     println!(
-        "[4] {}Extract (Re-encode){} - Decode media back from archive",
+        "[4] {}Extract (No Re-encode){} - Keep archived encoded files",
+        COLORS.highlight, COLORS.reset
+    );
+    println!(
+        "[5] {}Extract (Re-encode){} - Decode media back from archive",
         COLORS.highlight, COLORS.reset
     );
     print!("{}Choice [2]:{} ", COLORS.prompt, COLORS.reset);
     io::stdout().flush()?;
 
-    let choice = read_number_or_default(2, 1, 4)?;
+    let choice = read_number_or_default(2, 1, 5)?;
     Ok(match choice {
         1 => StartAction::ArchiveNoReencode,
         2 => StartAction::ArchiveWithReencode,
-        3 => StartAction::ExtractNoReencode,
+        3 => StartAction::FolderWithReencode,
+        4 => StartAction::ExtractNoReencode,
         _ => StartAction::ExtractWithReencode,
     })
 }
@@ -583,34 +598,101 @@ fn find_media_files(dir: &PathBuf) -> Result<Vec<PathBuf>> {
 // Settings Prompts
 // ============================================================================
 
+#[cfg(feature = "bpg-rs")]
 fn bpg_effort_hint(effort: BpgEffort) -> String {
     effort.hint().to_string()
 }
 
+#[cfg(feature = "bpg-rs")]
+fn bpg_aq_hint(aq: BpgAq) -> &'static str {
+    match aq {
+        BpgAq::Off => "uniform QP; fastest and most predictable",
+        BpgAq::TwoPass => "measured AQ; best current bpg-rs quality path for slow/placebo",
+        BpgAq::Perceptual => "single-pass luma perceptual AQ",
+        BpgAq::PerceptualChroma => "single-pass luma+chroma perceptual AQ",
+        BpgAq::PerceptualMild => "milder single-pass luma perceptual AQ",
+        BpgAq::PerceptualChromaMild => "milder single-pass luma+chroma perceptual AQ",
+        BpgAq::LegacyShrink => "legacy compatibility AQ mode",
+    }
+}
+
 fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
-    use crate::interactive_menu::{select_option, select_value, SelectOption};
+    use crate::interactive_menu::{SelectOption, select_option, select_value};
 
     println!(
         "\n{}Image Settings (BPG Format):{}",
         COLORS.info, COLORS.reset
     );
 
-    let bpg_options = [
-        SelectOption::new("Balanced", bpg_effort_hint(BpgEffort::Balanced)),
-        SelectOption::new("Good", bpg_effort_hint(BpgEffort::Good)),
-        SelectOption::new("Best", bpg_effort_hint(BpgEffort::Best)),
-    ];
-    let default_bpg_idx = match config.bpg_effort {
-        BpgEffort::Balanced => 0,
-        BpgEffort::Good => 1,
-        BpgEffort::Best => 2,
-    };
-    let bpg_idx = select_option("BPG image preset:", &bpg_options, default_bpg_idx)?;
-    config.bpg_effort = match bpg_idx {
-        0 => BpgEffort::Balanced,
-        2 => BpgEffort::Best,
-        _ => BpgEffort::Good,
-    };
+    // The C/x265 backend exposes the x265 preset levels (m8/m9) and forces
+    // x265's default auto-variance AQ. The pure-Rust backend exposes the named
+    // effort presets and a restricted AQ selector.
+    #[cfg(not(feature = "bpg-rs"))]
+    {
+        let bpg_options = [
+            SelectOption::new("m8", "x265 veryslow preset (default archival quality)"),
+            SelectOption::new("m9", "x265 placebo preset (slowest, highest effort)"),
+        ];
+        let default_idx = match config.bpg_effort {
+            BpgEffort::Best | BpgEffort::Placebo => 1,
+            _ => 0,
+        };
+        let idx = select_option("BPG x265 preset:", &bpg_options, default_idx)?;
+        // m8 => compress_level 8 (veryslow) via BpgEffort::Good; m9 => compress_level
+        // 9 (placebo) via BpgEffort::Placebo.
+        config.bpg_effort = if idx == 1 {
+            BpgEffort::Placebo
+        } else {
+            BpgEffort::Good
+        };
+        // AQ is not user-selectable for the C backend; force x265's auto-variance
+        // default (BpgAq::Perceptual resolves to aq_mode=2, strength=1.0).
+        config.bpg_aq = BpgAq::Perceptual;
+    }
+
+    #[cfg(feature = "bpg-rs")]
+    {
+        let bpg_options = [
+            SelectOption::new("Balanced", bpg_effort_hint(BpgEffort::Balanced)),
+            SelectOption::new("Good", bpg_effort_hint(BpgEffort::Good)),
+            SelectOption::new("Best", bpg_effort_hint(BpgEffort::Best)),
+            SelectOption::new("Placebo", bpg_effort_hint(BpgEffort::Placebo)),
+        ];
+        let default_bpg_idx = match config.bpg_effort {
+            BpgEffort::Balanced => 0,
+            BpgEffort::Good => 1,
+            BpgEffort::Best => 2,
+            BpgEffort::Placebo => 3,
+        };
+        let bpg_idx = select_option("BPG image preset:", &bpg_options, default_bpg_idx)?;
+        config.bpg_effort = match bpg_idx {
+            0 => BpgEffort::Balanced,
+            2 => BpgEffort::Best,
+            3 => BpgEffort::Placebo,
+            _ => BpgEffort::Good,
+        };
+        if !config.bpg_effort.supports_two_pass_aq() && config.bpg_aq == BpgAq::TwoPass {
+            config.bpg_aq = BpgAq::Off;
+        }
+
+        // Restricted AQ selector: only two-pass, off (none) and perceptual-chroma.
+        let aq_choices: Vec<BpgAq> = if config.bpg_effort.supports_two_pass_aq() {
+            vec![BpgAq::TwoPass, BpgAq::Off, BpgAq::PerceptualChroma]
+        } else {
+            vec![BpgAq::Off, BpgAq::PerceptualChroma]
+        };
+        let aq_options: Vec<SelectOption> = aq_choices
+            .iter()
+            .map(|aq| SelectOption::new(aq.as_str(), bpg_aq_hint(*aq)))
+            .collect();
+        let default_aq_idx = aq_choices
+            .iter()
+            .position(|aq| *aq == config.bpg_aq)
+            .unwrap_or(0);
+        let aq_idx = select_option("BPG adaptive quantization:", &aq_options, default_aq_idx)?;
+        config.bpg_aq = aq_choices[aq_idx];
+        config.bpg_aq.validate_for_effort(config.bpg_effort)?;
+    }
 
     println!("\n{}Archive Settings:{}", COLORS.info, COLORS.reset);
     config.misc_compression_level = select_value(
@@ -638,21 +720,26 @@ fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
     Ok(())
 }
 
-fn prompt_output_location(mode: &ProcessingMode) -> Result<PathBuf> {
+fn prompt_output_location(config: &InteractiveConfig) -> Result<PathBuf> {
     let default_dir = std::env::current_dir()?;
 
-    match mode {
+    match config.mode {
         ProcessingMode::EncodeAndArchive => {
-            println!(
-                "\n{}Archive output file (.oarc):{}",
-                COLORS.info, COLORS.reset
-            );
-            let default_archive = default_dir.join("openarc_archive.oarc");
-            println!("Default: {}", default_archive.display());
+            let default_output = if config.output_folder_without_archive {
+                println!("\n{}Output folder:{}", COLORS.info, COLORS.reset);
+                default_dir.join("openarc_encoded")
+            } else {
+                println!(
+                    "\n{}Archive output file (.oarc):{}",
+                    COLORS.info, COLORS.reset
+                );
+                default_dir.join("openarc_archive.oarc")
+            };
+            println!("Default: {}", default_output.display());
             print!(
                 "{}Path [{}]:{} ",
                 COLORS.prompt,
-                default_archive.display(),
+                default_output.display(),
                 COLORS.reset
             );
             io::stdout().flush()?;
@@ -662,7 +749,7 @@ fn prompt_output_location(mode: &ProcessingMode) -> Result<PathBuf> {
             let trimmed = input.trim();
 
             if trimmed.is_empty() {
-                Ok(default_archive)
+                Ok(default_output)
             } else {
                 Ok(PathBuf::from(trimmed))
             }
@@ -704,9 +791,8 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
         if image_count > 0 {
             println!(
                 "  • {} images → BPG (preset: {}, bit depth: adaptive, 8-bit \
-                 sources stay 8-bit, high-depth sources up to 12-bit)",
-                image_count,
-                config.bpg_effort
+                 sources stay 8-bit, high-depth sources up to 12-bit, AQ: {})",
+                image_count, config.bpg_effort, config.bpg_aq
             );
         }
         if video_count > 0 {
@@ -726,7 +812,9 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
         "\n{}Mode:{} {}",
         COLORS.info,
         COLORS.reset,
-        if config.reencode_media {
+        if config.output_folder_without_archive {
+            "Encode to Folder (no final archive)"
+        } else if config.reencode_media {
             "Compress + Archive (re-encode)"
         } else {
             "Compress + Archive (no re-encode)"
@@ -734,16 +822,29 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
     );
 
     if config.mode == ProcessingMode::EncodeAndArchive {
-        println!(
-            "{}Archive:{} {}",
-            COLORS.info,
-            COLORS.reset,
-            config.output_path.display()
-        );
-        println!(
-            "  • Compression: ZSTD container level {}, misc LZMA2 level {}",
-            config.compression_level, config.misc_compression_level
-        );
+        if config.output_folder_without_archive {
+            println!(
+                "{}Output folder:{} {}",
+                COLORS.info,
+                COLORS.reset,
+                config.output_path.display()
+            );
+            println!(
+                "  • Final archive container: disabled; misc LZMA2 level {}",
+                config.misc_compression_level
+            );
+        } else {
+            println!(
+                "{}Archive:{} {}",
+                COLORS.info,
+                COLORS.reset,
+                config.output_path.display()
+            );
+            println!(
+                "  • Compression: ZSTD container level {}, misc LZMA2 level {}",
+                config.compression_level, config.misc_compression_level
+            );
+        }
         println!(
             "  • Catalog: {}",
             if config.enable_catalog {
@@ -798,6 +899,7 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
                     .unwrap_or_else(|| config.bpg_effort.default_quality() as i32),
                 bpg_lossless: config.bpg_lossless,
                 bpg_effort: config.bpg_effort,
+                bpg_aq: config.bpg_aq,
                 bpg_bit_depth: config.bpg_bit_depth as i32,
                 bpg_chroma_format: 1,
                 bpg_encoder_type: config.bpg_effort.encoder_type() as i32,
@@ -812,6 +914,7 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
                 jpeg_quality: 92,
                 enable_tracking: config.enable_tracking,
                 reencode_media: config.reencode_media,
+                output_folder_without_archive: config.output_folder_without_archive,
             };
 
             let pb = ProgressBar::new_spinner();
@@ -888,6 +991,22 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
                 ratio,
                 COLORS.reset
             );
+            if result.jpeg2000_fallback.replaced_files > 0 {
+                println!(
+                    "  • JPEG 2000 fallback: {} files encoded to JP2 q85 after BPG bitrate criteria flagged them and JP2 was smaller",
+                    result.jpeg2000_fallback.replaced_files
+                );
+                println!(
+                    "  • JPEG 2000 average savings: {} KB/file ({:.2}% average across replaced files)",
+                    result.jpeg2000_fallback.average_saved_bytes() / 1_000,
+                    result.jpeg2000_fallback.average_saved_percent()
+                );
+            } else if result.jpeg2000_fallback.flagged_files > 0 {
+                println!(
+                    "  • JPEG 2000 fallback: {} files flagged by BPG bitrate criteria, but BPG remained smaller",
+                    result.jpeg2000_fallback.flagged_files
+                );
+            }
 
             println!(
                 "\n{}Output:{} {}",
@@ -911,8 +1030,13 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
                 {
                     println!("  • Stage folder: {}", stage_root.display());
                 }
-                println!("  • Encode these videos externally (HandBrake/ffmpeg/etc.) then merge them.");
-                print!("{}Encoded video folder to merge now (leave empty to skip):{} ", COLORS.prompt, COLORS.reset);
+                println!(
+                    "  • Encode these videos externally (HandBrake/ffmpeg/etc.) then merge them."
+                );
+                print!(
+                    "{}Encoded video folder to merge now (leave empty to skip):{} ",
+                    COLORS.prompt, COLORS.reset
+                );
                 io::stdout().flush()?;
                 let mut encoded_dir = String::new();
                 io::stdin().read_line(&mut encoded_dir)?;

@@ -3,6 +3,20 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Value parser for the BPG effort/compression option. The accepted values are
+/// backend-specific (see `bpg_wrapper::EFFORT_CLI_VALUES`).
+fn bpg_effort_parser() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(crate::bpg_wrapper::EFFORT_CLI_VALUES.iter().copied())
+}
+
+/// Value parser for the BPG adaptive-quantization option. Only compiled for the
+/// pure-Rust backend; the C/x265 backend forces x265's default AQ and does not
+/// expose a selector.
+#[cfg(feature = "bpg-rs")]
+fn bpg_aq_parser() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(crate::bpg_wrapper::AQ_CLI_VALUES.iter().copied())
+}
+
 #[derive(Parser)]
 #[command(name = "openarc")]
 #[command(about = "OpenArc - Media archiver for phone/camera files", long_about = None)]
@@ -21,14 +35,21 @@ pub enum Commands {
         /// Output archive file (.oarc or .tar.zst)
         #[arg(short, long)]
         output: PathBuf,
-        
+
         /// Input files or directories (can be specified multiple times)
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
-        
-        /// BPG effort preset (balanced, good, best)
-        #[arg(long, default_value = "good", value_parser = ["balanced", "good", "best"])]
+
+        /// BPG compression effort. C backend: x265 preset (m8=veryslow, m9=placebo).
+        /// Rust backend: named preset (balanced, good/slow, best, placebo).
+        #[arg(long, default_value = crate::bpg_wrapper::EFFORT_CLI_DEFAULT, value_parser = bpg_effort_parser())]
         bpg_effort: String,
+
+        /// BPG adaptive quantization preset (Rust backend only; the C/x265
+        /// backend forces x265's default auto-variance AQ).
+        #[cfg(feature = "bpg-rs")]
+        #[arg(long, default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT, value_parser = bpg_aq_parser())]
+        bpg_aq: String,
 
         /// Advanced/testing override for BPG QP (0-51, lower = better quality).
         /// Normal use should prefer --bpg-effort.
@@ -53,11 +74,11 @@ pub enum Commands {
         /// Disable catalog (incremental backup tracking)
         #[arg(long)]
         no_catalog: bool,
-        
+
         /// Disable deduplication
         #[arg(long)]
         no_dedup: bool,
-        
+
         /// Disable file-level tracking
         #[arg(long)]
         no_tracking: bool,
@@ -66,14 +87,17 @@ pub enum Commands {
         #[arg(long)]
         no_reencode: bool,
 
+        /// Write the encoded OpenArc folder layout without creating the final archive
+        #[arg(long)]
+        no_zip: bool,
     },
-    
+
     /// Extract an archive
     Extract {
         /// Input archive file
         #[arg(short, long)]
         input: PathBuf,
-        
+
         /// Output directory
         #[arg(short, long)]
         output: PathBuf,
@@ -82,59 +106,72 @@ pub enum Commands {
         #[arg(long)]
         no_reencode: bool,
     },
-    
+
     /// List archive contents
     List {
         /// Archive file
         archive: PathBuf,
     },
-    
+
     /// Convert single image to BPG
     ConvertBpg {
         /// Input image file
         input: PathBuf,
-        
+
         /// Output BPG file
         #[arg(short, long)]
         output: PathBuf,
-        
-        /// BPG effort preset (balanced, good, best)
-        #[arg(long, default_value = "good", value_parser = ["balanced", "good", "best"])]
+
+        /// BPG compression effort. C backend: x265 preset (m8=veryslow, m9=placebo).
+        /// Rust backend: named preset (balanced, good/slow, best, placebo).
+        #[arg(long, default_value = crate::bpg_wrapper::EFFORT_CLI_DEFAULT, value_parser = bpg_effort_parser())]
         effort: String,
+
+        /// BPG adaptive quantization preset (Rust backend only; the C/x265
+        /// backend forces x265's default auto-variance AQ).
+        #[cfg(feature = "bpg-rs")]
+        #[arg(long, default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT, value_parser = bpg_aq_parser())]
+        aq: String,
 
         /// Advanced/testing override for BPG QP (0-51, lower = better quality)
         #[arg(short, long, hide = true)]
         quality: Option<u8>,
-        
+
         /// Enable lossless compression
         #[arg(long)]
         lossless: bool,
     },
-    
+
     /// Batch convert images to BPG
     BatchBpg {
         /// Input directory
         input: PathBuf,
-        
+
         /// Output directory
         #[arg(short, long)]
         output: PathBuf,
-        
-        /// BPG effort preset (balanced, good, best)
-        #[arg(long, default_value = "good", value_parser = ["balanced", "good", "best"])]
+
+        /// BPG compression effort. C backend: x265 preset (m8=veryslow, m9=placebo).
+        /// Rust backend: named preset (balanced, good/slow, best, placebo).
+        #[arg(long, default_value = crate::bpg_wrapper::EFFORT_CLI_DEFAULT, value_parser = bpg_effort_parser())]
         effort: String,
+
+        /// BPG adaptive quantization preset (Rust backend only; the C/x265
+        /// backend forces x265's default auto-variance AQ).
+        #[cfg(feature = "bpg-rs")]
+        #[arg(long, default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT, value_parser = bpg_aq_parser())]
+        aq: String,
 
         /// Advanced/testing override for BPG QP (0-51, lower = better quality)
         #[arg(short, long, hide = true)]
         quality: Option<u8>,
-        
+
         /// Enable lossless compression
         #[arg(long)]
         lossless: bool,
     },
-    
-    // === ArcMax Compression Commands ===
 
+    // === ArcMax Compression Commands ===
     /// Compress a file with LZMA2 or Zstd via arcmax
     ArcCompress {
         /// Input files to compress
@@ -176,7 +213,11 @@ pub enum Commands {
     /// Test LZMA2/Zstd round-trip via arcmax
     ArcTest {
         /// Test data string
-        #[arg(short, long, default_value = "Hello, World! This is a compression test.")]
+        #[arg(
+            short,
+            long,
+            default_value = "Hello, World! This is a compression test."
+        )]
         data: String,
 
         /// Compression method to test (lzma2, zstd, store)
