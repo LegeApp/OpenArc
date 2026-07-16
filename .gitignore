@@ -14,6 +14,12 @@ Thumbs.db
 # User-specific files
 *.userprefs
 
+# Local Cargo dependency overrides (copy .cargo/config.toml.example to this file)
+/.cargo/config.toml
+
+# Legacy in-tree jp2lam copy; builds use GitHub or the local Cargo override
+/jp2lam/
+
 # Temporary files
 *.tmp
 tmp/

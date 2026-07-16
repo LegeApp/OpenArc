@@ -360,14 +360,14 @@ impl NativeBPGEncoder {
 
     pub fn default_config() -> BPGEncoderConfig {
         let mut config = BPGEncoderConfig {
-            quality: 28,
+            quality: 29,
             bit_depth: 8,
             lossless: 0,
             chroma_format: 1,
             encoder_type: 0,
             compress_level: 8,
-            aq_mode: 2,
-            aq_strength: 1.0,
+            aq_mode: 0,
+            aq_strength: 0.0,
             aq_clamp: 2,
             two_pass_gate: true,
             color_space: 3,
@@ -766,9 +766,8 @@ pub fn get_supported_encoders() -> i32 {
 /// Resolve OpenArc's BPG AQ preset names to the shared integer config fields.
 ///
 /// The C/x265 backend maps these onto x265 4.1 AQ modes in `x265_glue.c`.
-/// Unlike the Rust development backend it does not implement OpenArc's
-/// experimental two-pass measured AQ; `two-pass` therefore selects x265's
-/// strongest auto-variance AQ rather than failing the production path.
+/// The production default is `off`; the other presets are retained for explicit
+/// testing/experimentation.
 pub fn resolve_aq_preset(name: &str) -> Option<(i32, f32, u8)> {
     match name {
         "off" => Some((0, 0.0, 2)),

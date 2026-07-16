@@ -624,9 +624,9 @@ fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
         COLORS.info, COLORS.reset
     );
 
-    // The C/x265 backend exposes the x265 preset levels (m8/m9) and forces
-    // x265's default auto-variance AQ. The pure-Rust backend exposes the named
-    // effort presets and a restricted AQ selector.
+    // The C/x265 backend exposes the x265 preset levels (m8/m9) and keeps AQ
+    // off by default. The pure-Rust backend exposes the named effort presets
+    // and a restricted AQ selector.
     #[cfg(not(feature = "bpg-rs"))]
     {
         let bpg_options = [
@@ -645,9 +645,9 @@ fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
         } else {
             BpgEffort::Good
         };
-        // AQ is not user-selectable for the C backend; force x265's auto-variance
-        // default (BpgAq::Perceptual resolves to aq_mode=2, strength=1.0).
-        config.bpg_aq = BpgAq::Perceptual;
+        // AQ is not user-selectable for the C backend; keep the production
+        // default off.
+        config.bpg_aq = BpgAq::Off;
     }
 
     #[cfg(feature = "bpg-rs")]

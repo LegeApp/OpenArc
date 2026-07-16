@@ -104,7 +104,7 @@ authors.workspace = true
 description = "OpenArc media archiver - library and CLI"
 
 [features]
-default = ["bpg-c"]
+default = ["bpg-rs"]
 bpg-c = ["codecs/bpg-c"]
 bpg-rs = ["codecs/bpg-rs"]
 # heif feature removed - we use pure Rust heic-decoder-rs instead of libheif

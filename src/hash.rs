@@ -88,10 +88,19 @@ pub fn verify_dir_against_hashes(
     let hashes_file = hashes_file.as_ref();
 
     let entries = read_hashes_file(hashes_file)?;
-    for (expected_hash, rel) in entries {
+    verify_hash_entries(root_dir, &entries)
+}
+
+/// Verify a set of `(hash, relative_path)` entries against files under `root_dir`.
+pub fn verify_hash_entries(root_dir: impl AsRef<Path>, entries: &[(String, String)]) -> Result<()> {
+    let root_dir = root_dir.as_ref();
+    // Each file verifies independently; hashing in parallel makes archive
+    // verification I/O/CPU-bound instead of latency-bound.
+    use rayon::prelude::*;
+    entries.par_iter().try_for_each(|(expected_hash, rel)| {
         let path = root_dir.join(rel);
         let actual = sha256_file_hex(&path)?;
-        if actual != expected_hash {
+        if actual != *expected_hash {
             return Err(anyhow!(
                 "Hash mismatch for {} (expected {}, got {})",
                 path.display(),
@@ -99,9 +108,8 @@ pub fn verify_dir_against_hashes(
                 actual
             ));
         }
-    }
-
-    Ok(())
+        Ok(())
+    })
 }
 
 pub fn verify_tar_zst_archive(archive_path: impl AsRef<Path>) -> Result<()> {

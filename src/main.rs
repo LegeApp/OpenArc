@@ -174,8 +174,8 @@ fn main() -> Result<()> {
             let bpg_effort = BpgEffort::parse(&bpg_effort)?;
             #[cfg(feature = "bpg-rs")]
             let bpg_aq = BpgAq::parse(&bpg_aq)?;
-            // C/x265 backend: AQ is not user-selectable; force x265's default
-            // auto-variance AQ (BpgAq::Perceptual).
+            // C/x265 backend: AQ is not user-selectable; keep the production
+            // default off.
             #[cfg(not(feature = "bpg-rs"))]
             let bpg_aq: BpgAq = openarc::bpg_wrapper::AQ_CLI_DEFAULT;
             bpg_aq.validate_for_effort(bpg_effort)?;
