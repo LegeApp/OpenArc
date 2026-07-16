@@ -46,7 +46,7 @@ pub enum Commands {
         bpg_effort: String,
 
         /// BPG adaptive quantization preset (Rust backend only; the C/x265
-        /// backend forces x265's default auto-variance AQ).
+        /// backend keeps AQ off and does not expose this selector).
         #[cfg(feature = "bpg-rs")]
         #[arg(long, default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT, value_parser = bpg_aq_parser())]
         bpg_aq: String,
@@ -128,7 +128,7 @@ pub enum Commands {
         effort: String,
 
         /// BPG adaptive quantization preset (Rust backend only; the C/x265
-        /// backend forces x265's default auto-variance AQ).
+        /// backend keeps AQ off and does not expose this selector).
         #[cfg(feature = "bpg-rs")]
         #[arg(long, default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT, value_parser = bpg_aq_parser())]
         aq: String,
@@ -157,7 +157,7 @@ pub enum Commands {
         effort: String,
 
         /// BPG adaptive quantization preset (Rust backend only; the C/x265
-        /// backend forces x265's default auto-variance AQ).
+        /// backend keeps AQ off and does not expose this selector).
         #[cfg(feature = "bpg-rs")]
         #[arg(long, default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT, value_parser = bpg_aq_parser())]
         aq: String,

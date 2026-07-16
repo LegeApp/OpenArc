@@ -1,2 +1,0 @@
-[alias]
-dist = "run --package xtask --release --"

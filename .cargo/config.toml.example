@@ -1,0 +1,6 @@
+# Copy this file to config.toml for local development. config.toml is ignored.
+[alias]
+dist = "run --package xtask --release --"
+
+[patch."https://github.com/LegeApp/jp2lam"]
+jp2lam = { path = "../jp2lam" }

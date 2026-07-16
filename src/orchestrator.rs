@@ -20,8 +20,12 @@ use tokio::task::JoinSet;
 
 const CODEC_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
 const JPEG2000_FALLBACK_QUALITY: u8 = 85;
-const BPG_JPEG2000_FALLBACK_MIN_BYTES: u64 = 5_000_000;
-const BPG_JPEG2000_FALLBACK_MIN_BYTES_PER_PIXEL: f64 = 0.18;
+// JP2 fallback is only kept when it beats BPG, so lower thresholds mostly cost
+// CPU and temporary disk while catching more medium-sized BPG outliers. The old
+// 5 MB / 0.18 Bpp thresholds only tested the largest files and missed many
+// 2-5 MB phone images where JP2 can win.
+const BPG_JPEG2000_FALLBACK_MIN_BYTES: u64 = 2_000_000;
+const BPG_JPEG2000_FALLBACK_MIN_BYTES_PER_PIXEL: f64 = 0.08;
 
 /// Byte-budget limiter for memory-heavy tasks.
 ///
@@ -439,9 +443,6 @@ fn parse_manifest_sizes(manifest_text: &str) -> HashMap<String, (u64, u64)> {
     for line in manifest_text.lines() {
         let line = line.trim();
         if line.is_empty() {
-            continue;
-        }
-        if !line.contains(" -> ") {
             continue;
         }
         let arrow_idx = match line.find(" -> ") {
@@ -875,6 +876,10 @@ struct WorkItem {
     source_rel_path: String,
     class: FileClass,
     original_format: Option<OriginalImageFormat>,
+    /// SHA-256 of the source file from the Phase-1 hashing pass, when available.
+    /// For arms that archive the file as a byte-for-byte copy this doubles as
+    /// the output hash, saving a full second read of the file.
+    source_hash: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -898,10 +903,7 @@ pub fn collect_files(input_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             }
         }
     }
-    files.sort_by(|a, b| {
-        normalize_archive_rel_path(&a.to_string_lossy())
-            .cmp(&normalize_archive_rel_path(&b.to_string_lossy()))
-    });
+    files.sort_by_cached_key(|p| normalize_archive_rel_path(&p.to_string_lossy()));
     Ok(files)
 }
 
@@ -1069,22 +1071,28 @@ pub fn create_archive(
     let rel_path_map = build_relative_path_map(&discovered, input_paths);
 
     // Phase 1: Hash all files once — results shared by both tracking and dedup.
-    // (Previously each pass read every file from disk independently; now one read each.)
+    // Hashing is I/O + SHA-256 bound and per-file independent, so fan it out
+    // across the CPU; on NVMe this is several times faster than sequential.
     let mut file_hashes: HashMap<PathBuf, String> = HashMap::new();
     if settings.enable_tracking || settings.enable_dedup {
-        for (idx, p) in discovered.iter().enumerate() {
-            if idx == 0 || idx + 1 == discovered.len() || idx % 10 == 0 {
-                emit_progress(
-                    &progress,
-                    idx,
-                    discovered.len(),
-                    format!("Hashing: {}", safe_file_name(p)),
-                );
-            }
-            if let Ok(h) = hash::sha256_file_hex(p) {
-                file_hashes.insert(p.clone(), h);
-            }
-        }
+        use rayon::prelude::*;
+        let hashed_count = std::sync::atomic::AtomicUsize::new(0);
+        let total_files = discovered.len();
+        file_hashes = discovered
+            .par_iter()
+            .filter_map(|p| {
+                let done = hashed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if done == 0 || done + 1 == total_files || done % 16 == 0 {
+                    emit_progress(
+                        &progress,
+                        done,
+                        total_files,
+                        format!("Hashing: {}", safe_file_name(p)),
+                    );
+                }
+                hash::sha256_file_hex(p).ok().map(|h| (p.clone(), h))
+            })
+            .collect();
     }
 
     let tracker = if settings.enable_tracking {
@@ -1092,9 +1100,8 @@ pub fn create_archive(
     } else {
         None
     };
-    let tracking_hashes = file_hashes.clone();
     let tracking_duplicates = if let Some(ref tracker) = tracker {
-        let unique_hashes: Vec<String> = tracking_hashes.values().cloned().collect();
+        let unique_hashes: Vec<String> = file_hashes.values().cloned().collect();
         tracker.find_duplicates(&unique_hashes).unwrap_or_default()
     } else {
         HashMap::new()
@@ -1144,9 +1151,10 @@ pub fn create_archive(
         }
     }
 
+    let skipped_set: std::collections::HashSet<&PathBuf> = skipped_by_catalog.iter().collect();
     let mut work: Vec<WorkItem> = Vec::new();
     for (idx, p) in discovered.iter().enumerate() {
-        if skipped_by_catalog.contains(p) {
+        if skipped_set.contains(p) {
             continue;
         }
         if settings.enable_dedup {
@@ -1166,6 +1174,7 @@ pub fn create_archive(
                 .unwrap_or_else(|| safe_file_name(p)),
             class,
             original_format,
+            source_hash: file_hashes.get(p).cloned(),
         });
     }
 
@@ -1352,7 +1361,7 @@ pub fn create_archive(
             Ok(p)
         };
 
-        let (out_path, rel_path, skipped_processing, original_format, archived_class) = match item.class {
+        let (out_path, rel_path, skipped_processing, original_format, archived_class, is_byte_copy) = match item.class {
             FileClass::Image => {
                 let original_format = item.original_format.unwrap_or(OriginalImageFormat::Png);
                 let original_ext = input.extension()
@@ -1368,7 +1377,7 @@ pub fn create_archive(
                     let out = stage_at(&media_dir, &source_rel)?;
                     fs::copy(input, &out)?;
                     let rel_path = format!("media/{}", source_rel);
-                    (out, rel_path, true, Some(original_format), FileClass::Image)
+                    (out, rel_path, true, Some(original_format), FileClass::Image, true)
                 } else {
                 let out = stage_at(&media_dir, &encoded_rel)?;
                 let jpeg2000_out = stage_at(&media_dir, &jpeg2000_rel)?;
@@ -1516,7 +1525,7 @@ pub fn create_archive(
                     let rel_path = format!("media/{}", selected_encoded_rel);
 
                     // HEIC processing complete - return from match arm
-                    (selected_out, rel_path, false, Some(original_format), FileClass::Image)
+                    (selected_out, rel_path, false, Some(original_format), FileClass::Image, false)
                 } else if let Some(ycbcr) = jpeg_ycbcr {
                     // JPEG: direct YCbCr 4:2:0 → BPG — no colorspace conversion.
                     use codecs::bpg::NativeBPGEncoder;
@@ -1574,7 +1583,7 @@ pub fn create_archive(
 
                     let rel_path = format!("media/{}", selected_encoded_rel);
 
-                    (selected_out, rel_path, false, Some(original_format), FileClass::Image)
+                    (selected_out, rel_path, false, Some(original_format), FileClass::Image, false)
                 } else {
                     // Generic RGB path for all other formats (PNG, TIFF, BMP, WebP, etc.)
                     // Also used as fallback for JPEGs where YCbCr decode failed.
@@ -1592,7 +1601,10 @@ pub fn create_archive(
                         let rel_path = format!("media/{}", source_rel);
                         return Ok({
                             let output_size = fs::metadata(&copy_out)?.len();
-                            let sha = hash::sha256_file_hex(&copy_out).ok();
+                            let sha = item
+                                .source_hash
+                                .clone()
+                                .or_else(|| hash::sha256_file_hex(&copy_out).ok());
                             {
                                 let mut guard = processed_mutex.lock();
                                 guard.push(ProcessedFile {
@@ -1621,37 +1633,40 @@ pub fn create_archive(
                 );
                 let wants_high_depth = target_bit_depth > 8;
 
+                // Consume `img` by value so already-matching layouts hand over
+                // their pixel buffer instead of cloning it (a 16-bit 24 MPix
+                // image is ~140 MB — cloning it doubled peak memory per worker).
                 let (width, height, pixel_data, format, bytes_per_sample) = if wants_high_depth {
-                    match &img {
+                    match img {
                         image::DynamicImage::ImageRgb16(rgb) => {
                             let (w, h) = rgb.dimensions();
-                            let data = cast_vec(rgb.clone().into_raw());
+                            let data = cast_vec(rgb.into_raw());
                             (w, h, data, codecs::bpg::BPGImageFormat::RGB24, 2u32)
                         }
                         image::DynamicImage::ImageRgba16(rgba) => {
                             let (w, h) = rgba.dimensions();
-                            let data = cast_vec(rgba.clone().into_raw());
+                            let data = cast_vec(rgba.into_raw());
                             (w, h, data, codecs::bpg::BPGImageFormat::RGBA32, 2u32)
                         }
-                        _ => {
-                            let rgb = img.to_rgb16();
+                        other => {
+                            let rgb = other.to_rgb16();
                             let (w, h) = rgb.dimensions();
                             let data = cast_vec(rgb.into_raw());
                             (w, h, data, codecs::bpg::BPGImageFormat::RGB24, 2u32)
                         }
                     }
                 } else {
-                    match &img {
+                    match img {
                         image::DynamicImage::ImageRgb8(rgb) => {
                             let (w, h) = rgb.dimensions();
-                            (w, h, rgb.clone().into_raw(), codecs::bpg::BPGImageFormat::RGB24, 1u32)
+                            (w, h, rgb.into_raw(), codecs::bpg::BPGImageFormat::RGB24, 1u32)
                         }
                         image::DynamicImage::ImageRgba8(rgba) => {
                             let (w, h) = rgba.dimensions();
-                            (w, h, rgba.clone().into_raw(), codecs::bpg::BPGImageFormat::RGBA32, 1u32)
+                            (w, h, rgba.into_raw(), codecs::bpg::BPGImageFormat::RGBA32, 1u32)
                         }
-                        _ => {
-                            let rgb = img.to_rgb8();
+                        other => {
+                            let rgb = other.to_rgb8();
                             let (w, h) = rgb.dimensions();
                             (w, h, rgb.into_raw(), codecs::bpg::BPGImageFormat::RGB24, 1u32)
                         }
@@ -1722,7 +1737,7 @@ pub fn create_archive(
                 }
 
                 let rel_path = format!("media/{}", selected_encoded_rel);
-                (selected_out, rel_path, false, Some(original_format), FileClass::Image)
+                (selected_out, rel_path, false, Some(original_format), FileClass::Image, false)
                 }  // End of else block for non-HEIC image processing
                 }
             }
@@ -1736,7 +1751,7 @@ pub fn create_archive(
                     let out = stage_at(&misc_dir, &source_rel)?;
                     fs::copy(input, &out)?;
                     let rel_path = format!("misc/{}", source_rel);
-                    (out, rel_path, true, None, FileClass::Misc)
+                    (out, rel_path, true, None, FileClass::Misc, true)
                 } else {
                     let source_rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
                     let out = stage_at(&video_stage_dir, &source_rel)?;
@@ -1753,19 +1768,27 @@ pub fn create_archive(
                 let out = stage_at(&raw_dir, &source_rel)?;
                 fs::copy(input, &out)?;
                 let rel_path = format!("raw/{}", source_rel);
-                (out, rel_path, true, Some(OriginalImageFormat::Raw), FileClass::Raw)
+                (out, rel_path, true, Some(OriginalImageFormat::Raw), FileClass::Raw, true)
             }
             FileClass::Misc => {
                 let source_rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
                 let out = stage_at(&misc_dir, &source_rel)?;
                 fs::copy(input, &out)?;
                 let rel_path = format!("misc/{}", source_rel);
-                (out, rel_path, false, None, FileClass::Misc)
+                (out, rel_path, false, None, FileClass::Misc, true)
             }
         };
 
         let output_size = fs::metadata(&out_path)?.len();
-        let sha = hash::sha256_file_hex(&out_path).ok();
+        // Byte-for-byte copies have the same hash as the source, which Phase 1
+        // already computed — reuse it instead of reading the file again.
+        let sha = if is_byte_copy {
+            item.source_hash
+                .clone()
+                .or_else(|| hash::sha256_file_hex(&out_path).ok())
+        } else {
+            hash::sha256_file_hex(&out_path).ok()
+        };
 
         {
             let mut guard = processed_mutex.lock();
@@ -2061,7 +2084,7 @@ pub fn create_archive(
         let records: Vec<ProcessedFileRecord> = processed
             .iter()
             .map(|p| {
-                let file_hash = tracking_hashes
+                let file_hash = file_hashes
                     .get(&p.original_path)
                     .cloned()
                     .unwrap_or_default();
@@ -2127,27 +2150,37 @@ fn create_lzma2_bundle(files: &[&ProcessedFile], output_arc: &Path, level: i32) 
         return Ok(());
     }
 
-    let output_parent = output_arc.parent().unwrap_or_else(|| Path::new("."));
-    let tar_tmp = tempfile::Builder::new()
-        .prefix("openarc-bundle-")
-        .suffix(".tar")
-        .tempfile_in(output_parent)
-        .with_context(|| format!("Failed to create temp tar beside {}", output_arc.display()))?;
-    {
-        let mut ar = tar::Builder::new(std::io::BufWriter::new(tar_tmp.reopen()?));
-        for item in files {
+    // Stream the tar through an in-memory pipe straight into the LZMA2
+    // compressor. The previous implementation spooled the full tar to a temp
+    // file and read it back — an extra full write + read of every bundled byte
+    // (multi-GB for RAW-heavy runs).
+    let (pipe_reader, pipe_writer) = std::io::pipe().context("Failed to create bundle pipe")?;
+
+    let tar_inputs: Vec<(PathBuf, String)> = files
+        .iter()
+        .map(|item| {
             let bundle_rel = item
                 .archived_rel_path
                 .split_once('/')
                 .map(|(_, rest)| rest.to_string())
                 .unwrap_or_else(|| item.archived_rel_path.clone());
-            ar.append_path_with_name(&item.output_path, Path::new(&bundle_rel))
+            (item.output_path.clone(), bundle_rel)
+        })
+        .collect();
+
+    let tar_thread = thread::spawn(move || -> Result<()> {
+        let mut ar = tar::Builder::new(std::io::BufWriter::new(pipe_writer));
+        for (path, bundle_rel) in &tar_inputs {
+            ar.append_path_with_name(path, Path::new(bundle_rel))
                 .with_context(|| format!("Failed to append {} to tar", bundle_rel))?;
         }
-        ar.finish()?;
-    }
+        ar.into_inner()
+            .context("Failed to finish tar stream")?
+            .flush()
+            .context("Failed to flush tar stream")?;
+        Ok(())
+    });
 
-    // Compress the tar stream with LZMA2.
     let opts = LzmaOptions {
         lzma2: true,
         dict_size: 128 * 1024 * 1024,
@@ -2158,10 +2191,22 @@ fn create_lzma2_bundle(files: &[&ProcessedFile], output_arc: &Path, level: i32) 
     let f = fs::File::create(output_arc)
         .with_context(|| format!("Failed to create {}", output_arc.display()))?;
     let mut writer = std::io::BufWriter::new(f);
-    let mut tar_reader = std::io::BufReader::new(tar_tmp.reopen()?);
-    codec
+    let mut tar_reader = std::io::BufReader::new(pipe_reader);
+    let compress_result = codec
         .compress(&mut tar_reader, &mut writer)
-        .with_context(|| format!("LZMA2 compression failed for {}", output_arc.display()))?;
+        .with_context(|| format!("LZMA2 compression failed for {}", output_arc.display()));
+
+    // Close the read end before joining so a failed compress can't leave the
+    // tar thread blocked on a full pipe.
+    drop(tar_reader);
+    let tar_result = tar_thread
+        .join()
+        .map_err(|_| anyhow!("Bundle tar thread panicked"))?;
+    // Report the tar-side failure first: a compressor error is usually just the
+    // broken pipe that follows it.
+    tar_result?;
+    compress_result?;
+    writer.flush().context("Failed to flush bundle output")?;
 
     Ok(())
 }
@@ -2348,21 +2393,43 @@ pub fn extract_archive_with_decoding(
     arcmax::tar_zst::extract_tar_zst(archive_path, output_dir)
         .with_context(|| format!("Failed to extract archive: {}", archive_path.display()))?;
 
+    // HASHES.sha256 lists both top-level files (media/*, misc.arc, raw.arc,
+    // MANIFEST.txt) and the per-file contents of the LZMA2 bundles (misc/*,
+    // raw/*, videos/*). Verify in two phases: what exists now, and the bundle
+    // contents after they are unpacked — verifying everything up front always
+    // failed for archives with misc/RAW files because those entries only exist
+    // inside the bundles at this point.
     let hashes_file = output_dir.join("HASHES.sha256");
-    if hashes_file.exists() {
-        hash::verify_dir_against_hashes(output_dir, &hashes_file).with_context(|| {
+    let deferred_hash_entries: Vec<(String, String)> = if hashes_file.exists() {
+        let entries = hash::read_hashes_file(&hashes_file)?;
+        let (present, deferred): (Vec<_>, Vec<_>) = entries
+            .into_iter()
+            .partition(|(_, rel)| output_dir.join(rel).is_file());
+        hash::verify_hash_entries(output_dir, &present).with_context(|| {
             format!(
                 "Archive checksum verification failed for {}",
                 archive_path.display()
             )
         })?;
-    }
+        deferred
+    } else {
+        Vec::new()
+    };
 
     let mut decoded_count = 0usize;
 
     extract_lzma2_bundle(&output_dir.join("misc.arc"), &output_dir.join("misc"))?;
     extract_lzma2_bundle(&output_dir.join("raw.arc"), &output_dir.join("raw"))?;
     extract_lzma2_bundle(&output_dir.join("videos.arc"), &output_dir.join("videos"))?;
+
+    if !deferred_hash_entries.is_empty() {
+        hash::verify_hash_entries(output_dir, &deferred_hash_entries).with_context(|| {
+            format!(
+                "Bundle checksum verification failed for {}",
+                archive_path.display()
+            )
+        })?;
+    }
 
     // Load metadata if available
     let metadata_path = output_dir.join("OPENARC_METADATA.json");
@@ -2373,57 +2440,71 @@ pub fn extract_archive_with_decoding(
         None
     };
 
-    // Decode images if settings allow and metadata exists
+    // Decode images if settings allow and metadata exists.
+    // Decodes are independent per file and CPU-bound, so fan them out across a
+    // dedicated rayon pool with the large stacks the codecs need.
     if settings.decode_images {
         if let Some(meta) = metadata {
+            use rayon::prelude::*;
             let total_images = meta.images.len();
+            let done = std::sync::atomic::AtomicUsize::new(0);
+            let decoded = std::sync::atomic::AtomicUsize::new(0);
 
-            for (idx, img_meta) in meta.images.iter().enumerate() {
-                if let Some(ref cb) = progress {
-                    cb(idx, total_images, &img_meta.bpg_filename);
-                }
+            let pool = rayon::ThreadPoolBuilder::new()
+                .stack_size(CODEC_THREAD_STACK_SIZE)
+                .build()
+                .context("Failed to create decode thread pool")?;
 
-                let bpg_path = output_dir.join("media").join(&img_meta.bpg_filename);
-                if !bpg_path.exists() {
-                    continue;
-                }
+            pool.install(|| {
+                meta.images.par_iter().for_each(|img_meta| {
+                    let idx = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if let Some(ref cb) = progress {
+                        cb(idx, total_images, &img_meta.bpg_filename);
+                    }
 
-                let result = decode_bpg_to_original(
-                    &bpg_path,
-                    img_meta.original_format,
-                    &img_meta.original_filename,
-                    &settings,
-                );
+                    let bpg_path = output_dir.join("media").join(&img_meta.bpg_filename);
+                    if !bpg_path.exists() {
+                        return;
+                    }
 
-                match result {
-                    Ok(output_path) => {
-                        // Remove the BPG file after successful decode
-                        let _ = fs::remove_file(&bpg_path);
-                        decoded_count += 1;
+                    let result = decode_bpg_to_original(
+                        &bpg_path,
+                        img_meta.original_format,
+                        &img_meta.original_filename,
+                        &settings,
+                    );
 
-                        // Rename to original filename if different
-                        let ext = output_path
-                            .extension()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or_else(|| img_meta.original_format.extraction_extension());
-                        let target_name = format!(
-                            "{}.{}",
-                            Path::new(&img_meta.original_filename)
-                                .file_stem()
+                    match result {
+                        Ok(output_path) => {
+                            // Remove the BPG file after successful decode
+                            let _ = fs::remove_file(&bpg_path);
+                            decoded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                            // Rename to original filename if different
+                            let ext = output_path
+                                .extension()
                                 .and_then(|s| s.to_str())
-                                .unwrap_or("image"),
-                            ext
-                        );
-                        let target_path = output_path.parent().unwrap().join(&target_name);
-                        if output_path != target_path {
-                            let _ = fs::rename(&output_path, &target_path);
+                                .unwrap_or_else(|| img_meta.original_format.extraction_extension());
+                            let target_name = format!(
+                                "{}.{}",
+                                Path::new(&img_meta.original_filename)
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("image"),
+                                ext
+                            );
+                            let target_path = output_path.parent().unwrap().join(&target_name);
+                            if output_path != target_path {
+                                let _ = fs::rename(&output_path, &target_path);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("decode_failed file={} error={}", img_meta.bpg_filename, e);
                         }
                     }
-                    Err(e) => {
-                        warn!("decode_failed file={} error={}", img_meta.bpg_filename, e);
-                    }
-                }
-            }
+                });
+            });
+            decoded_count = decoded.load(std::sync::atomic::Ordering::Relaxed);
         }
 
         // Clean up metadata file
@@ -2468,32 +2549,46 @@ fn extract_lzma2_bundle(archive_path: &Path, output_dir: &Path) -> Result<()> {
         )
     })?;
 
-    let f = fs::File::open(archive_path)
-        .with_context(|| format!("Failed to open {}", archive_path.display()))?;
-    let mut reader = std::io::BufReader::new(f);
+    // Stream decompression straight into the tar unpacker through an in-memory
+    // pipe — no multi-GB temp .tar spooled to disk and read back.
+    let (pipe_reader, pipe_writer) = std::io::pipe().context("Failed to create extract pipe")?;
 
-    let opts = LzmaOptions {
-        lzma2: true,
-        dict_size: 128 * 1024 * 1024,
-        ..Default::default()
-    };
-    let mut codec = LzmaCodec::new(opts);
-    let tar_tmp = tempfile::Builder::new()
-        .prefix("openarc-extract-")
-        .suffix(".tar")
-        .tempfile_in(output_dir)
-        .with_context(|| format!("Failed to create temp tar in {}", output_dir.display()))?;
-    let mut tar_writer = std::io::BufWriter::new(tar_tmp.reopen()?);
-    codec
-        .decompress(&mut reader, &mut tar_writer)
-        .with_context(|| format!("LZMA2 decompression failed for {}", archive_path.display()))?;
-    tar_writer.flush()?;
+    let archive_path_owned = archive_path.to_path_buf();
+    let decompress_thread = thread::spawn(move || -> Result<()> {
+        let f = fs::File::open(&archive_path_owned)
+            .with_context(|| format!("Failed to open {}", archive_path_owned.display()))?;
+        let mut reader = std::io::BufReader::new(f);
+        let opts = LzmaOptions {
+            lzma2: true,
+            dict_size: 128 * 1024 * 1024,
+            ..Default::default()
+        };
+        let mut codec = LzmaCodec::new(opts);
+        let mut writer = std::io::BufWriter::new(pipe_writer);
+        codec.decompress(&mut reader, &mut writer).with_context(|| {
+            format!(
+                "LZMA2 decompression failed for {}",
+                archive_path_owned.display()
+            )
+        })?;
+        writer.flush().context("Failed to flush decompressed tar")?;
+        Ok(())
+    });
 
-    let tar_reader = std::io::BufReader::new(tar_tmp.reopen()?);
+    let tar_reader = std::io::BufReader::new(pipe_reader);
     let mut archive = tar::Archive::new(tar_reader);
-    archive
+    let unpack_result = archive
         .unpack(output_dir)
-        .with_context(|| format!("Failed to unpack {}", archive_path.display()))?;
+        .with_context(|| format!("Failed to unpack {}", archive_path.display()));
+
+    // Close the read end before joining so a failed unpack can't leave the
+    // decompressor blocked on a full pipe.
+    drop(archive);
+    let decompress_result = decompress_thread
+        .join()
+        .map_err(|_| anyhow!("Bundle decompress thread panicked"))?;
+    decompress_result?;
+    unpack_result?;
 
     let _ = fs::remove_file(archive_path);
     Ok(())
@@ -2719,10 +2814,10 @@ fn decode_bpg_to_jpeg(bpg_path: &Path, output_path: &Path, quality: u8) -> Resul
     match codecs::bpg::decode_file(&bpg_path.to_string_lossy()) {
         Ok((data, width, height, _format)) => {
             // Convert RGBA to RGB
-            let rgb_data: Vec<u8> = data
-                .chunks(4)
-                .flat_map(|rgba| [rgba[0], rgba[1], rgba[2]])
-                .collect();
+            let mut rgb_data: Vec<u8> = Vec::with_capacity((data.len() / 4) * 3);
+            for rgba in data.chunks_exact(4) {
+                rgb_data.extend_from_slice(&rgba[..3]);
+            }
 
             let img = image::RgbImage::from_raw(width, height, rgb_data)
                 .ok_or_else(|| anyhow!("Failed to create image buffer"))?;

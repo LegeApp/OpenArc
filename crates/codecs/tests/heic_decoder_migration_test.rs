@@ -30,7 +30,7 @@ mod heic_decoder_tests {
         assert!(version.is_some());
         let ver_str = version.unwrap();
         assert!(
-            ver_str.contains("heic-decoder-rs"),
+            ver_str.contains("bpg-decode"),
             "Version string: {}",
             ver_str
         );

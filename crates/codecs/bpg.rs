@@ -98,7 +98,7 @@ impl NativeBPGEncoder {
 
     pub fn default_config() -> BPGEncoderConfig {
         BPGEncoderConfig {
-            quality: 28,
+            quality: 29,
             bit_depth: 8,
             lossless: 0,
             chroma_format: 1,
@@ -1017,8 +1017,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_qp_is_28() {
-        assert_eq!(NativeBPGEncoder::default_config().quality, 28);
+    fn default_qp_is_29() {
+        assert_eq!(NativeBPGEncoder::default_config().quality, 29);
     }
 
     #[test]

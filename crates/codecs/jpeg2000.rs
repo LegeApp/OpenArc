@@ -1,4 +1,4 @@
-//! In-process JPEG 2000 decode via vendored `jp2lam`.
+//! In-process JPEG 2000 encode/decode via `jp2lam`.
 
 use std::path::Path;
 
@@ -14,6 +14,7 @@ pub fn encode_dynamic_image_to_jpeg2000(image: &DynamicImage, quality: u8) -> Re
         &EncodeOptions {
             quality,
             format: OutputFormat::Jp2,
+            ..EncodeOptions::default()
         },
     )
     .map_err(|err| anyhow!("{err}"))

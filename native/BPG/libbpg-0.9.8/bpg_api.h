@@ -20,7 +20,7 @@ typedef struct BPGEncoderContext BPGEncoderContext;
 
 /* Encoder configuration */
 typedef struct {
-    int quality;              /* 0-51, lower is better quality (default: 28) */
+    int quality;              /* 0-51, lower is better quality (default: 29) */
     int bit_depth;            /* 8, 10, or 12 bits per component */
     int lossless;             /* 1 for lossless, 0 for lossy */
     int chroma_format;        /* 0=grayscale, 1=4:2:0, 2=4:2:2, 3=4:4:4 */

@@ -29,8 +29,9 @@ cargo run -- create -o out.oarc ~/Pictures   # run the CLI in dev
 - **Sibling `bpg-rs` repo must exist at `../bpg-rs`.** `crates/codecs` has
   non-optional path dependencies on `../../../bpg-rs/crates/{bpg-decode,...}`.
   Without it, nothing compiles.
-- **Default `bpg-c` feature compiles native libbpg + vendored x265 4.1** via
-  `crates/codecs/build.rs` (needs CMake + a C/C++ toolchain). The build produces
+- **Default `bpg-rs` feature builds pure Rust — no CMake/C++ toolchain needed.**
+  The legacy `bpg-c` feature (opt-in) compiles native libbpg + vendored x265 4.1
+  via `crates/codecs/build.rs` (needs CMake + a C/C++ toolchain) and produces
   8/10/12-bit x265 static libs under `OUT_DIR`.
 - System libs for transitive image crates (Debian/Ubuntu):
   `sudo apt install ffmpeg libpng-dev libjpeg-turbo8-dev liblcms2-dev zlib1g-dev`
@@ -42,11 +43,12 @@ cargo run -- create -o out.oarc ~/Pictures   # run the CLI in dev
 `crates/codecs` (and the root crate that re-exports it) selects the BPG codec at
 compile time. Features are additive, so `bpg-rs` *overrides* the default:
 
-- `bpg-c` (default): native libbpg + vendored x265 (`bpg_c.rs`, build.rs compiles C/C++).
-- `bpg-rs`: pure-Rust encoder/decoder from the sibling `bpg-rs` crates
-  (`bpg_rs.rs`). Selecting it suppresses all C/C++ compilation in build.rs.
-  Build with `cargo build --no-default-features --features bpg-rs` (root) — note
-  the root crate forwards these as `codecs/bpg-c` / `codecs/bpg-rs`.
+- `bpg-rs` (default): pure-Rust encoder/decoder from the sibling `bpg-rs` crates
+  (`bpg_rs.rs`). Its presence suppresses all C/C++ compilation in build.rs.
+- `bpg-c` (legacy, opt-in): native libbpg + vendored x265 (`bpg_c.rs`, build.rs
+  compiles C/C++). Build with
+  `cargo build --no-default-features --features bpg-c` (root) — note the root
+  crate forwards these as `codecs/bpg-c` / `codecs/bpg-rs`.
 
 ## Tests
 

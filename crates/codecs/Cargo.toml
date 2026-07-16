@@ -6,17 +6,18 @@ license.workspace = true
 description = "BPG and HEIC codec implementations for OpenArc"
 
 [features]
-default = ["bpg-c"]
-# Default production path: libbpg C glue plus vendored x265 4.1.
+default = ["bpg-rs"]
+# Legacy opt-in path: libbpg C glue plus vendored x265 4.1. Not compiled by
+# default; enable explicitly with --no-default-features --features bpg-c.
 bpg-c = []
-# Development path: pure-Rust BPG encoder/decoder from the sibling bpg-rs repo.
-# Because Cargo features are additive, enabling `bpg-rs` selects the Rust BPG
-# implementation and suppresses the C build even if the default `bpg-c` feature
-# is still enabled.
+# Default production path: pure-Rust BPG encoder/decoder from the sibling
+# bpg-rs repo. Because Cargo features are additive, enabling `bpg-rs` selects
+# the Rust BPG implementation and suppresses the C build even if `bpg-c` is
+# also enabled.
 bpg-rs = ["dep:bpg-encode", "dep:bpg-image", "dep:still265"]
 
 [dependencies]
-jp2lam = { path = "../../jp2lam" }
+jp2lam = { git = "https://github.com/LegeApp/jp2lam" }
 bpg-decode = { path = "../../../bpg-rs/crates/bpg-decode" }
 bpg-encode = { path = "../../../bpg-rs/crates/bpg-encode", optional = true }
 bpg-image = { path = "../../../bpg-rs/crates/bpg-image", optional = true }

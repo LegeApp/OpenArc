@@ -42,14 +42,16 @@ impl BpgEffort {
     }
 
     /// Conservative default visual-quality value for the named OpenArc preset.
-    /// Lower BPG QP means higher quality/larger files. This is kept internal so
-    /// the CLI can present stable names instead of numeric BPG knobs.
+    /// Lower BPG QP means higher quality/larger files.  The default archival
+    /// presets intentionally use stock `bpgenc`'s default QP 29 so effort
+    /// choices change encoder speed/search depth without silently increasing
+    /// bitrate.
     pub fn default_quality(self) -> u8 {
         match self {
             Self::Balanced => 32,
-            Self::Good => 28,
-            Self::Best => 24,
-            Self::Placebo => 24,
+            Self::Good => 29,
+            Self::Best => 29,
+            Self::Placebo => 29,
         }
     }
 
@@ -164,7 +166,7 @@ impl BpgAq {
 
 impl Default for BpgAq {
     fn default() -> Self {
-        Self::TwoPass
+        Self::Off
     }
 }
 
@@ -199,9 +201,10 @@ impl FromStr for BpgAq {
 // ----------------------------------------------------------------------------
 // The compression/AQ options offered on the command line and in the interactive
 // wizard differ depending on which BPG backend is compiled in. The C/libbpg +
-// x265 backend (default) exposes the x265 preset levels `m8`/`m9` and forces
-// x265's built-in auto-variance AQ. The in-development pure-Rust backend
-// (`bpg-rs`) exposes the named effort presets and a restricted AQ selector.
+// x265 backend (default) exposes the x265 preset levels `m8`/`m9` and defaults
+// AQ off because practical corpus testing showed no perceptual benefit but
+// substantial file-size bloat. The in-development pure-Rust backend (`bpg-rs`)
+// exposes the named effort presets and a restricted AQ selector.
 //
 // Centralizing the allowed values here keeps the cfg logic in one place; cli.rs,
 // main.rs and interactive.rs consume these.
@@ -218,12 +221,11 @@ mod backend_cli {
     /// Default exposed effort for the C backend (`m8` => veryslow).
     pub const EFFORT_CLI_DEFAULT: &str = "m8";
 
-    /// The C/x265 path does not expose an AQ selector: x265's default
-    /// auto-variance AQ with the "ssim" tune is already excellent, and the
-    /// bpg-rs-specific AQ presets do not all map meaningfully to x265.
-    /// `BpgAq::Perceptual` resolves to `(aq_mode=2, aq_strength=1.0, aq_clamp=2)`,
-    /// which is exactly x265's auto-variance default.
-    pub const AQ_CLI_DEFAULT: BpgAq = BpgAq::Perceptual;
+    /// The C/x265 path does not expose an AQ selector. AQ is intentionally off
+    /// by default: enabling x265 AQ in CQP mode was a correctness fix, but real
+    /// archival-phone-image testing showed large file-size regressions without
+    /// visible benefit.
+    pub const AQ_CLI_DEFAULT: BpgAq = BpgAq::Off;
 }
 
 #[cfg(feature = "bpg-rs")]
@@ -237,7 +239,7 @@ mod backend_cli {
     /// presets performed worse, so only these three are offered.
     pub const AQ_CLI_VALUES: &[&str] = &["two-pass", "none", "perceptual-chroma"];
     /// Default exposed AQ preset for the Rust backend.
-    pub const AQ_CLI_DEFAULT: &str = "two-pass";
+    pub const AQ_CLI_DEFAULT: &str = "none";
 }
 
 pub use backend_cli::*;

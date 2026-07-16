@@ -21,14 +21,14 @@ struct BPGEncoderContext {
 void bpg_encoder_get_default_config(BPGEncoderConfig* config) {
     if (!config) return;
     
-    config->quality = 28;
+    config->quality = 29;
     config->bit_depth = 8;
     config->lossless = 0;
     config->chroma_format = 1;  /* 4:2:0 */
     config->encoder_type = 0;   /* x265 */
     config->compress_level = 8;
-    config->aq_mode = 2;        /* x265 auto-variance AQ (SSIM tune) */
-    config->aq_strength = 1.0f;
+    config->aq_mode = 0;        /* AQ off by default: smaller files in CQP archival mode */
+    config->aq_strength = 0.0f;
     config->aq_clamp = 2;
     config->two_pass_gate = 1;
     config->_reserved[0] = 0;
