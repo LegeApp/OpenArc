@@ -38,9 +38,12 @@ MSYS2, C BPG, or bundled FFmpeg toolchain override is required.
 ## Archive Format
 
 - Standard images are converted to BPG and stored in `media/`.
-- Already-compressed videos are bundled into `misc.arc`.
-- Videos needing external encoding are staged separately unless using no-zip
-  folder output.
-- Camera RAW files are copied losslessly into `raw.arc`.
-- Miscellaneous files are copied losslessly into `misc.arc`.
+- Already-compressed videos are stored directly under `media/`.
+- Videos needing external encoding are staged beside the requested output.
+  Archive mode waits for a user-supplied encoded-output folder before the final
+  `.oarc` path is completed.
+- Camera RAW files are copied losslessly into an LZMA2-compressed tar stream
+  named `raw.arc`.
+- Miscellaneous files are copied losslessly into an LZMA2-compressed tar stream
+  named `misc.arc`.
 - The default `.oarc` output is a `.tar.zst` container.

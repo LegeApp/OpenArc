@@ -40,15 +40,22 @@ pub enum Commands {
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
 
-        /// BPG compression effort. C backend: x265 preset (m8=veryslow, m9=placebo).
-        /// Rust backend: named preset (balanced, good/slow, best, placebo).
+        /// BPG compression effort: best (production default) or fast.
         #[arg(long, default_value = crate::bpg_wrapper::EFFORT_CLI_DEFAULT, value_parser = bpg_effort_parser())]
         bpg_effort: String,
 
-        /// BPG adaptive quantization preset (Rust backend only; the C/x265
-        /// backend keeps AQ off and does not expose this selector).
+        /// BPG adaptive quantization (Rust backend only). AQ is off by default.
+        /// `--bpg-aq` enables the recommended two-pass mode; use
+        /// `--bpg-aq=<mode>` to select another mode.
         #[cfg(feature = "bpg-rs")]
-        #[arg(long, default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT, value_parser = bpg_aq_parser())]
+        #[arg(
+            long,
+            default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT,
+            default_missing_value = crate::bpg_wrapper::AQ_CLI_DEFAULT_WHEN_ENABLED,
+            num_args = 0..=1,
+            require_equals = true,
+            value_parser = bpg_aq_parser()
+        )]
         bpg_aq: String,
 
         /// Advanced/testing override for BPG QP (0-51, lower = better quality).
@@ -56,26 +63,22 @@ pub enum Commands {
         #[arg(long, hide = true)]
         bpg_quality: Option<i32>,
 
-        /// Enable lossless BPG compression
-        #[arg(long)]
-        bpg_lossless: bool,
-
         /// ZSTD level (1-22) for the final archive container. The container
         /// wraps already-compressed BPG/video/LZMA2 data, so a low value
         /// (1-6) is recommended; higher levels mostly waste CPU.
         #[arg(long, default_value = "3")]
         compression_level: i32,
 
-        /// LZMA2 level (1-9) for misc.arc, the bundle of small/likely
-        /// uncompressible misc files (documents, configs, etc.)
+        /// LZMA2 level (1-9) for misc.arc, the bundle of small/compressible
+        /// miscellaneous files (documents, configs, etc.)
         #[arg(long, default_value = "6")]
         misc_compression_level: i32,
 
-        /// Disable catalog (incremental backup tracking)
+        /// Disable the persistent archive-history catalog
         #[arg(long)]
         no_catalog: bool,
 
-        /// Disable deduplication
+        /// Disable within-job duplicate-content detection (all paths are preserved)
         #[arg(long)]
         no_dedup: bool,
 
@@ -122,24 +125,27 @@ pub enum Commands {
         #[arg(short, long)]
         output: PathBuf,
 
-        /// BPG compression effort. C backend: x265 preset (m8=veryslow, m9=placebo).
-        /// Rust backend: named preset (balanced, good/slow, best, placebo).
+        /// BPG compression effort: best (production default) or fast.
         #[arg(long, default_value = crate::bpg_wrapper::EFFORT_CLI_DEFAULT, value_parser = bpg_effort_parser())]
         effort: String,
 
-        /// BPG adaptive quantization preset (Rust backend only; the C/x265
-        /// backend keeps AQ off and does not expose this selector).
+        /// BPG adaptive quantization (Rust backend only). AQ is off by default.
+        /// `--aq` enables the recommended two-pass mode; use `--aq=<mode>` to
+        /// select another mode.
         #[cfg(feature = "bpg-rs")]
-        #[arg(long, default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT, value_parser = bpg_aq_parser())]
+        #[arg(
+            long,
+            default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT,
+            default_missing_value = crate::bpg_wrapper::AQ_CLI_DEFAULT_WHEN_ENABLED,
+            num_args = 0..=1,
+            require_equals = true,
+            value_parser = bpg_aq_parser()
+        )]
         aq: String,
 
         /// Advanced/testing override for BPG QP (0-51, lower = better quality)
         #[arg(short, long, hide = true)]
         quality: Option<u8>,
-
-        /// Enable lossless compression
-        #[arg(long)]
-        lossless: bool,
     },
 
     /// Batch convert images to BPG
@@ -151,28 +157,32 @@ pub enum Commands {
         #[arg(short, long)]
         output: PathBuf,
 
-        /// BPG compression effort. C backend: x265 preset (m8=veryslow, m9=placebo).
-        /// Rust backend: named preset (balanced, good/slow, best, placebo).
+        /// BPG compression effort: best (production default) or fast.
         #[arg(long, default_value = crate::bpg_wrapper::EFFORT_CLI_DEFAULT, value_parser = bpg_effort_parser())]
         effort: String,
 
-        /// BPG adaptive quantization preset (Rust backend only; the C/x265
-        /// backend keeps AQ off and does not expose this selector).
+        /// BPG adaptive quantization (Rust backend only). AQ is off by default.
+        /// `--aq` enables the recommended two-pass mode; use `--aq=<mode>` to
+        /// select another mode.
         #[cfg(feature = "bpg-rs")]
-        #[arg(long, default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT, value_parser = bpg_aq_parser())]
+        #[arg(
+            long,
+            default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT,
+            default_missing_value = crate::bpg_wrapper::AQ_CLI_DEFAULT_WHEN_ENABLED,
+            num_args = 0..=1,
+            require_equals = true,
+            value_parser = bpg_aq_parser()
+        )]
         aq: String,
 
         /// Advanced/testing override for BPG QP (0-51, lower = better quality)
         #[arg(short, long, hide = true)]
         quality: Option<u8>,
-
-        /// Enable lossless compression
-        #[arg(long)]
-        lossless: bool,
     },
 
-    // === ArcMax Compression Commands ===
-    /// Compress a file with LZMA2 or Zstd via arcmax
+    // === Standalone LZMA2/Zstandard Compression Commands ===
+    /// Compress files with LZMA2 or Zstandard
+    #[command(name = "compress", alias = "arc-compress")]
     ArcCompress {
         /// Input files to compress
         #[arg(required = true)]
@@ -195,7 +205,8 @@ pub enum Commands {
         dict_size: u32,
     },
 
-    /// Decompress a file compressed with arcmax
+    /// Decompress a file produced by `openarc compress`
+    #[command(name = "decompress", alias = "arc-extract")]
     ArcExtract {
         /// File to decompress
         #[arg(required = true)]
@@ -204,13 +215,10 @@ pub enum Commands {
         /// Output file path
         #[arg(short, long)]
         output: Option<PathBuf>,
-
-        /// Password (reserved, currently unused)
-        #[arg(short, long)]
-        password: Option<String>,
     },
 
-    /// Test LZMA2/Zstd round-trip via arcmax
+    /// Test an LZMA2/Zstandard round trip
+    #[command(name = "compression-test", alias = "arc-test")]
     ArcTest {
         /// Test data string
         #[arg(
@@ -227,4 +235,48 @@ pub enum Commands {
 
     /// Detect connected phone devices (MTP on Windows, mounted media on Linux)
     PhoneDetect,
+}
+
+#[cfg(all(test, feature = "bpg-rs"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_defaults_to_best_with_aq_off() {
+        let cli = Cli::try_parse_from(["openarc", "create", "-o", "out.oarc", "input"])
+            .expect("CLI should parse");
+        match cli.command {
+            Commands::Create {
+                bpg_effort, bpg_aq, ..
+            } => {
+                assert_eq!(bpg_effort, "best");
+                assert_eq!(bpg_aq, "off");
+            }
+            _ => panic!("expected create command"),
+        }
+    }
+
+    #[test]
+    fn bare_aq_flag_enables_two_pass() {
+        let cli = Cli::try_parse_from(["openarc", "create", "-o", "out.oarc", "input", "--bpg-aq"])
+            .expect("CLI should parse");
+        match cli.command {
+            Commands::Create { bpg_aq, .. } => assert_eq!(bpg_aq, "two-pass"),
+            _ => panic!("expected create command"),
+        }
+    }
+
+    #[test]
+    fn placebo_is_not_a_public_cli_effort() {
+        assert!(Cli::try_parse_from([
+            "openarc",
+            "create",
+            "-o",
+            "out.oarc",
+            "input",
+            "--bpg-effort",
+            "placebo",
+        ])
+        .is_err());
+    }
 }

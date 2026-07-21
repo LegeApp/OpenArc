@@ -1,8 +1,8 @@
 //! BPG encode/decode facade backed by the Rust `bpg-rs` crates.
 
-use anyhow::{Context, Result, anyhow, bail, ensure};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use bpg_decode::{DecoderConfig, PixelLayout};
-use bpg_encode::{EncoderTuning, HevcEncoder, encode_still_image};
+use bpg_encode::{encode_still_image, EncoderTuning, HevcEncoder};
 use bpg_image::{ChromaFormat, ColorSpace, Image, Plane};
 use std::path::Path;
 use still265::backend::RustStillHevcEncoder;
@@ -384,7 +384,7 @@ fn validate_config(config: &BPGEncoderConfig) -> Result<()> {
         matches!(config.encoder_type, 0..=2),
         "BPG encoder type must be 0=balanced, 1=slow, or 2=placebo"
     );
-    ensure!(matches!(config.aq_mode, 0..=6), "BPG AQ mode must be 0..=6");
+    ensure!(matches!(config.aq_mode, 0..=8), "BPG AQ mode must be 0..=8");
     ensure!(
         config.aq_strength.is_finite() && config.aq_strength >= 0.0,
         "BPG AQ strength must be finite and non-negative"
@@ -408,6 +408,8 @@ fn aq_from_code(code: i32) -> AqMode {
         4 => AqMode::PsnrProbe,
         5 => AqMode::PositiveProbe,
         6 => AqMode::TwoPassMeasured,
+        7 => AqMode::AutoVariance,
+        8 => AqMode::AutoVarianceBiased,
         _ => AqMode::Off,
     }
 }
@@ -418,7 +420,8 @@ fn aq_from_config(config: &BPGEncoderConfig) -> (AqMode, f32, u8) {
         AqMode::Off => (0.0, 2),
         AqMode::LegacyShrink => (0.0, 8),
         AqMode::Perceptual | AqMode::PerceptualChroma => (0.35, 2),
-        AqMode::TwoPassMeasured => (0.60, 3),
+        AqMode::AutoVariance | AqMode::AutoVarianceBiased => (1.0, 6),
+        AqMode::TwoPassMeasured => (1.0, 4),
         AqMode::PsnrProbe | AqMode::PositiveProbe => (0.35, 2),
     };
     let strength = if config.aq_strength > 0.0 {
@@ -444,6 +447,8 @@ pub fn resolve_aq_preset(name: &str) -> Option<(i32, f32, u8)> {
         AqMode::PsnrProbe => 4,
         AqMode::PositiveProbe => 5,
         AqMode::TwoPassMeasured => 6,
+        AqMode::AutoVariance => 7,
+        AqMode::AutoVarianceBiased => 8,
     };
     Some((code, strength, clamp))
 }
@@ -840,6 +845,9 @@ pub fn estimate_bpg_memory(
         aq_strength: 0.35,
         aq_clamp: 2,
         two_pass_gate: true,
+        psy_rd: 0.0,
+        psy_rdoq: 0.0,
+        aq_qg: 32,
     };
     batch::estimate_memory(&cfg)
 }
@@ -868,6 +876,9 @@ pub fn recommended_bpg_concurrency(
         aq_strength: 0.35,
         aq_clamp: 2,
         two_pass_gate: true,
+        psy_rd: 0.0,
+        psy_rdoq: 0.0,
+        aq_qg: 32,
     };
     batch::recommended_concurrency(&cfg, ram_budget_bytes)
 }
@@ -943,7 +954,7 @@ pub fn batch_encode_images(jobs: &[EncodeBatchJob], concurrency: usize) -> Resul
 /// Peak memory estimate for one BPG encode, using integer chroma/encoder codes
 /// matching the orchestrator's convention:
 /// - `chroma_format`: 0=4:2:0, 1=4:2:0(default), 2=4:2:2, 3=4:4:4
-/// - `encoder_type`: 0=Fast/Balanced, 1=Slow, 2=Placebo
+/// - `encoder_type`: 0=Fast, 1=Slow (OpenArc production Best), 2=Placebo
 pub fn estimate_encode_peak(
     w: u32,
     h: u32,
@@ -1009,6 +1020,9 @@ pub fn still_hevc_config(
         aq_strength: 0.35,
         aq_clamp: 2,
         two_pass_gate: true,
+        psy_rd: 0.0,
+        psy_rdoq: 0.0,
+        aq_qg: 32,
     }
 }
 

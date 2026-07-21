@@ -16,7 +16,10 @@ pub fn openarc_data_dir() -> PathBuf {
         // %APPDATA%/OpenArc
         std::env::var("APPDATA")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("."))
+            .ok()
+            .or_else(dirs::data_dir)
+            .or_else(|| dirs::home_dir().map(|home| home.join("AppData/Roaming")))
+            .unwrap_or_else(std::env::temp_dir)
             .join("OpenArc")
     } else if cfg!(target_os = "macos") {
         dirs::home_dir()
@@ -89,7 +92,13 @@ impl FileTracker {
                 output_path TEXT,
                 processing_mode TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_file_hash ON processed_files(file_hash);",
+            CREATE INDEX IF NOT EXISTS idx_file_hash ON processed_files(file_hash);
+            DELETE FROM processed_files
+              WHERE id NOT IN (SELECT MAX(id) FROM processed_files GROUP BY file_hash);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_file_hash_unique
+              ON processed_files(file_hash);
+            PRAGMA wal_autocheckpoint = 1000;
+            PRAGMA journal_size_limit = 4194304;",
         )?;
 
         let run_id = generate_run_id();
@@ -166,7 +175,16 @@ impl FileTracker {
             let mut stmt = tx.prepare(
                 "INSERT INTO processed_files
                  (file_name, file_hash, file_size, processed_at, run_id, archive_name, archive_hash, output_path, processing_mode)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(file_hash) DO UPDATE SET
+                   file_name=excluded.file_name,
+                   file_size=excluded.file_size,
+                   processed_at=excluded.processed_at,
+                   run_id=excluded.run_id,
+                   archive_name=excluded.archive_name,
+                   archive_hash=excluded.archive_hash,
+                   output_path=excluded.output_path,
+                   processing_mode=excluded.processing_mode"
             )?;
 
             for r in records {
@@ -234,6 +252,7 @@ impl FileTracker {
 
         let log_path = logs_dir.join(format!("run_{}.log", self.run_id));
         fs::write(&log_path, content)?;
+        prune_old_logs(&logs_dir, 20)?;
         Ok(log_path)
     }
 
@@ -266,6 +285,19 @@ impl FileTracker {
         }
         println!();
     }
+}
+
+fn prune_old_logs(logs_dir: &Path, keep: usize) -> Result<()> {
+    let mut logs: Vec<_> = fs::read_dir(logs_dir)?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("log"))
+        .collect();
+    logs.sort_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok());
+    let remove_count = logs.len().saturating_sub(keep);
+    for entry in logs.into_iter().take(remove_count) {
+        let _ = fs::remove_file(entry.path());
+    }
+    Ok(())
 }
 
 /// Generate a simple unique run ID (timestamp + random suffix).
