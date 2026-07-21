@@ -5,10 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 OpenArc is a media archiver for photo/camera/video folders. It converts standard
-images to BPG, optionally recompresses videos, preserves camera RAW losslessly,
-and bundles everything into a single `.oarc` (a `.tar.zst` container) with
-manifests and hashes. It ships as both a library (`openarc`) and a CLI binary
-(`openarc`), plus an interactive terminal wizard.
+images to BPG, stages inefficient videos for external encoding, preserves camera
+RAW losslessly, and bundles everything into a single `.oarc` (a `.tar.zst`
+container) with manifests and hashes. It ships as both a library (`openarc`) and
+a CLI binary (`openarc`), plus an interactive terminal wizard.
 
 ## Build & run
 
@@ -78,11 +78,13 @@ Integration tests are under `crates/codecs/tests/`, `vendor/arcmax/tests/`, and
    large-image encodes don't OOM):
    - **Image** → decode → BPG encode. If BPG output trips bitrate criteria, a
      **JPEG 2000 q85 fallback** is tried and kept only if smaller.
-   - **Video** → `analyze_video_compression` (ffprobe, 5s timeout); recompress
-     or pass through; videos needing external encoding are *staged* for the user
-     to encode and merge back (`append_external_video_bundle`).
-   - **Raw** → stored losslessly in `raw.arc` (LZMA2 level 9, 128 MiB dict).
-   - **Misc** → `misc.arc` (LZMA2).
+   - **Video** → `analyze_video_compression` (ffprobe, 5s timeout); efficient
+     videos pass through under `media/`; videos needing external encoding are
+     staged. Archive mode waits for the user-provided encoded-output directory,
+     merges those files directly under `media/`, and only then finalizes the
+     requested archive path (`append_external_video_bundle`).
+   - **Raw** → stored losslessly in `raw.arc` (LZMA2-compressed tar stream).
+   - **Misc** → `misc.arc` (LZMA2-compressed tar stream).
 5. **Bundle** into the `.oarc` (`.tar.zst`) container.
 
 Restoration metadata (`OPENARC_METADATA.json`, `ImageMetadata` /
@@ -101,7 +103,8 @@ codecs are stack-hungry.
   compress/extract/test), `phone-detect`. No args → interactive mode.
 - `interactive.rs` / `interactive_menu.rs` — crossterm TUI wizard.
 - `bpg_wrapper.rs` — public-facing BPG presets (`BpgEffort`, `BpgAq`,
-  `BpgConfig`); maps friendly names (balanced/good/best/placebo) to encoder params.
+  `BpgConfig`); exposes production `best` and `fast` effort tiers, with AQ off
+  by default and measured two-pass AQ as the recommended opt-in.
 - `image_loader.rs` / `jpeg_decoder.rs` — decode via zune-jpeg (JPEG) and the
   `image` crate (everything else).
 - `backup_catalog.rs` / `file_tracker.rs` / `archive_tracker.rs` — SQLite
@@ -114,16 +117,17 @@ codecs are stack-hungry.
 
 ### Workspace crates
 
-- `vendor/arcmax` — the compression engine. Pure-Rust port of FreeArc codecs;
-  in practice OpenArc uses **LZMA2 and Zstd only** (the rest of FreeArc was
-  abandoned). Used via `arcmax::{compress_with, decompress, Method,
-  CompressionOptions}`. Referenced as a path dep from the root Cargo.toml.
+- `vendor/arcmax` — the compression engine. OpenArc uses **LZMA2 and Zstd
+  only**; it does not create FreeARC-format archives. Used via
+  `arcmax::{compress_with, decompress, Method, CompressionOptions}`. Referenced
+  as a path dep from the root Cargo.toml.
 - `crates/codecs` — BPG (C or Rust backend), HEIC decode (pure-Rust
   `heic-decoder-rs`, *not* libheif), JPEG 2000 (`jp2lam`), RAW (`libraw_sys`),
   and `video_analyzer`. `mod.rs` is the crate root (`path = "mod.rs"`).
 - `crates/winmtp` — Windows MTP device access (only built `cfg(windows)`).
-- `crates/zune-image`, `jp2lam`, `vendor/arcmax/vendor` — vendored image/codec
-  libraries. `openjp2`, `jp2lam`, `dng-rs` are **excluded** from the workspace.
+- `crates/zune-image`, `vendor/arcmax/vendor` — vendored image/codec libraries.
+  `jp2lam` is fetched directly from GitHub; `openjp2` and `dng-rs` are excluded
+  from the workspace.
 
 ### Native code
 

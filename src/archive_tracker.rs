@@ -41,6 +41,7 @@ impl<'a> ArchiveTracker<'a> {
         self.conn
             .execute_batch(
                 r#"
+            PRAGMA foreign_keys = ON;
             -- Table to track created archives
             CREATE TABLE IF NOT EXISTS archives (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,6 +76,13 @@ impl<'a> ArchiveTracker<'a> {
 
             -- Index for faster lookups by file_path
             CREATE INDEX IF NOT EXISTS idx_archive_files_path ON archive_files (file_path);
+
+            -- Keep one current record per destination path. Older versions
+            -- appended a full file mapping on every replacement run.
+            DELETE FROM archives
+              WHERE id NOT IN (SELECT MAX(id) FROM archives GROUP BY archive_path);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_archives_path_unique
+              ON archives (archive_path);
         "#,
             )
             .context("Failed to create schema")?;
@@ -86,9 +94,16 @@ impl<'a> ArchiveTracker<'a> {
 
         // Insert the archive record
         let archive_id = self.conn.query_row(
-            "INSERT INTO archives 
+            "INSERT INTO archives
              (archive_path, archive_size, creation_date, original_location, destination_location, description, file_count)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(archive_path) DO UPDATE SET
+               archive_size=excluded.archive_size,
+               creation_date=excluded.creation_date,
+               original_location=excluded.original_location,
+               destination_location=excluded.destination_location,
+               description=excluded.description,
+               file_count=excluded.file_count
              RETURNING id",
             params![
                 &record.archive_path,
@@ -120,7 +135,12 @@ impl<'a> ArchiveTracker<'a> {
 
         let now = now_secs();
 
-        for mut file_mapping in files {
+        tx.execute(
+            "DELETE FROM archive_files WHERE archive_id = ?1",
+            params![archive_id],
+        )?;
+
+        for file_mapping in files {
             tx.execute(
                 "INSERT INTO archive_files 
                  (archive_id, file_path, original_path, file_size, archived_at)

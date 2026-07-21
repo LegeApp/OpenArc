@@ -1,14 +1,14 @@
 // BPG encoding wrapper for FFI use.
 //
-// The public OpenArc-facing preset is intentionally named (`balanced`, `good`,
-// `best`) because the current bpg-rs integration should not expose libbpg-era
-// encoder/compression numeric knobs to the CLI. Internally this module still
-// translates those named presets into the numeric fields expected by the lower
-// level encoder config currently used by `codecs::bpg`.
+// The public OpenArc-facing presets intentionally mirror the production
+// bpg-rs shape: `best` (upstream `Effort::Slow`) and `fast`. Experimental
+// Placebo and legacy libbpg numeric knobs are not exposed. Internally this
+// module translates the names into the numeric compatibility fields used by
+// `codecs::bpg`.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use codecs::bpg::{BPGEncoderConfig, BPGImageFormat, NativeBPGEncoder};
-use codecs::heic::{HeicChromaFormat, HeicCodec, matrix_coeffs_to_bpg_color_space};
+use codecs::heic::{matrix_coeffs_to_bpg_color_space, HeicChromaFormat, HeicCodec};
 use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
@@ -18,15 +18,15 @@ use crate::image_loader;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BpgEffort {
-    Balanced,
-    Good,
+    /// Faster encode with cheaper search budgets. Maps to bpg-rs `Effort::Fast`.
+    Fast,
+    /// Production archival tier and the default. Maps to bpg-rs `Effort::Slow`
+    /// (documented upstream as "the default archival-quality preset").
     Best,
-    Placebo,
 }
 
 impl BpgEffort {
-    pub const VALID_VALUES: &'static [&'static str] =
-        &["balanced", "good", "best", "slow", "placebo", "m8", "m9"];
+    pub const VALID_VALUES: &'static [&'static str] = &["best", "fast"];
 
     pub fn parse(value: &str) -> Result<Self> {
         value.parse()
@@ -34,10 +34,8 @@ impl BpgEffort {
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Balanced => "balanced",
-            Self::Good => "good",
+            Self::Fast => "fast",
             Self::Best => "best",
-            Self::Placebo => "placebo",
         }
     }
 
@@ -48,42 +46,38 @@ impl BpgEffort {
     /// bitrate.
     pub fn default_quality(self) -> u8 {
         match self {
-            Self::Balanced => 32,
-            Self::Good => 29,
+            Self::Fast => 32,
             Self::Best => 29,
-            Self::Placebo => 29,
         }
     }
 
     /// Internal bpg-rs effort/compression mapping.
     pub fn compression_level(self) -> u8 {
         match self {
-            Self::Balanced => 6,
-            Self::Good => 8,
-            Self::Best => 9,
-            Self::Placebo => 9,
+            Self::Fast => 6,
+            Self::Best => 8,
         }
     }
 
-    /// Internal bpg-rs effort mapping: 0=Fast/Balanced, 1=Slow, 2=Placebo.
+    /// Internal bpg-rs effort mapping: 0=Fast, 1=Slow (the production "Best"
+    /// tier). The experimental Placebo tier (2) is intentionally not selectable.
     pub fn encoder_type(self) -> u8 {
         match self {
-            Self::Balanced => 0,
-            Self::Good | Self::Best => 1,
-            Self::Placebo => 2,
+            Self::Fast => 0,
+            Self::Best => 1,
         }
     }
 
+    /// Two-pass measured AQ requires bpg-rs `Effort::Slow` or `Placebo`; only the
+    /// `Best` tier maps onto that, so `Fast` cannot run it.
     pub fn supports_two_pass_aq(self) -> bool {
-        !matches!(self, Self::Balanced)
+        matches!(self, Self::Best)
     }
 
     pub fn hint(self) -> &'static str {
         match self {
-            Self::Balanced => "smaller/faster archival image setting",
-            Self::Good => "default slow archival image setting",
-            Self::Best => "slower high-quality image setting",
-            Self::Placebo => "largest/slowest experimental quality setting",
+            Self::Fast => "faster encode, slightly larger files",
+            Self::Best => "production archival image quality (default)",
         }
     }
 }
@@ -99,14 +93,8 @@ impl FromStr for BpgEffort {
 
     fn from_str(value: &str) -> Result<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
-            "balanced" | "balance" | "medium" | "fast" => Ok(Self::Balanced),
-            // `m8` is the C/x265 "veryslow" preset (compress_level 8); it maps onto
-            // the `Good` effort whose `compression_level()` is 8.
-            "good" | "default" | "slow" | "m8" => Ok(Self::Good),
-            "best" | "max" | "maximum" => Ok(Self::Best),
-            // `m9` is the C/x265 "placebo" preset (compress_level 9); it maps onto
-            // the `Placebo` effort whose `compression_level()` is 9.
-            "placebo" | "m9" => Ok(Self::Placebo),
+            "fast" => Ok(Self::Fast),
+            "best" => Ok(Self::Best),
             other => Err(anyhow!(
                 "invalid BPG effort '{other}', expected one of: {}",
                 Self::VALID_VALUES.join(", ")
@@ -122,21 +110,11 @@ pub enum BpgAq {
     TwoPass,
     Perceptual,
     PerceptualChroma,
-    PerceptualMild,
-    PerceptualChromaMild,
-    LegacyShrink,
 }
 
 impl BpgAq {
-    pub const VALID_VALUES: &'static [&'static str] = &[
-        "off",
-        "two-pass",
-        "perceptual",
-        "perceptual-chroma",
-        "perceptual-mild",
-        "perceptual-chroma-mild",
-        "legacy-shrink",
-    ];
+    pub const VALID_VALUES: &'static [&'static str] =
+        &["off", "two-pass", "perceptual", "perceptual-chroma"];
 
     pub fn parse(value: &str) -> Result<Self> {
         value.parse()
@@ -148,17 +126,12 @@ impl BpgAq {
             Self::TwoPass => "two-pass",
             Self::Perceptual => "perceptual",
             Self::PerceptualChroma => "perceptual-chroma",
-            Self::PerceptualMild => "perceptual-mild",
-            Self::PerceptualChromaMild => "perceptual-chroma-mild",
-            Self::LegacyShrink => "legacy-shrink",
         }
     }
 
     pub fn validate_for_effort(self, effort: BpgEffort) -> Result<()> {
         if self == Self::TwoPass && !effort.supports_two_pass_aq() {
-            return Err(anyhow!(
-                "BPG two-pass AQ requires --bpg-effort slow/good/best or placebo"
-            ));
+            return Err(anyhow!("BPG two-pass AQ requires --bpg-effort best"));
         }
         Ok(())
     }
@@ -185,9 +158,6 @@ impl FromStr for BpgAq {
             "two-pass" | "twopass" | "2pass" | "2-pass" => Ok(Self::TwoPass),
             "perceptual" => Ok(Self::Perceptual),
             "perceptual-chroma" | "perceptual_chroma" => Ok(Self::PerceptualChroma),
-            "perceptual-mild" | "perceptual_mild" => Ok(Self::PerceptualMild),
-            "perceptual-chroma-mild" | "perceptual_chroma_mild" => Ok(Self::PerceptualChromaMild),
-            "legacy-shrink" | "legacy" => Ok(Self::LegacyShrink),
             other => Err(anyhow!(
                 "invalid BPG AQ preset '{other}', expected one of: {}",
                 Self::VALID_VALUES.join(", ")
@@ -199,12 +169,11 @@ impl FromStr for BpgAq {
 // ============================================================================
 // Per-backend CLI surface
 // ----------------------------------------------------------------------------
-// The compression/AQ options offered on the command line and in the interactive
-// wizard differ depending on which BPG backend is compiled in. The C/libbpg +
-// x265 backend (default) exposes the x265 preset levels `m8`/`m9` and defaults
-// AQ off because practical corpus testing showed no perceptual benefit but
-// substantial file-size bloat. The in-development pure-Rust backend (`bpg-rs`)
-// exposes the named effort presets and a restricted AQ selector.
+// OpenArc deliberately exposes only the production bpg-rs shape:
+// - Best (upstream `Effort::Slow`) as the default
+// - Fast as the other effort tier
+// - AQ off by default, with two-pass as the recommended opt-in followed by the
+//   two supported single-pass perceptual variants.
 //
 // Centralizing the allowed values here keeps the cfg logic in one place; cli.rs,
 // main.rs and interactive.rs consume these.
@@ -214,32 +183,24 @@ impl FromStr for BpgAq {
 mod backend_cli {
     use super::BpgAq;
 
-    /// Compression-effort choices exposed for the C/x265 backend. These are the
-    /// x265 preset levels: `m8` => "veryslow" (compress_level 8), `m9` =>
-    /// "placebo" (compress_level 9).
-    pub const EFFORT_CLI_VALUES: &[&str] = &["m8", "m9"];
-    /// Default exposed effort for the C backend (`m8` => veryslow).
-    pub const EFFORT_CLI_DEFAULT: &str = "m8";
+    pub const EFFORT_CLI_VALUES: &[&str] = &["best", "fast"];
+    pub const EFFORT_CLI_DEFAULT: &str = "best";
 
-    /// The C/x265 path does not expose an AQ selector. AQ is intentionally off
-    /// by default: enabling x265 AQ in CQP mode was a correctness fix, but real
-    /// archival-phone-image testing showed large file-size regressions without
-    /// visible benefit.
+    /// The legacy C/x265 path does not expose the bpg-rs AQ selector.
     pub const AQ_CLI_DEFAULT: BpgAq = BpgAq::Off;
 }
 
 #[cfg(feature = "bpg-rs")]
 mod backend_cli {
-    /// Compression-effort presets exposed for the pure-Rust backend.
-    pub const EFFORT_CLI_VALUES: &[&str] = &["balanced", "good", "best", "slow", "placebo"];
-    /// Default exposed effort for the Rust backend.
-    pub const EFFORT_CLI_DEFAULT: &str = "good";
+    /// Production effort presets exposed for the pure-Rust backend.
+    pub const EFFORT_CLI_VALUES: &[&str] = &["best", "fast"];
+    pub const EFFORT_CLI_DEFAULT: &str = "best";
 
-    /// Restricted AQ selector for the Rust backend. Testing showed the other
-    /// presets performed worse, so only these three are offered.
-    pub const AQ_CLI_VALUES: &[&str] = &["two-pass", "none", "perceptual-chroma"];
-    /// Default exposed AQ preset for the Rust backend.
-    pub const AQ_CLI_DEFAULT: &str = "none";
+    /// Order is intentional: AQ remains disabled unless requested; when the
+    /// flag is supplied without a value, two-pass is the recommended mode.
+    pub const AQ_CLI_VALUES: &[&str] = &["off", "two-pass", "perceptual", "perceptual-chroma"];
+    pub const AQ_CLI_DEFAULT: &str = "off";
+    pub const AQ_CLI_DEFAULT_WHEN_ENABLED: &str = "two-pass";
 }
 
 pub use backend_cli::*;
@@ -248,7 +209,6 @@ pub use backend_cli::*;
 pub struct BpgConfig {
     pub effort: BpgEffort,
     pub aq: BpgAq,
-    pub lossless: bool,
     pub bit_depth: u8,
     /// Optional hidden/testing override. Normal CLI paths should leave this as
     /// `None` and use `effort`.
@@ -257,12 +217,8 @@ pub struct BpgConfig {
 
 impl BpgConfig {
     pub fn effective_quality(&self) -> u8 {
-        if self.lossless {
-            0
-        } else {
-            self.quality_override
-                .unwrap_or_else(|| self.effort.default_quality())
-        }
+        self.quality_override
+            .unwrap_or_else(|| self.effort.default_quality())
     }
 
     pub fn to_encoder_config(&self, chroma_format: i32) -> BPGEncoderConfig {
@@ -271,8 +227,6 @@ impl BpgConfig {
         BPGEncoderConfig {
             quality: self.effective_quality() as i32,
             bit_depth: self.bit_depth as i32,
-            // The current Rust backend does not expose a true lossless BPG path;
-            // quality 0 is the practical near-lossless fallback.
             lossless: 0,
             chroma_format,
             encoder_type: self.effort.encoder_type() as i32,
@@ -372,4 +326,42 @@ pub fn encode_image_to_bpg<P: AsRef<Path>>(
     std::fs::write(output_path.as_ref(), bpg_data).context("Failed to write BPG file")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_effort_surface_is_best_then_fast() {
+        assert_eq!(EFFORT_CLI_VALUES, &["best", "fast"]);
+        assert_eq!(EFFORT_CLI_DEFAULT, "best");
+        assert_eq!(BpgEffort::Best.encoder_type(), 1);
+        assert_eq!(BpgEffort::Fast.encoder_type(), 0);
+        assert!(BpgEffort::parse("placebo").is_err());
+        assert!(BpgEffort::parse("balanced").is_err());
+    }
+
+    #[cfg(feature = "bpg-rs")]
+    #[test]
+    fn public_aq_surface_is_off_then_recommended_two_pass() {
+        assert_eq!(
+            AQ_CLI_VALUES,
+            &["off", "two-pass", "perceptual", "perceptual-chroma"]
+        );
+        assert_eq!(AQ_CLI_DEFAULT, "off");
+        assert_eq!(AQ_CLI_DEFAULT_WHEN_ENABLED, "two-pass");
+
+        let (mode, strength, clamp) =
+            codecs::bpg::resolve_aq_preset("two-pass").expect("upstream AQ preset");
+        assert_eq!(mode, 6);
+        assert!((strength - 1.0).abs() < f32::EPSILON);
+        assert_eq!(clamp, 4);
+    }
+
+    #[test]
+    fn two_pass_is_only_valid_for_production_best() {
+        assert!(BpgAq::TwoPass.validate_for_effort(BpgEffort::Best).is_ok());
+        assert!(BpgAq::TwoPass.validate_for_effort(BpgEffort::Fast).is_err());
+    }
 }

@@ -8,7 +8,6 @@ exclude = [
     "openjp2",
     "openjp2/tools",
     "openjp2/libtiff-sys",
-    "jp2lam",
     "dng-rs",
 ]
 resolver = "2"

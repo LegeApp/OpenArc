@@ -1,9 +1,9 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use arcmax::codec::traits::Codec;
 use arcmax::codec::{LzmaCodec, LzmaOptions};
 use bytemuck::cast_vec;
 use codecs::bpg::{
-    BPGEncoderConfig, NativeBPGEncoder, estimate_encode_peak, safe_encode_concurrency,
+    estimate_encode_peak, safe_encode_concurrency, BPGEncoderConfig, NativeBPGEncoder,
 };
 use codecs::video_analyzer::analyze_video_compression;
 use image;
@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex as StdMutex, mpsc};
+use std::sync::{mpsc, Arc, Condvar, Mutex as StdMutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
@@ -111,23 +111,27 @@ impl<'a> Drop for MemoryBudgetGuard<'a> {
     }
 }
 
-/// Map the x265 preset (`compress_level`, 0..=9) onto the closest peak-memory
-/// factor bucket understood by [`estimate_encode_peak`], which selects a
-/// 10×/14×/18× planar-bytes multiplier from an `encoder_type` of 0/1/2.
-///
-/// The encoder *preset* — not `encoder_type` — is what actually drives x265's
-/// memory use. The "best" effort runs the placebo preset (`compress_level` 9)
-/// yet reports `encoder_type` 1, so keying the estimate off `encoder_type`
-/// under-counts the true peak and lets too many encodes run at once. That
-/// under-count is what drove the OOM kill on large HEIC batches. Bias the
-/// bucket up to match the preset.
+/// Resolve the memory-estimator effort code. For bpg-rs this is the exact
+/// upstream effort selector consumed by `still265::batch::estimate_memory`
+/// (0=Fast, 1=Slow/production Best). The legacy C backend may still need its
+/// x265 compression level folded into the conservative bucket.
 fn preset_peak_encoder_type(compress_level: i32, encoder_type: i32) -> i32 {
+    #[cfg(feature = "bpg-rs")]
+    {
+        let _ = compress_level;
+        return encoder_type.clamp(0, 1);
+    }
+
+    #[cfg(not(feature = "bpg-rs"))]
     let by_preset = match compress_level {
         9 => 2,     // placebo
         7 | 8 => 1, // slower / veryslow
         _ => 0,
     };
-    by_preset.max(encoder_type)
+    #[cfg(not(feature = "bpg-rs"))]
+    {
+        by_preset.max(encoder_type)
+    }
 }
 
 fn estimate_image_reservation_bytes(
@@ -217,7 +221,7 @@ fn estimate_image_reservation_bytes(
 }
 
 use crate::archive_tracker::{ArchiveFileMapping, ArchiveRecord, ArchiveTracker};
-use crate::backup_catalog::{BackupCatalog, BackupEntry, normalize_path};
+use crate::backup_catalog::{normalize_path, BackupCatalog, BackupEntry};
 use crate::bpg_wrapper::{BpgAq, BpgEffort};
 use crate::file_tracker::{FileTracker, ProcessedFileRecord};
 use crate::hash;
@@ -433,7 +437,9 @@ fn detect_file_type_from_name(name: &str) -> i32 {
         "bpg" | "jpg" | "jpeg" | "png" | "bmp" | "tif" | "tiff" | "webp" | "heic" | "heif"
         | "ico" | "jp2" | "j2k" | "j2c" | "jpc" | "jpt" | "jph" | "jhc" | "dng" | "cr2" | "nef"
         | "arw" | "orf" | "rw2" | "raf" => 1,
-        "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" => 2,
+        "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" | "3gp" | "flv" | "mts" | "m2ts" => {
+            2
+        }
         _ => 3,
     }
 }
@@ -613,7 +619,6 @@ impl Default for ArchiveMetadata {
 pub struct OrchestratorSettings {
     /// Internal effective BPG QP derived from `bpg_effort` unless an advanced caller overrides it.
     pub bpg_quality: i32,
-    pub bpg_lossless: bool,
     pub bpg_effort: BpgEffort,
     pub bpg_aq: BpgAq,
     pub bpg_bit_depth: i32,
@@ -628,7 +633,8 @@ pub struct OrchestratorSettings {
     /// misc files (documents, configs, etc.).
     pub misc_compression_level: i32,
     pub enable_catalog: bool,
-    /// Optional custom catalog database path. If unset, defaults to <archive>.catalog.sqlite
+    /// Optional custom catalog database path. If unset, uses OpenArc's durable,
+    /// per-user tracking database (AppData on Windows).
     pub catalog_db_path: Option<PathBuf>,
     pub enable_dedup: bool,
     /// Optional staging directory for temp work (defaults to system temp)
@@ -648,9 +654,8 @@ pub struct OrchestratorSettings {
 impl Default for OrchestratorSettings {
     fn default() -> Self {
         Self {
-            bpg_quality: BpgEffort::Good.default_quality() as i32,
-            bpg_lossless: false,
-            bpg_effort: BpgEffort::Good,
+            bpg_quality: BpgEffort::Best.default_quality() as i32,
+            bpg_effort: BpgEffort::Best,
             bpg_aq: BpgAq::default(),
             bpg_bit_depth: 8,
             bpg_chroma_format: 1,
@@ -671,7 +676,7 @@ impl Default for OrchestratorSettings {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum FileClass {
     Image,
     Video,
@@ -731,12 +736,12 @@ fn encode_jpeg2000_fallback(
             )
         })?
     };
-    let encoded =
-        codecs::jpeg2000::encode_dynamic_image_to_jpeg2000(&image, JPEG2000_FALLBACK_QUALITY)?;
-    let size = encoded.len() as u64;
-    fs::write(output_path, &encoded)
-        .with_context(|| format!("Failed to write JPEG 2000 file: {}", output_path.display()))?;
-    Ok(size)
+    codecs::jpeg2000::encode_dynamic_image_to_jpeg2000_file(
+        &image,
+        JPEG2000_FALLBACK_QUALITY,
+        output_path,
+    )
+    .with_context(|| format!("Failed to write JPEG 2000 file: {}", output_path.display()))
 }
 
 fn keep_smaller_jpeg2000_if_flagged(
@@ -791,12 +796,7 @@ fn apply_bpg_settings(
     bit_depth: i32,
     chroma_format: i32,
 ) {
-    cfg.quality = if settings.bpg_lossless {
-        0
-    } else {
-        settings.bpg_quality
-    };
-    // The current bpg-rs backend uses quality 0 as the near-lossless fallback.
+    cfg.quality = settings.bpg_quality;
     cfg.lossless = 0;
     cfg.bit_depth = bit_depth;
     cfg.chroma_format = chroma_format;
@@ -813,12 +813,16 @@ fn apply_bpg_settings(
 #[derive(Debug, Clone)]
 pub struct ProcessedFile {
     pub original_path: PathBuf,
+    /// Stable path relative to the selected input root.
+    pub source_rel_path: String,
     pub class: FileClass,
     pub archived_rel_path: String,
     pub output_path: PathBuf,
     pub original_size: u64,
     pub output_size: u64,
     pub sha256: Option<String>,
+    /// Hash of the original bytes, captured before any encoding.
+    pub source_sha256: Option<String>,
     pub skipped_processing: bool,
     pub original_format: Option<OriginalImageFormat>,
 }
@@ -866,7 +870,29 @@ pub struct OrchestratorResult {
     pub dedup_groups: usize,
     pub tracking_report: Option<String>,
     pub staged_uncompressed_videos: Vec<PathBuf>,
+    /// Exact root containing videos that require external encoding. Present
+    /// only when processing staged at least one video.
+    pub video_staging_dir: Option<PathBuf>,
     pub jpeg2000_fallback: Jpeg2000FallbackStats,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct ArchiveIndex<'a> {
+    format_version: u32,
+    created_at_unix: u64,
+    files: Vec<ArchiveIndexEntry<'a>>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct ArchiveIndexEntry<'a> {
+    source_relative_path: &'a str,
+    archived_path: &'a str,
+    class: FileClass,
+    source_size: u64,
+    archived_size: u64,
+    source_sha256: Option<&'a str>,
+    archived_sha256: Option<&'a str>,
+    media_transcoded: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1049,6 +1075,17 @@ pub fn create_archive(
 ) -> Result<OrchestratorResult> {
     emit_progress(&progress, 0, 1, "Discovering files...");
     let discovered = collect_files(input_paths)?;
+    create_archive_from_discovered(input_paths, discovered, output_archive, settings, progress)
+}
+
+/// Create an archive from an already-confirmed discovery snapshot.
+pub fn create_archive_from_discovered(
+    input_paths: &[PathBuf],
+    discovered: Vec<PathBuf>,
+    output_archive: &Path,
+    settings: OrchestratorSettings,
+    progress: Option<Arc<ProgressFn>>,
+) -> Result<OrchestratorResult> {
     emit_progress(
         &progress,
         0,
@@ -1064,6 +1101,7 @@ pub fn create_archive(
             dedup_groups: 0,
             tracking_report: None,
             staged_uncompressed_videos: Vec::new(),
+            video_staging_dir: None,
             jpeg2000_fallback: Jpeg2000FallbackStats::default(),
         });
     }
@@ -1074,13 +1112,15 @@ pub fn create_archive(
     // Hashing is I/O + SHA-256 bound and per-file independent, so fan it out
     // across the CPU; on NVMe this is several times faster than sequential.
     let mut file_hashes: HashMap<PathBuf, String> = HashMap::new();
-    if settings.enable_tracking || settings.enable_dedup {
+    // Source hashes are archive-index identities as well as tracking keys, so
+    // calculate them once even when optional duplicate reporting is disabled.
+    {
         use rayon::prelude::*;
         let hashed_count = std::sync::atomic::AtomicUsize::new(0);
         let total_files = discovered.len();
         file_hashes = discovered
             .par_iter()
-            .filter_map(|p| {
+            .map(|p| -> Result<(PathBuf, String)> {
                 let done = hashed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 if done == 0 || done + 1 == total_files || done % 16 == 0 {
                     emit_progress(
@@ -1090,9 +1130,9 @@ pub fn create_archive(
                         format!("Hashing: {}", safe_file_name(p)),
                     );
                 }
-                hash::sha256_file_hex(p).ok().map(|h| (p.clone(), h))
+                Ok((p.clone(), hash::sha256_file_hex(p)?))
             })
-            .collect();
+            .collect::<Result<HashMap<_, _>>>()?;
     }
 
     let tracker = if settings.enable_tracking {
@@ -1110,7 +1150,7 @@ pub fn create_archive(
     let catalog_path = settings
         .catalog_db_path
         .clone()
-        .unwrap_or_else(|| output_archive.with_extension("catalog.sqlite"));
+        .unwrap_or_else(|| crate::file_tracker::openarc_data_dir().join("tracking.db"));
     let mut catalog = if settings.enable_catalog {
         if let Some(parent) = catalog_path.parent() {
             fs::create_dir_all(parent).with_context(|| {
@@ -1122,12 +1162,14 @@ pub fn create_archive(
         None
     };
 
-    emit_progress(&progress, 0, discovered.len(), "Checking catalog...");
-    let (skipped_by_catalog, to_process) = if let Some(ref cat) = catalog {
-        cat.filter_files_to_backup(discovered.clone())?
-    } else {
-        (Vec::new(), discovered.clone())
-    };
+    emit_progress(&progress, 0, discovered.len(), "Checking history...");
+    // Every .oarc is standalone and creation replaces the destination. Files
+    // seen in an earlier job therefore cannot be omitted from this one: doing
+    // so produced incomplete (or even empty) replacement archives. Cross-job
+    // matches are reported by FileTracker; folder-mode resume is handled by
+    // checking the actual destination files.
+    let skipped_by_catalog = Vec::new();
+    let to_process = discovered.clone();
 
     let total = discovered.len();
     emit_progress(&progress, 0, total, "Preparing work queue...");
@@ -1157,13 +1199,9 @@ pub fn create_archive(
         if skipped_set.contains(p) {
             continue;
         }
-        if settings.enable_dedup {
-            if let Some(canon) = duplicates_of.get(p) {
-                if canon != p {
-                    continue;
-                }
-            }
-        }
+        // Keep duplicate paths independently extractable. The tar container has
+        // no content-reference entry, so dropping non-canonical paths corrupts
+        // the logical file set. `duplicates_of` remains useful for reporting.
         let (class, original_format) = classify_file(p);
         work.push(WorkItem {
             idx,
@@ -1216,22 +1254,18 @@ pub fn create_archive(
     let jpeg2000_stats_mutex = Arc::new(parking_lot::Mutex::new(Jpeg2000FallbackStats::default()));
     let completed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let stage_label = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let may_stage_external_video =
+        settings.reencode_media && work.iter().any(|w| w.class == FileClass::Video);
     let video_stage_dir = if settings.output_folder_without_archive {
         workspace_dir.join("videos")
+    } else if may_stage_external_video {
+        create_external_video_stage_dir(output_archive)?
     } else {
-        exe_dir
-            .join("openarc_video_staging")
-            .join(stage_label.to_string())
+        temp_dir.path().join("unused-video-stage")
     };
-    fs::create_dir_all(&video_stage_dir)?;
+    if settings.output_folder_without_archive || may_stage_external_video {
+        fs::create_dir_all(&video_stage_dir)?;
+    }
 
     let (tx, rx) = flume::unbounded::<WorkDone>();
     let progress_clone = progress.clone();
@@ -1414,12 +1448,14 @@ pub fn create_archive(
                             let mut guard = processed_mutex.lock();
                             guard.push(ProcessedFile {
                                 original_path: input.clone(),
+                                source_rel_path: source_rel_path.clone(),
                                 class: FileClass::Image,
                                 archived_rel_path: rel_path,
                                 output_path: prior_out,
                                 original_size,
                                 output_size,
                                 sha256: sha,
+                                source_sha256: item.source_hash.clone(),
                                 skipped_processing: true,
                                 original_format: Some(original_format),
                             });
@@ -1469,9 +1505,6 @@ pub fn create_archive(
                     let mut encoder = NativeBPGEncoder::new()
                         .context("Failed to create BPG encoder")?;
                     let mut cfg = NativeBPGEncoder::default_config();
-                    if settings_clone.bpg_lossless {
-                        warn!("Lossless BPG encoding not yet supported, using quality=0 (near-lossless high quality) instead for: {}", input.display());
-                    }
                     apply_bpg_settings(
                         &mut cfg,
                         &settings_clone,
@@ -1533,9 +1566,6 @@ pub fn create_archive(
                     let mut encoder = NativeBPGEncoder::new()
                         .context("Failed to create BPG encoder")?;
                     let mut cfg = NativeBPGEncoder::default_config();
-                    if settings_clone.bpg_lossless {
-                        warn!("Lossless BPG encoding not yet supported, using quality=0 (near-lossless high quality) instead for: {}", input.display());
-                    }
                     apply_bpg_settings(&mut cfg, &settings_clone, 8, 0); // JPEG is 8-bit YCbCr 4:2:0
                     cfg.color_space = 0;   // YCbCr BT.601 (standard JPEG color space)
                     cfg.limited_range = 0; // JPEG uses full range
@@ -1609,12 +1639,14 @@ pub fn create_archive(
                                 let mut guard = processed_mutex.lock();
                                 guard.push(ProcessedFile {
                                     original_path: input.clone(),
+                                    source_rel_path: source_rel_path.clone(),
                                     class: item.class,
                                     archived_rel_path: rel_path,
                                     output_path: copy_out,
                                     original_size,
                                     output_size,
                                     sha256: sha,
+                                    source_sha256: item.source_hash.clone(),
                                     skipped_processing: true,
                                     original_format: Some(original_format),
                                 });
@@ -1676,10 +1708,6 @@ pub fn create_archive(
                 // Encode to BPG in-memory
                 let mut enc = NativeBPGEncoder::new().context("Failed to create BPG encoder")?;
                 let mut cfg: BPGEncoderConfig = NativeBPGEncoder::default_config();
-                if settings_clone.bpg_lossless {
-                    warn!("Lossless BPG encoding not yet supported, using quality=0 (near-lossless high quality) instead for: {}", input.display());
-                }
-
                 // Auto-detect optimal bit depth based on source image.
                 apply_bpg_settings(
                     &mut cfg,
@@ -1742,16 +1770,20 @@ pub fn create_archive(
                 }
             }
             FileClass::Video => {
-                let should_archive_as_misc = safe_analyze_video(input)
-                    .map(|a| a.is_efficiently_compressed)
-                    .unwrap_or(false);
+                let should_store = !settings_clone.reencode_media
+                    || safe_analyze_video(input)
+                        .map(|a| a.is_efficiently_compressed)
+                        .unwrap_or(false);
 
-                if should_archive_as_misc {
+                if should_store {
                     let source_rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
-                    let out = stage_at(&misc_dir, &source_rel)?;
+                    // Compressed video belongs directly under media/. Sending
+                    // it through the solid LZMA2 misc bundle wastes minutes for
+                    // negligible or negative compression.
+                    let out = stage_at(&media_dir, &source_rel)?;
                     fs::copy(input, &out)?;
-                    let rel_path = format!("misc/{}", source_rel);
-                    (out, rel_path, true, None, FileClass::Misc, true)
+                    let rel_path = format!("media/{}", source_rel);
+                    (out, rel_path, true, None, FileClass::Video, true)
                 } else {
                     let source_rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
                     let out = stage_at(&video_stage_dir, &source_rel)?;
@@ -1794,12 +1826,14 @@ pub fn create_archive(
             let mut guard = processed_mutex.lock();
             guard.push(ProcessedFile {
                 original_path: input.clone(),
-                    class: archived_class,
+                source_rel_path: source_rel_path.clone(),
+                class: archived_class,
                 archived_rel_path: rel_path,
                 output_path: out_path,
                 original_size,
                 output_size,
                 sha256: sha,
+                source_sha256: item.source_hash.clone(),
                 skipped_processing,
                 original_format,
             });
@@ -1867,6 +1901,14 @@ pub fn create_archive(
         .map_err(|_| anyhow!("Failed to unwrap staged video results"))?
         .into_inner();
     staged_uncompressed_videos.sort();
+    let video_staging_dir = if staged_uncompressed_videos.is_empty() {
+        if !settings.output_folder_without_archive && video_stage_dir.exists() {
+            let _ = fs::remove_dir_all(&video_stage_dir);
+        }
+        None
+    } else {
+        Some(video_stage_dir.clone())
+    };
 
     let jpeg2000_fallback = Arc::try_unwrap(jpeg2000_stats_mutex)
         .map_err(|_| anyhow!("Failed to unwrap JPEG 2000 fallback stats"))?
@@ -1881,6 +1923,11 @@ pub fn create_archive(
     let metadata_path = workspace_dir.join("OPENARC_METADATA.json");
     let metadata_json = serde_json::to_string_pretty(&metadata)?;
     fs::write(&metadata_path, &metadata_json)?;
+
+    // Machine-readable, content-addressed index. Unlike MANIFEST.txt this keeps
+    // source and archived hashes distinct, which is essential after transcoding.
+    let archive_index_path = workspace_dir.join("OPENARC_INDEX.json");
+    write_archive_index(&processed, &archive_index_path)?;
 
     emit_progress(
         &progress,
@@ -1930,6 +1977,7 @@ pub fn create_archive(
         &misc_arc_path,
         &raw_arc_path,
         &manifest_path,
+        &archive_index_path,
     )?;
 
     if misc_dir.exists() {
@@ -2079,7 +2127,10 @@ pub fn create_archive(
             .file_name()
             .and_then(|n| n.to_str())
             .map(|s| s.to_string());
-        let archive_hash = hash::sha256_file_hex(output_archive).ok();
+        // Per-payload hashes and the bundle hashes are already embedded in the
+        // archive. Avoid a second full read of a potentially multi-terabyte
+        // .oarc merely to duplicate that integrity data in local history.
+        let archive_hash = None;
 
         let records: Vec<ProcessedFileRecord> = processed
             .iter()
@@ -2136,15 +2187,59 @@ pub fn create_archive(
         dedup_groups,
         tracking_report,
         staged_uncompressed_videos,
+        video_staging_dir,
         jpeg2000_fallback,
     })
 }
 
+fn create_external_video_stage_dir(output_archive: &Path) -> Result<PathBuf> {
+    let parent = output_archive
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or(std::env::current_dir()?);
+    fs::create_dir_all(&parent)?;
+
+    let stem = output_archive
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("archive");
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+
+    for attempt in 0..100u32 {
+        let candidate = parent.join(format!(
+            "{stem}.openarc-video-staging-{}-{nonce}-{attempt}",
+            std::process::id()
+        ));
+        match fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => {
+                return Err(err).with_context(|| {
+                    format!(
+                        "Failed to create external-video staging directory {}",
+                        candidate.display()
+                    )
+                });
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "Failed to allocate a unique external-video staging directory beside {}",
+        output_archive.display()
+    ))
+}
+
 /// Pack a list of processed files into a tar archive compressed with LZMA2.
 ///
-/// Uses a 128 MiB dictionary for maximum solid-compression quality (7-Zip "Ultra"
-/// equivalent). The `level` parameter is clamped to the 1–9 range that `lzma-rust2`
-/// accepts.
+/// Uses a level-appropriate dictionary rather than allocating 128 MiB even for
+/// low/medium levels. The `level` parameter is clamped to the 1–9 range that
+/// `lzma-rust2` accepts.
 fn create_lzma2_bundle(files: &[&ProcessedFile], output_arc: &Path, level: i32) -> Result<()> {
     if files.is_empty() {
         return Ok(());
@@ -2181,10 +2276,18 @@ fn create_lzma2_bundle(files: &[&ProcessedFile], output_arc: &Path, level: i32) 
         Ok(())
     });
 
+    let level = level.clamp(1, 9);
+    let dict_size = match level {
+        1..=2 => 4 * 1024 * 1024,
+        3..=4 => 16 * 1024 * 1024,
+        5..=6 => 32 * 1024 * 1024,
+        7..=8 => 64 * 1024 * 1024,
+        _ => 128 * 1024 * 1024,
+    };
     let opts = LzmaOptions {
         lzma2: true,
-        dict_size: 128 * 1024 * 1024,
-        level: Some(level.clamp(1, 9) as u8),
+        dict_size,
+        level: Some(level as u8),
         ..Default::default()
     };
     let mut codec = LzmaCodec::new(opts);
@@ -2256,10 +2359,16 @@ fn write_hashes(
     misc_arc_path: &Path,
     raw_arc_path: &Path,
     manifest_path: &Path,
+    archive_index_path: &Path,
 ) -> Result<()> {
     let mut hashes: Vec<(String, String)> = Vec::new();
 
     for p in processed {
+        // misc/* and raw/* are members of their respective bundle, not
+        // top-level paths in the .oarc. Only list directly addressable files.
+        if matches!(p.class, FileClass::Misc | FileClass::Raw) {
+            continue;
+        }
         if let Some(ref h) = p.sha256 {
             hashes.push((h.clone(), p.archived_rel_path.clone()));
         }
@@ -2280,7 +2389,38 @@ fn write_hashes(
         hashes.push((h, "MANIFEST.txt".to_string()));
     }
 
+    if archive_index_path.exists() {
+        let h = hash::sha256_file_hex(archive_index_path)?;
+        hashes.push((h, "OPENARC_INDEX.json".to_string()));
+    }
+
     hash::write_hashes_file(&hashes, hashes_path)?;
+    Ok(())
+}
+
+fn write_archive_index(processed: &[ProcessedFile], path: &Path) -> Result<()> {
+    let files = processed
+        .iter()
+        .map(|p| ArchiveIndexEntry {
+            source_relative_path: &p.source_rel_path,
+            archived_path: &p.archived_rel_path,
+            class: p.class,
+            source_size: p.original_size,
+            archived_size: p.output_size,
+            source_sha256: p.source_sha256.as_deref(),
+            archived_sha256: p.sha256.as_deref(),
+            media_transcoded: !p.skipped_processing,
+        })
+        .collect();
+    let index = ArchiveIndex {
+        format_version: 1,
+        created_at_unix: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        files,
+    };
+    fs::write(path, serde_json::to_vec(&index)?)?;
     Ok(())
 }
 
@@ -2307,7 +2447,7 @@ fn record_catalog_entries(
             path: normalize_path(&p.original_path),
             size: md.len(),
             mtime_secs,
-            sha256: p.sha256.clone(),
+            sha256: p.source_sha256.clone(),
             backed_up_at: 0,
             archive_id: archive_id.clone(),
         });
@@ -2393,12 +2533,9 @@ pub fn extract_archive_with_decoding(
     arcmax::tar_zst::extract_tar_zst(archive_path, output_dir)
         .with_context(|| format!("Failed to extract archive: {}", archive_path.display()))?;
 
-    // HASHES.sha256 lists both top-level files (media/*, misc.arc, raw.arc,
-    // MANIFEST.txt) and the per-file contents of the LZMA2 bundles (misc/*,
-    // raw/*, videos/*). Verify in two phases: what exists now, and the bundle
-    // contents after they are unpacked — verifying everything up front always
-    // failed for archives with misc/RAW files because those entries only exist
-    // inside the bundles at this point.
+    // Verify top-level payloads before decoding. Older archives may also list
+    // individual paths inside solid bundles, so retain the deferred second
+    // phase for backward compatibility.
     let hashes_file = output_dir.join("HASHES.sha256");
     let deferred_hash_entries: Vec<(String, String)> = if hashes_file.exists() {
         let entries = hash::read_hashes_file(&hashes_file)?;
@@ -2565,12 +2702,14 @@ fn extract_lzma2_bundle(archive_path: &Path, output_dir: &Path) -> Result<()> {
         };
         let mut codec = LzmaCodec::new(opts);
         let mut writer = std::io::BufWriter::new(pipe_writer);
-        codec.decompress(&mut reader, &mut writer).with_context(|| {
-            format!(
-                "LZMA2 decompression failed for {}",
-                archive_path_owned.display()
-            )
-        })?;
+        codec
+            .decompress(&mut reader, &mut writer)
+            .with_context(|| {
+                format!(
+                    "LZMA2 decompression failed for {}",
+                    archive_path_owned.display()
+                )
+            })?;
         writer.flush().context("Failed to flush decompressed tar")?;
         Ok(())
     });
@@ -2594,13 +2733,16 @@ fn extract_lzma2_bundle(archive_path: &Path, output_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Append a `videos.arc` bundle to an existing OpenArc archive.
+/// Merge externally encoded videos into an existing OpenArc archive.
 ///
+/// Encoded video is already compressed, so files are stored directly under
+/// `media/` and only the outer Zstandard container is rebuilt. Older
+/// `videos.arc` archives remain extractable, but new archives do not create one.
 /// `encoded_video_root` should contain the externally re-encoded video files.
 pub fn append_external_video_bundle(
     archive_path: &Path,
     encoded_video_root: &Path,
-    misc_compression_level: i32,
+    expected_video_count: usize,
     compression_level: i32,
 ) -> Result<usize> {
     if !encoded_video_root.exists() {
@@ -2624,14 +2766,25 @@ pub fn append_external_video_bundle(
             .to_ascii_lowercase();
         if matches!(
             ext.as_str(),
-            "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" | "mts" | "m2ts"
+            "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" | "3gp" | "flv" | "mts" | "m2ts"
         ) {
             video_files.push(p);
         }
     }
 
     if video_files.is_empty() {
-        return Ok(0);
+        return Err(anyhow!(
+            "No encoded video files found under {}",
+            encoded_video_root.display()
+        ));
+    }
+    if video_files.len() != expected_video_count {
+        return Err(anyhow!(
+            "Expected {} encoded video files, found {} under {}. Use a clean output folder containing one encoded result per staged video.",
+            expected_video_count,
+            video_files.len(),
+            encoded_video_root.display()
+        ));
     }
 
     video_files.sort();
@@ -2644,7 +2797,13 @@ pub fn append_external_video_bundle(
     fs::create_dir_all(&extracted_dir)?;
     arcmax::tar_zst::extract_tar_zst(archive_path, &extracted_dir)
         .with_context(|| format!("Failed to extract {}", archive_path.display()))?;
+    let legacy_videos_arc = extracted_dir.join("videos.arc");
+    if legacy_videos_arc.exists() {
+        fs::remove_file(&legacy_videos_arc)?;
+    }
 
+    let media_dir = extracted_dir.join("media");
+    fs::create_dir_all(&media_dir)?;
     let mut synthetic: Vec<ProcessedFile> = Vec::with_capacity(video_files.len());
     for p in &video_files {
         let rel = p
@@ -2654,42 +2813,84 @@ pub fn append_external_video_bundle(
             .replace('\\', "/");
         let rel = normalize_archive_rel_path(&rel);
         let size = fs::metadata(p)?.len();
+        let output_path = media_dir.join(Path::new(&rel));
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(p, &output_path).with_context(|| {
+            format!(
+                "Failed to add externally encoded video {} as media/{}",
+                p.display(),
+                rel
+            )
+        })?;
+        let sha256 = hash::sha256_file_hex(&output_path)?;
         synthetic.push(ProcessedFile {
             original_path: p.clone(),
-            class: FileClass::Misc,
-            archived_rel_path: format!("videos/{}", rel),
-            output_path: p.clone(),
+            source_rel_path: rel.clone(),
+            class: FileClass::Video,
+            archived_rel_path: format!("media/{}", rel),
+            output_path,
             original_size: size,
             output_size: size,
-            sha256: None,
-            skipped_processing: true,
+            sha256: Some(sha256.clone()),
+            source_sha256: Some(sha256),
+            skipped_processing: false,
             original_format: None,
         });
-    }
-
-    let videos_arc = extracted_dir.join("videos.arc");
-    let refs: Vec<&ProcessedFile> = synthetic.iter().collect();
-    create_lzma2_bundle(&refs, &videos_arc, misc_compression_level)?;
-
-    let hashes_path = extracted_dir.join("HASHES.sha256");
-    if hashes_path.exists() {
-        let mut hashes = hash::read_hashes_file(&hashes_path)?;
-        let h = hash::sha256_file_hex(&videos_arc)?;
-        hashes.retain(|(_, name)| name != "videos.arc");
-        hashes.push((h, "videos.arc".to_string()));
-        hash::write_hashes_file(&hashes, &hashes_path)?;
     }
 
     let manifest_path = extracted_dir.join("MANIFEST.txt");
     if manifest_path.exists() {
         let mut f = fs::OpenOptions::new().append(true).open(&manifest_path)?;
         writeln!(f, "")?;
-        writeln!(
-            f,
-            "Externally encoded videos bundled: {}",
-            video_files.len()
-        )?;
-        writeln!(f, "Bundle: videos.arc")?;
+        writeln!(f, "Externally encoded videos: {}", video_files.len())?;
+        for video in &synthetic {
+            writeln!(
+                f,
+                "{} -> {} ({} -> {}) [externally_encoded]",
+                video.original_path.display(),
+                video.archived_rel_path,
+                video.original_size,
+                video.output_size
+            )?;
+        }
+    }
+
+    let archive_index_path = extracted_dir.join("OPENARC_INDEX.json");
+    append_external_videos_to_index(&archive_index_path, &synthetic)?;
+
+    let hashes_path = extracted_dir.join("HASHES.sha256");
+    if hashes_path.exists() {
+        let mut hashes = hash::read_hashes_file(&hashes_path)?;
+        let replaced: std::collections::HashSet<&str> = synthetic
+            .iter()
+            .map(|video| video.archived_rel_path.as_str())
+            .collect();
+        hashes.retain(|(_, name)| {
+            name != "videos.arc"
+                && name != "MANIFEST.txt"
+                && name != "OPENARC_INDEX.json"
+                && !replaced.contains(name.as_str())
+        });
+        for video in &synthetic {
+            if let Some(ref sha256) = video.sha256 {
+                hashes.push((sha256.clone(), video.archived_rel_path.clone()));
+            }
+        }
+        if manifest_path.exists() {
+            hashes.push((
+                hash::sha256_file_hex(&manifest_path)?,
+                "MANIFEST.txt".to_string(),
+            ));
+        }
+        if archive_index_path.exists() {
+            hashes.push((
+                hash::sha256_file_hex(&archive_index_path)?,
+                "OPENARC_INDEX.json".to_string(),
+            ));
+        }
+        hash::write_hashes_file(&hashes, &hashes_path)?;
     }
 
     let out_parent = archive_path.parent().unwrap_or_else(|| Path::new("."));
@@ -2710,6 +2911,50 @@ pub fn append_external_video_bundle(
     fs::rename(&tmp_out_path, archive_path)?;
 
     Ok(video_files.len())
+}
+
+fn append_external_videos_to_index(
+    archive_index_path: &Path,
+    videos: &[ProcessedFile],
+) -> Result<()> {
+    if !archive_index_path.exists() {
+        return Ok(());
+    }
+
+    let mut index: serde_json::Value = serde_json::from_slice(&fs::read(archive_index_path)?)
+        .context("Failed to parse OPENARC_INDEX.json while adding external videos")?;
+    let files = index
+        .get_mut("files")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| anyhow!("OPENARC_INDEX.json has no files array"))?;
+
+    let replaced: std::collections::HashSet<&str> = videos
+        .iter()
+        .map(|video| video.archived_rel_path.as_str())
+        .collect();
+    files.retain(|entry| {
+        entry
+            .get("archived_path")
+            .and_then(serde_json::Value::as_str)
+            .map(|path| !replaced.contains(path))
+            .unwrap_or(true)
+    });
+
+    for video in videos {
+        files.push(serde_json::json!({
+            "source_relative_path": video.source_rel_path,
+            "archived_path": video.archived_rel_path,
+            "class": "Video",
+            "source_size": video.original_size,
+            "archived_size": video.output_size,
+            "source_sha256": video.source_sha256,
+            "archived_sha256": video.sha256,
+            "media_transcoded": true
+        }));
+    }
+
+    fs::write(archive_index_path, serde_json::to_vec(&index)?)?;
+    Ok(())
 }
 
 /// Decode a BPG file back to its original format
@@ -2844,5 +3089,64 @@ fn decode_bpg_to_jpeg(bpg_path: &Path, output_path: &Path, quality: u8) -> Resul
                 Err(anyhow!("No BPG decoder available"))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn external_videos_are_merged_directly_under_media() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let base = temp.path().join("base");
+        fs::create_dir_all(base.join("media")).expect("media dir");
+        fs::write(
+            base.join("MANIFEST.txt"),
+            "OpenArc Archive Manifest\n========================\n",
+        )
+        .expect("manifest");
+        fs::write(
+            base.join("OPENARC_INDEX.json"),
+            br#"{"format_version":1,"created_at_unix":0,"files":[]}"#,
+        )
+        .expect("index");
+        let initial_hashes = vec![
+            (
+                hash::sha256_file_hex(base.join("MANIFEST.txt")).expect("manifest hash"),
+                "MANIFEST.txt".to_string(),
+            ),
+            (
+                hash::sha256_file_hex(base.join("OPENARC_INDEX.json")).expect("index hash"),
+                "OPENARC_INDEX.json".to_string(),
+            ),
+        ];
+        hash::write_hashes_file(&initial_hashes, base.join("HASHES.sha256")).expect("hash list");
+
+        let archive = temp.path().join("archive.oarc");
+        arcmax::tar_zst::archive_dir_tar_zst(&base, &archive, 1).expect("base archive");
+
+        let encoded = temp.path().join("encoded");
+        fs::create_dir_all(encoded.join("nested")).expect("encoded dir");
+        fs::write(encoded.join("nested/clip.mp4"), b"encoded-video").expect("encoded video");
+
+        let merged = append_external_video_bundle(&archive, &encoded, 1, 1).expect("merge videos");
+        assert_eq!(merged, 1);
+
+        let extracted = temp.path().join("extracted");
+        arcmax::tar_zst::extract_tar_zst(&archive, &extracted).expect("extract merged archive");
+        assert_eq!(
+            fs::read(extracted.join("media/nested/clip.mp4")).expect("merged video"),
+            b"encoded-video"
+        );
+        assert!(!extracted.join("videos.arc").exists());
+        hash::verify_dir_against_hashes(&extracted, extracted.join("HASHES.sha256"))
+            .expect("updated hashes");
+
+        let index: serde_json::Value =
+            serde_json::from_slice(&fs::read(extracted.join("OPENARC_INDEX.json")).expect("index"))
+                .expect("valid index");
+        assert_eq!(index["files"][0]["archived_path"], "media/nested/clip.mp4");
+        assert_eq!(index["files"][0]["class"], "Video");
     }
 }

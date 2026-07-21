@@ -28,6 +28,11 @@ impl BackupCatalog {
 
         conn.execute_batch("PRAGMA journal_mode = WAL;")
             .context("Failed to enable WAL mode")?;
+        conn.execute_batch(
+            "PRAGMA synchronous = NORMAL;
+             PRAGMA wal_autocheckpoint = 1000;
+             PRAGMA journal_size_limit = 4194304;",
+        )?;
 
         let mut catalog = Self { conn, db_path };
         catalog

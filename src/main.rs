@@ -1,6 +1,6 @@
 //! OpenArc - Media archiver for phone/camera files
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 
 #[cfg(windows)]
 fn enable_ansi_support() {
@@ -20,7 +20,7 @@ fn enable_ansi_support() {
     }
 }
 use arcmax::codec::lzma::LzmaOptions;
-use arcmax::{CompressionOptions, Method, compress_with, decompress};
+use arcmax::{compress_with, decompress, CompressionOptions, Method};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use openarc::bpg_wrapper::{BpgAq, BpgConfig, BpgEffort};
@@ -28,8 +28,8 @@ use openarc::cli::{Cli, Commands};
 use openarc::interactive;
 use openarc::orchestrator::FileClass;
 use openarc::orchestrator::{
-    ExtractionSettings, OrchestratorSettings, create_archive, extract_archive_with_decoding,
-    list_archive_contents,
+    create_archive, extract_archive_with_decoding, list_archive_contents, ExtractionSettings,
+    OrchestratorSettings,
 };
 use openarc::phone_backup;
 use std::io::{self, Write};
@@ -72,6 +72,7 @@ fn make_progress_callback(
             .unwrap(),
     );
     pb.set_message(initial_message);
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
     let pb_clone = pb.clone();
     let bar_style = Arc::new(
@@ -100,6 +101,91 @@ fn is_supported_image(path: &std::path::Path) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
         .unwrap_or(false)
+}
+
+fn artifact_size(path: &std::path::Path) -> Option<u64> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if metadata.is_file() {
+        return Some(metadata.len());
+    }
+    Some(
+        walkdir::WalkDir::new(path)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_type().is_file())
+            .filter_map(|entry| entry.metadata().ok().map(|m| m.len()))
+            .sum(),
+    )
+}
+
+fn partial_archive_path(output: &std::path::Path) -> PathBuf {
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let name = output
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("archive.oarc");
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    parent.join(format!(
+        ".{name}.openarc-partial-{}-{nonce}",
+        std::process::id()
+    ))
+}
+
+fn wait_for_external_video_encoding(
+    archive_path: &std::path::Path,
+    stage_root: &std::path::Path,
+    expected_count: usize,
+    compression_level: i32,
+) -> Result<usize> {
+    println!();
+    println!("External video encoding is required before the archive can be finalized.");
+    println!("Staged originals: {}", stage_root.display());
+    println!(
+        "Encode all {} staged video(s) with HandBrake/ffmpeg/etc. into a clean output folder.",
+        expected_count
+    );
+
+    loop {
+        print!("Encoded video output folder (OpenArc will keep waiting): ");
+        io::stdout().flush()?;
+        let mut encoded_dir = String::new();
+        let bytes_read = io::stdin().read_line(&mut encoded_dir)?;
+        if bytes_read == 0 {
+            return Err(anyhow!(
+                "standard input closed while waiting for externally encoded videos; partial archive remains at {}",
+                archive_path.display()
+            ));
+        }
+        let encoded_dir = encoded_dir.trim().trim_matches('"');
+        if encoded_dir.is_empty() {
+            println!("No path entered; the archive is still waiting for video output.");
+            continue;
+        }
+        let encoded_dir = PathBuf::from(encoded_dir);
+        if !encoded_dir.is_dir() {
+            println!("Not a directory: {}", encoded_dir.display());
+            continue;
+        }
+
+        match openarc::orchestrator::append_external_video_bundle(
+            archive_path,
+            &encoded_dir,
+            expected_count,
+            compression_level,
+        ) {
+            Ok(merged) => return Ok(merged),
+            Err(err) => {
+                println!("Could not use that output folder: {err:#}");
+                println!("Fix the encoded outputs or enter a different folder.");
+            }
+        }
+    }
 }
 
 fn find_images(input_dir: &std::path::Path) -> Result<Vec<PathBuf>> {
@@ -139,7 +225,6 @@ fn main() -> Result<()> {
             #[cfg(feature = "bpg-rs")]
             bpg_aq,
             bpg_quality,
-            bpg_lossless,
             compression_level,
             misc_compression_level,
             no_catalog,
@@ -183,7 +268,6 @@ fn main() -> Result<()> {
 
             let settings = OrchestratorSettings {
                 bpg_quality,
-                bpg_lossless,
                 bpg_effort,
                 bpg_aq,
                 bpg_bit_depth: 8,
@@ -204,18 +288,28 @@ fn main() -> Result<()> {
             };
 
             println!("Settings:");
-            println!(
-                "  BPG: {} (AQ: {}, lossless: {}, internal QP: {})",
-                bpg_effort, bpg_aq, bpg_lossless, bpg_quality
-            );
-            println!(
-                "  BPG bit depth: adaptive (8-bit sources stay 8-bit, high-depth sources up to 12-bit)"
-            );
+            if !no_reencode {
+                println!(
+                    "  BPG: {} (AQ: {}, internal QP: {})",
+                    bpg_effort, bpg_aq, bpg_quality
+                );
+                println!(
+                    "  BPG bit depth: adaptive (8-bit sources stay 8-bit, high-depth sources up to 12-bit)"
+                );
+            }
             println!("  ZSTD container level: {}", compression_level);
             println!("  Misc LZMA2 level: {}", misc_compression_level);
-            println!("  Catalog: {}", !no_catalog);
-            println!("  Deduplication: {}", !no_dedup);
+            println!("  Persistent history catalog: {}", !no_catalog);
+            println!("  Duplicate detection: {}", !no_dedup);
             println!("  File tracking: {}", !no_tracking);
+            if !no_catalog || !no_tracking {
+                println!(
+                    "  History DB: {}",
+                    openarc::file_tracker::openarc_data_dir()
+                        .join("tracking.db")
+                        .display()
+                );
+            }
             println!("  Re-encode media: {}", !no_reencode);
             println!("  Final archive container: {}", !no_zip);
             println!();
@@ -235,6 +329,36 @@ fn main() -> Result<()> {
             })?;
 
             pb.finish_with_message("Complete");
+
+            if !no_zip && !result.staged_uncompressed_videos.is_empty() {
+                let stage_root = result.video_staging_dir.as_deref().ok_or_else(|| {
+                    anyhow!("videos were staged but the staging root was not returned")
+                })?;
+                let partial_output = partial_archive_path(&output);
+                std::fs::rename(&output, &partial_output).with_context(|| {
+                    format!(
+                        "Failed to move incomplete archive {} to {}",
+                        output.display(),
+                        partial_output.display()
+                    )
+                })?;
+                let merged = wait_for_external_video_encoding(
+                    &partial_output,
+                    stage_root,
+                    result.staged_uncompressed_videos.len(),
+                    compression_level,
+                )?;
+                std::fs::rename(&partial_output, &output).with_context(|| {
+                    format!(
+                        "Videos were merged, but the finalized archive could not be moved to {}. It remains at {}",
+                        output.display(),
+                        partial_output.display()
+                    )
+                })?;
+                let _ = std::fs::remove_dir_all(stage_root);
+                println!("Merged externally encoded videos: {}", merged);
+            }
+
             println!();
             println!(
                 "{} creation complete!",
@@ -248,7 +372,10 @@ fn main() -> Result<()> {
                 result.skipped_by_catalog.len()
             );
             if result.dedup_groups > 0 {
-                println!("  Dedup groups: {}", result.dedup_groups);
+                println!(
+                    "  Duplicate content detected: {} groups (all paths preserved)",
+                    result.dedup_groups
+                );
             }
             if !result.failed.is_empty() {
                 println!("  Failed file list:");
@@ -258,7 +385,8 @@ fn main() -> Result<()> {
             }
 
             let total_original: u64 = result.processed.iter().map(|p| p.original_size).sum();
-            let total_compressed: u64 = result.processed.iter().map(|p| p.output_size).sum();
+            let total_compressed = artifact_size(&output)
+                .unwrap_or_else(|| result.processed.iter().map(|p| p.output_size).sum());
             let raw_count = result
                 .processed
                 .iter()
@@ -307,39 +435,18 @@ fn main() -> Result<()> {
 
             println!();
             println!("Output: {}", output.display());
-
-            if !result.staged_uncompressed_videos.is_empty() {
+            if no_zip && !result.staged_uncompressed_videos.is_empty() {
                 println!();
                 println!(
                     "Staged uncompressed videos: {}",
                     result.staged_uncompressed_videos.len()
                 );
-                if let Some(stage_root) = result
-                    .staged_uncompressed_videos
-                    .first()
-                    .and_then(|p| p.parent())
-                    .and_then(|p| p.parent())
-                {
+                if let Some(stage_root) = result.video_staging_dir.as_deref() {
                     println!("Stage folder: {}", stage_root.display());
                 }
                 println!(
-                    "Next step: encode these videos externally (HandBrake/ffmpeg/etc.), then merge them into this archive."
+                    "Folder mode does not finalize an archive; encode these videos externally and place the results in the output media layout."
                 );
-                print!("Encoded video folder to merge (leave empty to skip now): ");
-                io::stdout().flush()?;
-                let mut encoded_dir = String::new();
-                io::stdin().read_line(&mut encoded_dir)?;
-                let encoded_dir = encoded_dir.trim().trim_matches('"');
-                if !encoded_dir.is_empty() {
-                    let merged = openarc::orchestrator::append_external_video_bundle(
-                        &output,
-                        &PathBuf::from(encoded_dir),
-                        misc_compression_level,
-                        compression_level,
-                    )?;
-                    println!("Merged externally encoded videos: {}", merged);
-                    println!("Archive updated: {}", output.display());
-                }
             }
 
             Ok(())
@@ -432,7 +539,6 @@ fn main() -> Result<()> {
             #[cfg(feature = "bpg-rs")]
             aq,
             quality,
-            lossless,
         } => {
             let effort = BpgEffort::parse(&effort)?;
             #[cfg(feature = "bpg-rs")]
@@ -443,7 +549,6 @@ fn main() -> Result<()> {
             let cfg = BpgConfig {
                 effort,
                 aq,
-                lossless,
                 bit_depth: 8,
                 quality_override: quality,
             };
@@ -467,7 +572,6 @@ fn main() -> Result<()> {
             #[cfg(feature = "bpg-rs")]
             aq,
             quality,
-            lossless,
         } => {
             let effort = BpgEffort::parse(&effort)?;
             #[cfg(feature = "bpg-rs")]
@@ -489,7 +593,6 @@ fn main() -> Result<()> {
             let cfg = BpgConfig {
                 effort,
                 aq,
-                lossless,
                 bit_depth: 8,
                 quality_override: quality,
             };
@@ -511,7 +614,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        // === ArcMax Commands ===
+        // === Standalone LZMA2/Zstandard commands ===
         Commands::ArcCompress {
             input,
             output,
@@ -521,7 +624,7 @@ fn main() -> Result<()> {
         } => {
             use std::io::{Read, Write};
 
-            println!("ArcMax: Compressing with LZMA2/Zstd");
+            println!("OpenArc: Compressing with LZMA2/Zstandard");
             println!("  Input: {:?}", input);
             println!("  Output: {}", output.display());
             println!(
@@ -570,14 +673,10 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::ArcExtract {
-            archive,
-            output,
-            password: _,
-        } => {
+        Commands::ArcExtract { archive, output } => {
             use std::io::{Read, Write};
 
-            println!("ArcMax: Extracting compressed file");
+            println!("OpenArc: Decompressing file");
             println!("  Archive: {}", archive.display());
             println!(
                 "  Output: {}",
@@ -607,7 +706,7 @@ fn main() -> Result<()> {
         }
 
         Commands::ArcTest { data, method } => {
-            println!("ArcMax: Testing compression");
+            println!("OpenArc: Testing compression");
             println!("  Data: {:?}", data);
             println!("  Method: {}", method);
             println!();

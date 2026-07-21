@@ -1,7 +1,7 @@
 //! Interactive CLI wizard for OpenArc
 //! Provides a friendly, guided interface with drag-and-drop support
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use std::io::{self, Write};
@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use crate::bpg_wrapper::{BpgAq, BpgEffort};
 use crate::orchestrator::{
-    ExtractionSettings, OrchestratorSettings, append_external_video_bundle, create_archive,
-    extract_archive_with_decoding,
+    append_external_video_bundle, create_archive_from_discovered, extract_archive_with_decoding,
+    ExtractionSettings, OrchestratorSettings,
 };
 use crate::phone_backup;
 
@@ -60,7 +60,6 @@ enum StartAction {
 
 pub struct InteractiveConfig {
     pub bpg_effort: BpgEffort,
-    pub bpg_lossless: bool,
     pub bpg_aq: BpgAq,
     pub bpg_bit_depth: u8,
     /// Advanced/testing numeric override. Normal interactive mode leaves this as None.
@@ -84,8 +83,7 @@ pub struct InteractiveConfig {
 impl Default for InteractiveConfig {
     fn default() -> Self {
         Self {
-            bpg_effort: BpgEffort::Good,
-            bpg_lossless: false,
+            bpg_effort: BpgEffort::Best,
             bpg_aq: BpgAq::default(),
             bpg_bit_depth: 8,
             bpg_quality_override: None,
@@ -143,7 +141,7 @@ pub fn run_interactive() -> Result<()> {
         COLORS.highlight, COLORS.reset
     );
     println!(
-        "{}Step 1/4: Input Files & Folders{}",
+        "{}Step 1/3: Input Files & Folders{}",
         COLORS.highlight, COLORS.reset
     );
     println!(
@@ -183,11 +181,10 @@ pub fn run_interactive() -> Result<()> {
         return Ok(());
     }
 
-    let media_files = if config.catalog_db_path.is_some() {
-        crate::orchestrator::collect_files(&config.input_paths)?
-    } else {
-        validate_and_expand_paths(&config.input_paths)?
-    };
+    // Use the core discovery rules here and pass this exact snapshot into the
+    // pipeline.  The old wizard counted only known media, then rescanned and
+    // silently added misc files after confirmation, so totals could change.
+    let media_files = crate::orchestrator::collect_files(&config.input_paths)?;
     if media_files.is_empty() {
         println!("{}No files found. Exiting.{}", COLORS.warning, COLORS.reset);
         return Ok(());
@@ -205,8 +202,14 @@ pub fn run_interactive() -> Result<()> {
         COLORS.highlight, COLORS.reset
     );
     println!(
-        "{}Step 2/4: Compression Settings{}",
-        COLORS.highlight, COLORS.reset
+        "{}Step 2/3: {}{}",
+        COLORS.highlight,
+        if config.reencode_media {
+            "Encoding & Archive Settings"
+        } else {
+            "Archive Settings"
+        },
+        COLORS.reset
     );
     println!(
         "{}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{}",
@@ -249,11 +252,11 @@ pub fn run_interactive() -> Result<()> {
 fn prompt_start_action() -> Result<StartAction> {
     println!("{}Choose action:{}", COLORS.info, COLORS.reset);
     println!(
-        "[1] {}Compress (No Re-encode){} - Archive originals as-is",
+        "[1] {}Archive Originals{} - Preserve media bytes; lossless container compression only",
         COLORS.highlight, COLORS.reset
     );
     println!(
-        "[2] {}Compress (Re-encode){} - Images→BPG, Videos→staged for external encoding",
+        "[2] {}Archive + Re-encode Media{} - Images→BPG, inefficient videos→external staging",
         COLORS.highlight, COLORS.reset
     );
     println!(
@@ -530,75 +533,10 @@ fn parse_path_input(input: &str) -> Vec<String> {
     paths
 }
 
-fn validate_and_expand_paths(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
-    let mut media_files = Vec::new();
-
-    for path in paths {
-        if !path.exists() {
-            eprintln!(
-                "{}⚠ Path does not exist: {}{}",
-                COLORS.warning,
-                path.display(),
-                COLORS.reset
-            );
-            continue;
-        }
-
-        if path.is_file() {
-            if is_media_file(path) {
-                media_files.push(path.clone());
-            }
-        } else if path.is_dir() {
-            let dir_files = find_media_files(path)?;
-            media_files.extend(dir_files);
-        }
-    }
-
-    if media_files.is_empty() {
-        bail!("No valid media files found");
-    }
-
-    Ok(media_files)
-}
-
-fn is_media_file(path: &PathBuf) -> bool {
-    const IMAGE_EXTS: &[&str] = &[
-        "jpg", "jpeg", "png", "heic", "heif", "bpg", "tiff", "tif", "bmp", "webp", "dng", "cr2",
-        "nef", "arw", "orf", "rw2", "raf", "jp2", "j2k",
-    ];
-    const VIDEO_EXTS: &[&str] = &["mp4", "mov", "avi", "mkv", "webm", "m4v", "wmv"];
-
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        let ext_lower = ext.to_lowercase();
-        IMAGE_EXTS.contains(&ext_lower.as_str()) || VIDEO_EXTS.contains(&ext_lower.as_str())
-    } else {
-        false
-    }
-}
-
-fn find_media_files(dir: &PathBuf) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() && is_media_file(&path) {
-                files.push(path);
-            } else if path.is_dir() {
-                let sub_files = find_media_files(&path)?;
-                files.extend(sub_files);
-            }
-        }
-    }
-
-    Ok(files)
-}
-
 // ============================================================================
 // Settings Prompts
 // ============================================================================
 
-#[cfg(feature = "bpg-rs")]
 fn bpg_effort_hint(effort: BpgEffort) -> String {
     effort.hint().to_string()
 }
@@ -607,43 +545,36 @@ fn bpg_effort_hint(effort: BpgEffort) -> String {
 fn bpg_aq_hint(aq: BpgAq) -> &'static str {
     match aq {
         BpgAq::Off => "uniform QP; fastest and most predictable",
-        BpgAq::TwoPass => "measured AQ; best current bpg-rs quality path for slow/placebo",
+        BpgAq::TwoPass => "recommended measured two-pass AQ; only keeps a winning candidate",
         BpgAq::Perceptual => "single-pass luma perceptual AQ",
         BpgAq::PerceptualChroma => "single-pass luma+chroma perceptual AQ",
-        BpgAq::PerceptualMild => "milder single-pass luma perceptual AQ",
-        BpgAq::PerceptualChromaMild => "milder single-pass luma+chroma perceptual AQ",
-        BpgAq::LegacyShrink => "legacy compatibility AQ mode",
     }
 }
 
 fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
-    use crate::interactive_menu::{SelectOption, select_option, select_value};
+    use crate::interactive_menu::{select_option, select_value, SelectOption};
 
-    println!(
-        "\n{}Image Settings (BPG Format):{}",
-        COLORS.info, COLORS.reset
-    );
+    if config.reencode_media {
+        println!(
+            "\n{}Image Settings (BPG Format):{}",
+            COLORS.info, COLORS.reset
+        );
+    }
 
-    // The C/x265 backend exposes the x265 preset levels (m8/m9) and keeps AQ
-    // off by default. The pure-Rust backend exposes the named effort presets
-    // and a restricted AQ selector.
+    // Keep the legacy backend buildable, but present the same production
+    // Fast/Best effort shape as the default bpg-rs backend.
     #[cfg(not(feature = "bpg-rs"))]
-    {
+    if config.reencode_media {
         let bpg_options = [
-            SelectOption::new("m8", "x265 veryslow preset (default archival quality)"),
-            SelectOption::new("m9", "x265 placebo preset (slowest, highest effort)"),
+            SelectOption::new("Best", bpg_effort_hint(BpgEffort::Best)),
+            SelectOption::new("Fast", bpg_effort_hint(BpgEffort::Fast)),
         ];
-        let default_idx = match config.bpg_effort {
-            BpgEffort::Best | BpgEffort::Placebo => 1,
-            _ => 0,
-        };
-        let idx = select_option("BPG x265 preset:", &bpg_options, default_idx)?;
-        // m8 => compress_level 8 (veryslow) via BpgEffort::Good; m9 => compress_level
-        // 9 (placebo) via BpgEffort::Placebo.
+        let default_idx = usize::from(config.bpg_effort == BpgEffort::Fast);
+        let idx = select_option("BPG image preset:", &bpg_options, default_idx)?;
         config.bpg_effort = if idx == 1 {
-            BpgEffort::Placebo
+            BpgEffort::Fast
         } else {
-            BpgEffort::Good
+            BpgEffort::Best
         };
         // AQ is not user-selectable for the C backend; keep the production
         // default off.
@@ -651,35 +582,33 @@ fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
     }
 
     #[cfg(feature = "bpg-rs")]
-    {
+    if config.reencode_media {
         let bpg_options = [
-            SelectOption::new("Balanced", bpg_effort_hint(BpgEffort::Balanced)),
-            SelectOption::new("Good", bpg_effort_hint(BpgEffort::Good)),
             SelectOption::new("Best", bpg_effort_hint(BpgEffort::Best)),
-            SelectOption::new("Placebo", bpg_effort_hint(BpgEffort::Placebo)),
+            SelectOption::new("Fast", bpg_effort_hint(BpgEffort::Fast)),
         ];
-        let default_bpg_idx = match config.bpg_effort {
-            BpgEffort::Balanced => 0,
-            BpgEffort::Good => 1,
-            BpgEffort::Best => 2,
-            BpgEffort::Placebo => 3,
-        };
+        let default_bpg_idx = usize::from(config.bpg_effort == BpgEffort::Fast);
         let bpg_idx = select_option("BPG image preset:", &bpg_options, default_bpg_idx)?;
-        config.bpg_effort = match bpg_idx {
-            0 => BpgEffort::Balanced,
-            2 => BpgEffort::Best,
-            3 => BpgEffort::Placebo,
-            _ => BpgEffort::Good,
+        config.bpg_effort = if bpg_idx == 1 {
+            BpgEffort::Fast
+        } else {
+            BpgEffort::Best
         };
         if !config.bpg_effort.supports_two_pass_aq() && config.bpg_aq == BpgAq::TwoPass {
             config.bpg_aq = BpgAq::Off;
         }
 
-        // Restricted AQ selector: only two-pass, off (none) and perceptual-chroma.
+        // AQ is off by default. Two-pass is the recommended opt-in, followed by
+        // the two single-pass perceptual alternatives.
         let aq_choices: Vec<BpgAq> = if config.bpg_effort.supports_two_pass_aq() {
-            vec![BpgAq::TwoPass, BpgAq::Off, BpgAq::PerceptualChroma]
+            vec![
+                BpgAq::Off,
+                BpgAq::TwoPass,
+                BpgAq::Perceptual,
+                BpgAq::PerceptualChroma,
+            ]
         } else {
-            vec![BpgAq::Off, BpgAq::PerceptualChroma]
+            vec![BpgAq::Off, BpgAq::Perceptual, BpgAq::PerceptualChroma]
         };
         let aq_options: Vec<SelectOption> = aq_choices
             .iter()
@@ -815,9 +744,9 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
         if config.output_folder_without_archive {
             "Encode to Folder (no final archive)"
         } else if config.reencode_media {
-            "Compress + Archive (re-encode)"
+            "Archive with media re-encoding"
         } else {
-            "Compress + Archive (no re-encode)"
+            "Archive originals (no media re-encoding)"
         }
     );
 
@@ -841,8 +770,12 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
                 config.output_path.display()
             );
             println!(
-                "  • Compression: ZSTD container level {}, misc LZMA2 level {}",
-                config.compression_level, config.misc_compression_level
+                "  • Lossless container compression: Zstandard level {}",
+                config.compression_level
+            );
+            println!(
+                "  • Compressible misc/RAW bundles: LZMA2 level {} (already-compressed media is stored directly)",
+                config.misc_compression_level
             );
         }
         println!(
@@ -855,9 +788,16 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
         );
         if let Some(ref catalog_path) = config.catalog_db_path {
             println!("  • Catalog DB: {}", catalog_path.display());
+        } else if config.enable_catalog || config.enable_tracking {
+            println!(
+                "  • History DB: {}",
+                crate::file_tracker::openarc_data_dir()
+                    .join("tracking.db")
+                    .display()
+            );
         }
         println!(
-            "  • Deduplication: {}",
+            "  • Duplicate detection: {}",
             if config.enable_dedup {
                 "enabled"
             } else {
@@ -897,7 +837,6 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
                 bpg_quality: config
                     .bpg_quality_override
                     .unwrap_or_else(|| config.bpg_effort.default_quality() as i32),
-                bpg_lossless: config.bpg_lossless,
                 bpg_effort: config.bpg_effort,
                 bpg_aq: config.bpg_aq,
                 bpg_bit_depth: config.bpg_bit_depth as i32,
@@ -924,6 +863,7 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
                     .unwrap(),
             );
             pb.set_message("Starting...");
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
             let pb_clone = pb.clone();
             let bar_style = Arc::new(
@@ -941,14 +881,46 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
                 pb_clone.set_message(msg.to_string());
             });
 
-            let result = create_archive(
+            let result = create_archive_from_discovered(
                 &config.input_paths,
+                _media_files,
                 &config.output_path,
                 settings,
                 Some(progress_fn),
             )?;
 
             pb.finish_with_message("Complete!");
+
+            if !config.output_folder_without_archive
+                && !result.staged_uncompressed_videos.is_empty()
+            {
+                let stage_root = result.video_staging_dir.as_deref().ok_or_else(|| {
+                    anyhow!("videos were staged but the staging root was not returned")
+                })?;
+                let partial_output = partial_archive_path(&config.output_path);
+                fs::rename(&config.output_path, &partial_output).with_context(|| {
+                    format!(
+                        "Failed to move incomplete archive {} to {}",
+                        config.output_path.display(),
+                        partial_output.display()
+                    )
+                })?;
+                let merged = wait_for_external_video_encoding(
+                    &partial_output,
+                    stage_root,
+                    result.staged_uncompressed_videos.len(),
+                    config.compression_level,
+                )?;
+                fs::rename(&partial_output, &config.output_path).with_context(|| {
+                    format!(
+                        "Videos were merged, but the finalized archive could not be moved to {}. It remains at {}",
+                        config.output_path.display(),
+                        partial_output.display()
+                    )
+                })?;
+                let _ = fs::remove_dir_all(stage_root);
+                println!("  • Merged externally encoded videos: {}", merged);
+            }
 
             println!(
                 "\n{}╔════════════════════════════════════════╗{}",
@@ -967,11 +939,15 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
             println!("  • Processed: {} files", result.processed.len());
             println!("  • Skipped: {} files", result.skipped_by_catalog.len());
             if result.dedup_groups > 0 {
-                println!("  • Deduplicated: {} groups", result.dedup_groups);
+                println!(
+                    "  • Duplicate content detected: {} groups (all paths preserved)",
+                    result.dedup_groups
+                );
             }
 
             let total_original: u64 = result.processed.iter().map(|p| p.original_size).sum();
-            let total_compressed: u64 = result.processed.iter().map(|p| p.output_size).sum();
+            let total_compressed = artifact_size(&config.output_path)
+                .unwrap_or_else(|| result.processed.iter().map(|p| p.output_size).sum());
             let ratio = if total_original > 0 {
                 (total_compressed as f64 / total_original as f64) * 100.0
             } else {
@@ -1015,41 +991,20 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
                 config.output_path.display()
             );
 
-            if !result.staged_uncompressed_videos.is_empty() {
+            if config.output_folder_without_archive && !result.staged_uncompressed_videos.is_empty()
+            {
                 println!(
                     "{}Staged uncompressed videos:{} {}",
                     COLORS.info,
                     COLORS.reset,
                     result.staged_uncompressed_videos.len()
                 );
-                if let Some(stage_root) = result
-                    .staged_uncompressed_videos
-                    .first()
-                    .and_then(|p| p.parent())
-                    .and_then(|p| p.parent())
-                {
+                if let Some(stage_root) = result.video_staging_dir.as_deref() {
                     println!("  • Stage folder: {}", stage_root.display());
                 }
                 println!(
-                    "  • Encode these videos externally (HandBrake/ffmpeg/etc.) then merge them."
+                    "  • Folder mode does not finalize an archive; encode these videos externally and place the results in the output media layout."
                 );
-                print!(
-                    "{}Encoded video folder to merge now (leave empty to skip):{} ",
-                    COLORS.prompt, COLORS.reset
-                );
-                io::stdout().flush()?;
-                let mut encoded_dir = String::new();
-                io::stdin().read_line(&mut encoded_dir)?;
-                let encoded_dir = encoded_dir.trim().trim_matches('"');
-                if !encoded_dir.is_empty() {
-                    let merged = append_external_video_bundle(
-                        &config.output_path,
-                        Path::new(encoded_dir),
-                        config.misc_compression_level,
-                        config.compression_level,
-                    )?;
-                    println!("  • Merged externally encoded videos: {}", merged);
-                }
             }
 
             if result.tracking_report.is_some() {
@@ -1070,6 +1025,96 @@ fn is_video_file(path: &PathBuf) -> bool {
         VIDEO_EXTS.contains(&ext.to_lowercase().as_str())
     } else {
         false
+    }
+}
+
+fn artifact_size(path: &Path) -> Option<u64> {
+    let metadata = fs::metadata(path).ok()?;
+    if metadata.is_file() {
+        return Some(metadata.len());
+    }
+    Some(
+        walkdir::WalkDir::new(path)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_type().is_file())
+            .filter_map(|entry| entry.metadata().ok().map(|m| m.len()))
+            .sum(),
+    )
+}
+
+fn partial_archive_path(output: &Path) -> PathBuf {
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = output
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("archive.oarc");
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    parent.join(format!(
+        ".{name}.openarc-partial-{}-{nonce}",
+        std::process::id()
+    ))
+}
+
+fn wait_for_external_video_encoding(
+    archive_path: &Path,
+    stage_root: &Path,
+    expected_count: usize,
+    compression_level: i32,
+) -> Result<usize> {
+    println!(
+        "\n{}External video encoding is required before the archive can be finalized.{}",
+        COLORS.info, COLORS.reset
+    );
+    println!("  • Staged originals: {}", stage_root.display());
+    println!(
+        "  • Encode all {} staged video(s) with HandBrake/ffmpeg/etc. into a clean output folder.",
+        expected_count
+    );
+
+    loop {
+        print!(
+            "{}Encoded video output folder (OpenArc will keep waiting):{} ",
+            COLORS.prompt, COLORS.reset
+        );
+        io::stdout().flush()?;
+        let mut encoded_dir = String::new();
+        let bytes_read = io::stdin().read_line(&mut encoded_dir)?;
+        if bytes_read == 0 {
+            return Err(anyhow!(
+                "standard input closed while waiting for externally encoded videos; partial archive remains at {}",
+                archive_path.display()
+            ));
+        }
+        let encoded_dir = encoded_dir.trim().trim_matches('"');
+        if encoded_dir.is_empty() {
+            println!("No path entered; the archive is still waiting for video output.");
+            continue;
+        }
+        let encoded_dir = PathBuf::from(encoded_dir);
+        if !encoded_dir.is_dir() {
+            println!("Not a directory: {}", encoded_dir.display());
+            continue;
+        }
+
+        match append_external_video_bundle(
+            archive_path,
+            &encoded_dir,
+            expected_count,
+            compression_level,
+        ) {
+            Ok(merged) => return Ok(merged),
+            Err(err) => {
+                println!("Could not use that output folder: {err:#}");
+                println!("Fix the encoded outputs or enter a different folder.");
+            }
+        }
     }
 }
 

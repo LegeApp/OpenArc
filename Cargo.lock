@@ -244,11 +244,11 @@ dependencies = [
 
 [[package]]
 name = "bpg-bitstream"
-version = "0.5.0"
+version = "0.5.2"
 
 [[package]]
 name = "bpg-decode"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "bpg-bitstream",
  "bpg-format",
@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "bpg-encode"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "bpg-format",
  "bpg-hevc",
@@ -267,21 +267,21 @@ dependencies = [
 
 [[package]]
 name = "bpg-format"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "bpg-bitstream",
 ]
 
 [[package]]
 name = "bpg-hevc"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "bpg-bitstream",
 ]
 
 [[package]]
 name = "bpg-hevc-decode"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "archmage",
  "safe_unaligned_simd",
@@ -289,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "bpg-image"
-version = "0.5.0"
+version = "0.5.2"
 
 [[package]]
 name = "brotli"
@@ -1066,10 +1066,11 @@ dependencies = [
 
 [[package]]
 name = "jp2lam"
-version = "0.1.1"
-source = "git+https://github.com/LegeApp/jp2lam#08c3f2572c898abadf6fec266385914591032756"
+version = "0.3.0"
+source = "git+https://github.com/LegeApp/jp2lam#6f02353d9394ac138c23d432d07c17834bb1b957"
 dependencies = [
  "rayon",
+ "tempfile",
  "wide 0.7.33",
 ]
 
@@ -1828,7 +1829,7 @@ dependencies = [
 
 [[package]]
 name = "still265"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "bpg-bitstream",
  "bpg-encode",
