@@ -268,6 +268,32 @@ pub fn encode_image_to_bpg<P: AsRef<Path>>(
         .to_lowercase();
 
     let is_heic = matches!(extension.as_str(), "heic" | "heif");
+    let is_raw = raw_autotune::files::is_supported_raw(input_path_ref);
+
+    if is_raw {
+        let rendered = raw_autotune::api::render_file_rgb16(
+            input_path_ref,
+            &raw_autotune::api::RenderOptions::automatic(),
+        )
+        .context("Failed to develop RAW with raw-autotune")?;
+        let mut encoder = NativeBPGEncoder::new().context("Failed to create BPG encoder")?;
+        let mut encoder_config = config.to_encoder_config(0);
+        encoder_config.bit_depth = 12;
+        encoder_config.limited_range = 0;
+        encoder
+            .set_config(&encoder_config)
+            .context("Failed to set BPG config")?;
+        let bpg_data = encoder
+            .encode_from_rgb16(
+                &rendered.data,
+                rendered.width,
+                rendered.height,
+                rendered.row_stride,
+            )
+            .context("Failed to encode developed RAW to BPG")?;
+        std::fs::write(output_path.as_ref(), bpg_data).context("Failed to write BPG file")?;
+        return Ok(());
+    }
 
     // If HEIC/HEIF, decode to native YUV and preserve source bit depth/chroma.
     if is_heic {

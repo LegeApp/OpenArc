@@ -19,7 +19,7 @@ missing_unsafe_on_extern = "warn"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-or-later"
 authors = ["OpenArc Contributors"]
 
 [workspace.dependencies]
@@ -135,6 +135,7 @@ serde_json.workspace = true
 # Workspace crates
 arcmax = { path = "vendor/arcmax" }
 codecs = { path = "crates/codecs", default-features = false }
+raw-autotune = { path = "../raw-autotune" }
 
 # System
 parking_lot.workspace = true

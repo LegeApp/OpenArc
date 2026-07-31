@@ -26,7 +26,6 @@ use indicatif::{ProgressBar, ProgressStyle};
 use openarc::bpg_wrapper::{BpgAq, BpgConfig, BpgEffort};
 use openarc::cli::{Cli, Commands};
 use openarc::interactive;
-use openarc::orchestrator::FileClass;
 use openarc::orchestrator::{
     create_archive, extract_archive_with_decoding, list_archive_contents, ExtractionSettings,
     OrchestratorSettings,
@@ -97,10 +96,12 @@ fn is_supported_image(path: &std::path::Path) -> bool {
     const IMAGE_EXTS: &[&str] = &[
         "jpg", "jpeg", "png", "heic", "heif", "tiff", "tif", "bmp", "webp", "jp2", "j2k",
     ];
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
-        .unwrap_or(false)
+    raw_autotune::files::is_supported_raw(path)
+        || path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+            .unwrap_or(false)
 }
 
 fn artifact_size(path: &std::path::Path) -> Option<u64> {
@@ -200,6 +201,40 @@ fn find_images(input_dir: &std::path::Path) -> Result<Vec<PathBuf>> {
             images.push(path);
         }
     }
+    let raw_keys: std::collections::HashSet<(PathBuf, String)> = images
+        .iter()
+        .filter(|path| raw_autotune::files::is_supported_raw(path))
+        .filter_map(|path| {
+            Some((
+                path.parent()
+                    .unwrap_or_else(|| std::path::Path::new(""))
+                    .to_path_buf(),
+                path.file_stem()?.to_string_lossy().to_lowercase(),
+            ))
+        })
+        .collect();
+    images.retain(|path| {
+        let is_jpeg = matches!(
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .as_str(),
+            "jpg" | "jpeg"
+        );
+        !is_jpeg
+            || !path
+                .file_stem()
+                .map(|stem| {
+                    raw_keys.contains(&(
+                        path.parent()
+                            .unwrap_or_else(|| std::path::Path::new(""))
+                            .to_path_buf(),
+                        stem.to_string_lossy().to_lowercase(),
+                    ))
+                })
+                .unwrap_or(false)
+    });
     Ok(images)
 }
 
@@ -368,6 +403,10 @@ fn main() -> Result<()> {
             println!("  Processed: {} files", result.processed.len());
             println!("  Failed: {} files", result.failed.len());
             println!(
+                "  Dropped JPEG+RAW companions: {} files",
+                result.dropped_paired_jpegs.len()
+            );
+            println!(
                 "  Skipped (catalog): {} files",
                 result.skipped_by_catalog.len()
             );
@@ -387,17 +426,6 @@ fn main() -> Result<()> {
             let total_original: u64 = result.processed.iter().map(|p| p.original_size).sum();
             let total_compressed = artifact_size(&output)
                 .unwrap_or_else(|| result.processed.iter().map(|p| p.output_size).sum());
-            let raw_count = result
-                .processed
-                .iter()
-                .filter(|p| p.class == FileClass::Raw)
-                .count();
-            let raw_total: u64 = result
-                .processed
-                .iter()
-                .filter(|p| p.class == FileClass::Raw)
-                .map(|p| p.original_size)
-                .sum();
             let ratio = if total_original > 0 {
                 (total_compressed as f64 / total_original as f64) * 100.0
             } else {
@@ -409,13 +437,6 @@ fn main() -> Result<()> {
             println!("  Original size: {} MB", total_original / 1_000_000);
             println!("  Compressed size: {} MB", total_compressed / 1_000_000);
             println!("  Ratio: {:.2}%", ratio);
-            if raw_count > 0 {
-                println!(
-                    "  RAW preserved separately: {} files, {} MB total (stored losslessly in raw.arc with LZMA2 level 9, 128 MiB dict)",
-                    raw_count,
-                    raw_total / 1_000_000
-                );
-            }
             if result.jpeg2000_fallback.replaced_files > 0 {
                 println!(
                     "  JPEG 2000 fallback: {} files encoded to JP2 q85 after BPG bitrate criteria flagged them and JP2 was smaller",

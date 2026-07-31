@@ -115,6 +115,16 @@ mod bpg_ffi {
             output_size: *mut usize,
         ) -> c_int;
 
+        fn bpg_encode_from_rgb16(
+            ctx: *mut BPGEncoderContext,
+            input_data: *const u16,
+            width: c_int,
+            height: c_int,
+            stride: c_int,
+            output_data: *mut *mut u8,
+            output_size: *mut usize,
+        ) -> c_int;
+
         fn bpg_encode_from_planar_u8(
             ctx: *mut BPGEncoderContext,
             y_plane: *const u8,
@@ -213,6 +223,26 @@ mod bpg_ffi {
             height,
             stride,
             format,
+            output_data,
+            output_size,
+        ))
+    }
+
+    pub unsafe fn encode_from_rgb16(
+        ctx: *mut BPGEncoderContext,
+        input_data: *const u16,
+        width: c_int,
+        height: c_int,
+        stride: c_int,
+        output_data: *mut *mut u8,
+        output_size: *mut usize,
+    ) -> Result<c_int> {
+        Ok(bpg_encode_from_rgb16(
+            ctx,
+            input_data,
+            width,
+            height,
+            stride,
             output_data,
             output_size,
         ))
@@ -459,6 +489,53 @@ impl NativeBPGEncoder {
             return Err(anyhow!("Encoding failed: {}", self.get_error()));
         }
 
+        Self::take_output(output_data, output_size)
+    }
+
+    /// Encode tightly packed native-endian RGB16 samples without an
+    /// intermediate byte allocation.
+    pub fn encode_from_rgb16(
+        &self,
+        data: &[u16],
+        width: u32,
+        height: u32,
+        row_stride: usize,
+    ) -> Result<Vec<u8>> {
+        ensure!(width > 0 && height > 0, "image dimensions must be non-zero");
+        let packed_stride = (width as usize)
+            .checked_mul(3)
+            .ok_or_else(|| anyhow!("packed RGB16 row width overflow"))?;
+        ensure!(
+            row_stride == packed_stride,
+            "RGB16 input must be tightly packed: got {row_stride} samples, expected {packed_stride}"
+        );
+        let required = row_stride
+            .checked_mul(height as usize)
+            .ok_or_else(|| anyhow!("packed RGB16 buffer size overflow"))?;
+        ensure!(
+            data.len() >= required,
+            "RGB16 buffer is shorter than row_stride * height"
+        );
+        let row_stride =
+            c_int::try_from(row_stride).map_err(|_| anyhow!("packed RGB16 stride overflow"))?;
+
+        let mut output_data: *mut u8 = ptr::null_mut();
+        let mut output_size: usize = 0;
+        let _jctvc = self.jctvc_guard();
+        let result = unsafe {
+            bpg_ffi::encode_from_rgb16(
+                self.ctx,
+                data.as_ptr(),
+                width as c_int,
+                height as c_int,
+                row_stride,
+                &mut output_data,
+                &mut output_size,
+            )?
+        };
+        if result != 0 {
+            return Err(anyhow!("Encoding failed: {}", self.get_error()));
+        }
         Self::take_output(output_data, output_size)
     }
 
@@ -848,6 +925,20 @@ mod tests {
     fn test_supported_encoders() {
         let encoders = get_supported_encoders();
         assert!(encoders & 0x01 != 0);
+    }
+
+    #[test]
+    fn encode_rgb16_smoke() {
+        let mut encoder = NativeBPGEncoder::new().unwrap();
+        let mut config = NativeBPGEncoder::default_config();
+        // The system libx265 used by this fallback test may be an 8-bit-only
+        // build. The vendored production backend supplies 10/12-bit variants.
+        config.bit_depth = 8;
+        encoder.set_config(&config).unwrap();
+        let rgb = vec![32_896u16; 64 * 64 * 3];
+        let bpg = encoder.encode_from_rgb16(&rgb, 64, 64, 64 * 3).unwrap();
+        assert!(bpg.starts_with(b"BPG"));
+        assert!(bpg.len() > 8);
     }
 
     #[test]
