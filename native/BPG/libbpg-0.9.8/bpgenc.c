@@ -2893,6 +2893,58 @@ int bpgenc_encode_from_memory_buffer(
         output_size);
 }
 
+/* Encode native-endian, tightly packed 16-bit RGB without an 8-bit
+ * intermediate. Stride is expressed in uint16_t samples. */
+int bpgenc_encode_from_rgb16_buffer(
+    const uint16_t *input_data,
+    int width, int height, int stride,
+    int quality, int bit_depth, int lossless, int chroma_format,
+    int compress_level, int encoder_type, int aq_mode, float aq_strength,
+    int color_space, int limited_range,
+    uint8_t **output_data, size_t *output_size)
+{
+    Image *img;
+    ColorConvertState cvt_s, *cvt = &cvt_s;
+    RGBConvertFunc *convert_func;
+    int y;
+
+    if (!input_data || !output_data || !output_size ||
+        width <= 0 || height <= 0 || stride < width * 3)
+        return -1;
+
+    if (bit_depth != 8 && bit_depth != 10 && bit_depth != 12)
+        bit_depth = 8;
+
+    img = image_alloc(width, height, BPG_FORMAT_444, 0,
+                      color_space, bit_depth);
+    if (!img)
+        return -2;
+    img->limited_range = limited_range;
+
+    convert_init(cvt, 16, bit_depth, color_space, limited_range);
+    convert_func = rgb_to_cs[1][color_space];
+    for (y = 0; y < height; y++) {
+        const uint16_t *src_row = input_data + y * stride;
+        convert_func(cvt,
+                     (PIXEL *)(img->data[0] + y * img->linesize[0]),
+                     (PIXEL *)(img->data[1] + y * img->linesize[1]),
+                     (PIXEL *)(img->data[2] + y * img->linesize[2]),
+                     src_row, width, 3);
+    }
+
+    return bpgenc_encode_image_to_memory(
+        img,
+        quality,
+        lossless,
+        chroma_format,
+        compress_level,
+        encoder_type,
+        aq_mode,
+        aq_strength,
+        output_data,
+        output_size);
+}
+
 int bpgenc_encode_from_planar_u8_buffer(
     const uint8_t *y_plane, int y_stride,
     const uint8_t *cb_plane, int cb_stride,

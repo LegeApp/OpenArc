@@ -105,6 +105,20 @@ int bpg_encode_from_memory(
 );
 
 /*
+ * Encode native-endian interleaved RGB16 data.
+ * Stride is expressed in uint16_t samples, not bytes.
+ */
+int bpg_encode_from_rgb16(
+    BPGEncoderContext* ctx,
+    const uint16_t* input_data,
+    int width,
+    int height,
+    int stride,
+    uint8_t** output_data,
+    size_t* output_size
+);
+
+/*
  * Encode planar YCbCr or grayscale data from separate u8 planes.
  * Strides are expressed in samples, not bytes.
  */

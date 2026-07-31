@@ -174,6 +174,44 @@ impl NativeBPGEncoder {
         self.encode_image(image)
     }
 
+    /// Encode tightly packed native-endian RGB16 samples without first
+    /// converting them to a byte buffer or an `image::ImageBuffer`.
+    pub fn encode_from_rgb16(
+        &self,
+        data: &[u16],
+        width: u32,
+        height: u32,
+        row_stride: usize,
+    ) -> Result<Vec<u8>> {
+        ensure!(width > 0 && height > 0, "image dimensions must be non-zero");
+        let packed_stride = (width as usize)
+            .checked_mul(3)
+            .context("packed RGB16 row width overflow")?;
+        ensure!(
+            row_stride == packed_stride,
+            "RGB16 input must be tightly packed: got {row_stride} samples, expected {packed_stride}"
+        );
+        let required = row_stride
+            .checked_mul(height as usize)
+            .context("packed RGB16 buffer size overflow")?;
+        ensure!(
+            data.len() >= required,
+            "RGB16 buffer is shorter than row_stride * height"
+        );
+
+        let bit_depth = target_bit_depth(self.config.bit_depth)?;
+        let mut image = Image::from_rgb16(
+            &data[..required],
+            width,
+            height,
+            color_space_from_config(self.config.color_space),
+            self.config.limited_range != 0,
+            bit_depth,
+        );
+        apply_requested_chroma(&mut image, self.config.chroma_format)?;
+        self.encode_image(image)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn encode_from_planar_u8(
         &self,
@@ -1058,6 +1096,18 @@ mod tests {
         let bpg = encoder
             .encode_from_memory(&rgb, 8, 8, 8 * 3, BPGImageFormat::RGB24)
             .unwrap();
+        assert!(bpg.starts_with(b"BPG"));
+        assert!(bpg.len() > 8);
+    }
+
+    #[test]
+    fn encode_rgb16_smoke() {
+        let mut encoder = NativeBPGEncoder::new().unwrap();
+        let mut config = NativeBPGEncoder::default_config();
+        config.bit_depth = 12;
+        encoder.set_config(&config).unwrap();
+        let rgb = vec![32_896u16; 8 * 8 * 3];
+        let bpg = encoder.encode_from_rgb16(&rgb, 8, 8, 8 * 3).unwrap();
         assert!(bpg.starts_with(b"BPG"));
         assert!(bpg.len() > 8);
     }

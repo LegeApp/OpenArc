@@ -774,7 +774,7 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
                 config.compression_level
             );
             println!(
-                "  • Compressible misc/RAW bundles: LZMA2 level {} (already-compressed media is stored directly)",
+                "  • Compressible misc bundle: LZMA2 level {} (already-compressed media is stored directly)",
                 config.misc_compression_level
             );
         }
@@ -937,7 +937,14 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
 
             println!("\n{}Statistics:{}", COLORS.info, COLORS.reset);
             println!("  • Processed: {} files", result.processed.len());
-            println!("  • Skipped: {} files", result.skipped_by_catalog.len());
+            println!(
+                "  • Dropped JPEG+RAW companions: {} files",
+                result.dropped_paired_jpegs.len()
+            );
+            println!(
+                "  • Skipped (catalog): {} files",
+                result.skipped_by_catalog.len()
+            );
             if result.dedup_groups > 0 {
                 println!(
                     "  • Duplicate content detected: {} groups (all paths preserved)",

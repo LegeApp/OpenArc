@@ -169,6 +169,13 @@ extern int bpgenc_encode_from_memory_buffer(
     int compress_level, int encoder_type, int aq_mode, float aq_strength,
     int color_space, int limited_range,
     uint8_t **output_data, size_t *output_size);
+extern int bpgenc_encode_from_rgb16_buffer(
+    const uint16_t *input_data,
+    int width, int height, int stride,
+    int quality, int bit_depth, int lossless, int chroma_format,
+    int compress_level, int encoder_type, int aq_mode, float aq_strength,
+    int color_space, int limited_range,
+    uint8_t **output_data, size_t *output_size);
 extern int bpgenc_encode_from_planar_u8_buffer(
     const uint8_t *y_plane, int y_stride,
     const uint8_t *cb_plane, int cb_stride,
@@ -268,6 +275,53 @@ int bpg_encode_from_memory(
         case -4: set_error(ctx, "Encoder initialization failed"); return BPG_ERROR_ENCODE_FAILED;
         case -5: set_error(ctx, "x265 encoding failed"); return BPG_ERROR_ENCODE_FAILED;
         default: set_error(ctx, "Encoding failed"); return BPG_ERROR_ENCODE_FAILED;
+        }
+    }
+
+    return BPG_OK;
+}
+
+int bpg_encode_from_rgb16(
+    BPGEncoderContext* ctx,
+    const uint16_t* input_data,
+    int width,
+    int height,
+    int stride,
+    uint8_t** output_data,
+    size_t* output_size
+) {
+    int ret;
+
+    if (!ctx || !input_data || !output_data || !output_size) {
+        return BPG_ERROR_INVALID_PARAM;
+    }
+
+    if (width <= 0 || height <= 0 || stride < width * 3) {
+        set_error(ctx, "Invalid RGB16 image dimensions or stride");
+        return BPG_ERROR_INVALID_PARAM;
+    }
+
+    ret = bpgenc_encode_from_rgb16_buffer(
+        input_data, width, height, stride,
+        ctx->config.quality,
+        ctx->config.bit_depth,
+        ctx->config.lossless,
+        ctx->config.chroma_format,
+        ctx->config.compress_level,
+        ctx->config.encoder_type,
+        ctx->config.aq_mode,
+        ctx->config.aq_strength,
+        ctx->config.color_space,
+        ctx->config.limited_range,
+        output_data, output_size);
+
+    if (ret < 0) {
+        switch (ret) {
+        case -1: set_error(ctx, "Invalid RGB16 parameters"); return BPG_ERROR_INVALID_PARAM;
+        case -2: set_error(ctx, "Out of memory"); return BPG_ERROR_OUT_OF_MEMORY;
+        case -4: set_error(ctx, "Encoder initialization failed"); return BPG_ERROR_ENCODE_FAILED;
+        case -5: set_error(ctx, "x265 encoding failed"); return BPG_ERROR_ENCODE_FAILED;
+        default: set_error(ctx, "RGB16 encoding failed"); return BPG_ERROR_ENCODE_FAILED;
         }
     }
 
