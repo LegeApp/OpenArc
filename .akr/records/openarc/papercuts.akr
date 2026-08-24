@@ -1,0 +1,173 @@
+akr 0.1
+project openarc
+
+record openarc.papercut.a-15-input-batch-jxl-stress-run-over-paired-arw/1 : papercut {
+    title "A 15-input `batch-jxl` stress run over paired ARW/JPG files reported 15…"
+    state verified
+    statement """
+        A 15-input `batch-jxl` stress run over paired ARW/JPG files reported 15 encodes but left only 8 outputs because both extensions map to the same `.jxl` stem. The standalone batch command should reject/disambiguate collisions or apply the archive pipeline's paired-JPEG policy.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.a-focused-rust-unit-test-invocation-with-a-bare/1 : papercut {
+    title "A focused Rust unit-test invocation with a bare name plus --exact…"
+    state verified
+    statement """
+        A focused Rust unit-test invocation with a bare name plus --exact compiled but ran zero tests because the harness name included its module prefix; use a substring filter or the fully qualified name.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.a-multi-file-apply-patch-for-the-jpxl-preset/1 : papercut {
+    title "A multi-file apply_patch for the JPXL preset surface was rejected…"
+    state verified
+    statement """
+        A multi-file apply_patch for the JPXL preset surface was rejected atomically because a wrapped module-doc line did not match; split cross-file patches or use exact current line wrapping.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.a-multi-hunk-patch-against-one-file-was/1 : papercut {
+    title "A multi-hunk patch against one file was rejected because separate…"
+    state verified
+    statement """
+        A multi-hunk patch against one file was rejected because separate `Update File` sections targeted the same path. The patch format requires all hunks for a file under one update block, but the error only appears at application time.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    about "apply_patch"
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.cargo-fmt-all-check-and-git-diff-check-cannot/1 : papercut {
+    title "`cargo fmt --all -- --check` and `git diff --check` cannot isolate this…"
+    state verified
+    statement """
+        `cargo fmt --all -- --check` and `git diff --check` cannot isolate this scheduler change: the in-progress JPEG XL migration already contains many unformatted files, and `src/orchestrator.rs` has CRLF lines that Git reports wholesale as trailing whitespace. Focused compile/tests are needed until that migration is normalized.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.cargo-fmt-all-check-is-already-red-across-the/1 : papercut {
+    title "cargo fmt --all -- --check is already red across the uncommitted JPEG…"
+    state verified
+    statement """
+        cargo fmt --all -- --check is already red across the uncommitted JPEG XL migration, including large unrelated files; avoid bulk formatting and verify touched-file formatting selectively.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.cleanup-of-an-exact-freshly-created-tmp-openarc/1 : papercut {
+    title "Cleanup of an exact, freshly-created `/tmp/openarc-jpxl-batch.*`…"
+    state verified
+    statement """
+        Cleanup of an exact, freshly-created `/tmp/openarc-jpxl-batch.*` directory was rejected because the safety layer forbids `rm -rf` even for a validated narrow target; recoverable trash is the workaround.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    about "exec_command"
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.cleanup-of-eight-explicitly-enumerated/1 : papercut {
+    title "Cleanup of eight explicitly enumerated benchmark artifacts under…"
+    state verified
+    statement """
+        Cleanup of eight explicitly enumerated benchmark artifacts under `.agent/scratch/` was rejected because the command guard disallows `rm -f`/`rm -rf` even for exact validated targets. A recoverable trash operation is required instead.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    about "exec_command"
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.recoverable-scratch-cleanup-also-failed-gio/1 : papercut {
+    title "Recoverable scratch cleanup also failed: `gio trash` cannot create or…"
+    state verified
+    statement """
+        Recoverable scratch cleanup also failed: `gio trash` cannot create or find `/mnt/Samsung980_1TB/.Trash-1000` on this mounted workspace volume. The standard safe-delete path is unavailable unless the volume trash directory is provisioned.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    about "gio"
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.the-required-cargo-test-release-workspace-gate/1 : papercut {
+    title "The required `cargo test --release --workspace` gate cannot start…"
+    state verified
+    statement """
+        The required `cargo test --release --workspace` gate cannot start because vendored `arcmax` declares five bin targets whose source files are absent (`compression-bench`, `dispack-file`, `profile-all`, `profile-ppmd-h`, `raw_analyze`). Targeted OpenArc/codecs release tests are the usable fallback.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.the-suggested-recoverable-cleanup-fallback-also/1 : papercut {
+    title "The suggested recoverable cleanup fallback also failed because `gio…"
+    state verified
+    statement """
+        The suggested recoverable cleanup fallback also failed because `gio trash` does not support the system's `/tmp` mount; a validated `find -depth -delete` is needed for temporary-directory cleanup here.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    about "exec_command"
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.while-checking-jpxl-dependency-features-cargo/1 : papercut {
+    title "While checking JPXL dependency features, cargo tree rejected the…"
+    state verified
+    statement """
+        While checking JPXL dependency features, cargo tree rejected the profile-independent --release flag; rerun cargo tree without a profile flag.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.while-constructing-a-small-batch-benchmark/1 : papercut {
+    title "While constructing a small batch benchmark, `batch-jxl` silently…"
+    state verified
+    statement """
+        While constructing a small batch benchmark, `batch-jxl` silently reported “Encoded 0 image(s)” for a directory containing symlinked supported RAW files. `find_images` neither follows nor reports skipped symlinks, which makes test/real input discovery misleading.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.while-creating-a-work-record-knowledge-propose/1 : papercut {
+    title "While creating a work record, knowledge.propose accepted a topic…"
+    state verified
+    statement """
+        While creating a work record, knowledge.propose accepted a topic parameter in its schema but validation rejected topic for planning kinds; omit topic for work records.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    author "codex"
+    created_at 2026-08-21
+}
+
+record openarc.papercut.while-proposing-an-observation-the-tool-schema/1 : papercut {
+    title "While proposing an observation, the tool schema exposed method only as…"
+    state verified
+    statement """
+        While proposing an observation, the tool schema exposed method only as a generic enum and rejected the intuitive value `measurement`; the error revealed the allowed observation-specific values. The callable schema should enumerate those values.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    about "akr"
+    author "codex"
+    created_at 2026-08-21
+}

@@ -1,16 +1,40 @@
 # OpenArc
 
 OpenArc is a media archiver for photo and video folders with both interactive
-and command-line workflows. It converts standard images to BPG (with JPEG 2000
-fallback when smaller), automatically develops supported camera RAW files and
-encodes their 16-bit sRGB output to BPG, stages inefficient videos for external
-encoding, and bundles the result into a Zstandard-compressed archive with
-manifests and hashes. For a directory-local JPEG+RAW camera pair with the same
-stem, only the RAW-derived image is archived.
+and command-line workflows. It converts standard images to JPEG XL, automatically
+develops supported camera RAW files and encodes their 16-bit sRGB output to JPEG
+XL, stages inefficient videos for external encoding, and bundles the result into
+a Zstandard-compressed archive with manifests and hashes. For a directory-local
+JPEG+RAW camera pair with the same stem, only the RAW-derived image is archived.
+
+### Image quality
+
+Every image output is JPEG XL, and the pipeline is built to carry through as
+much of the original as the codec can hold:
+
+- **No chroma subsampling, ever.** JPEG XL VarDCT works in XYB, so there is no
+  4:2:0 step to lose three quarters of the chroma the way the previous BPG path
+  did.
+- **Source bit depth is preserved.** A 16-bit TIFF, a 10-bit HEIC and a
+  developed RAW are encoded *and declared* at their own depth, so they decode
+  back at that depth instead of being flattened to 8-bit.
+- **Greyscale stays greyscale**, and is encoded losslessly.
+- **`--jxl-effort lossless`** encodes exact samples through the JPEG XL modular
+  track when nothing may be lost at all.
+
+The quality dial is a **bitrate** (`--jxl-bpp`), not a quantizer or a
+perceptual distance: JPEG XL rate control here targets a size. The lossy
+presets (`best`, `fast`) name archival-leaning bitrates; `best` uses JPXL's
+production Balanced controller and `fast` uses its Fast controller. Override
+the bitrate with `--jxl-bpp` once you have measured your own corpus.
+
+Images whose alpha channel is actually in use are stored unchanged rather than
+encoded, because the encoder does not yet implement extra channels - so no
+image silently loses its transparency.
 
 ## Archive layout
 
-- `media/`: converted images (including developed RAW files) and processed videos
+- `media/`: converted images as `.jxl` (including developed RAW files) and processed videos
 - `misc.arc`: other preserved files in an LZMA2-compressed tar stream
 - `OPENARC_METADATA.json`: image restoration metadata
 - `OPENARC_INDEX.json`: compact machine-readable source/stored paths, sizes, classes, and SHA-256 identities

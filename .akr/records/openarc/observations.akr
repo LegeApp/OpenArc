@@ -1,0 +1,29 @@
+akr 0.1
+project openarc
+
+record openarc.observation.fixed-bpp-causes-uniform-same-dimension-jxl-20260821/1 : observation {
+    title "Fixed-bpp JPEG XL targets make same-dimension outputs nearly uniform"
+    state superseded
+    scope [ path "crates/codecs/jxl.rs", path "src/interactive.rs", path "src/jxl_wrapper.rs" ]
+    statement """
+        OpenArc's lossy JPEG XL presets currently use hard bits-per-pixel ceilings, so equal-dimension images converge on nearly equal file sizes regardless of scene complexity; this differs fundamentally from the former fixed-QP BPG path.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    method instrumented
+    watches [ "crates/codecs/jxl.rs", "src/interactive.rs", "src/jxl_wrapper.rs" ]
+    verified_by [ @openarc.evidence.uniform-fixed-bpp-inventory-20260821/1 ]
+}
+
+record openarc.observation.fixed-bpp-causes-uniform-same-dimension-jxl-20260821/2 : observation {
+    title "Fixed-bpp JPEG XL targets make same-dimension outputs nearly uniform"
+    state verified
+    scope [ path "src/interactive.rs" ]
+    statement """
+        OpenArc's lossy JPEG XL presets currently use hard bits-per-pixel ceilings, so equal-dimension images converge on nearly equal file sizes regardless of scene complexity; this differs fundamentally from the former fixed-QP BPG path.
+        """
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    method instrumented
+    watches [ "src/interactive.rs" ]
+    supersedes [ @openarc.observation.fixed-bpp-causes-uniform-same-dimension-jxl-20260821/1 ]
+    verified_by [ @openarc.evidence.uniform-fixed-bpp-inventory-20260821/1 ]
+}

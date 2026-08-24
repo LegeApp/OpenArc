@@ -3,18 +3,9 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-/// Value parser for the BPG effort/compression option. The accepted values are
-/// backend-specific (see `bpg_wrapper::EFFORT_CLI_VALUES`).
-fn bpg_effort_parser() -> clap::builder::PossibleValuesParser {
-    clap::builder::PossibleValuesParser::new(crate::bpg_wrapper::EFFORT_CLI_VALUES.iter().copied())
-}
-
-/// Value parser for the BPG adaptive-quantization option. Only compiled for the
-/// pure-Rust backend; the C/x265 backend forces x265's default AQ and does not
-/// expose a selector.
-#[cfg(feature = "bpg-rs")]
-fn bpg_aq_parser() -> clap::builder::PossibleValuesParser {
-    clap::builder::PossibleValuesParser::new(crate::bpg_wrapper::AQ_CLI_VALUES.iter().copied())
+/// Value parser for the JPEG XL effort/quality preset.
+fn jxl_effort_parser() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(crate::jxl_wrapper::EFFORT_CLI_VALUES.iter().copied())
 }
 
 #[derive(Parser)]
@@ -40,31 +31,19 @@ pub enum Commands {
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
 
-        /// BPG compression effort: best (production default) or fast.
-        #[arg(long, default_value = crate::bpg_wrapper::EFFORT_CLI_DEFAULT, value_parser = bpg_effort_parser())]
-        bpg_effort: String,
+        /// JPEG XL preset: best (production default), fast, or lossless.
+        #[arg(long, default_value = crate::jxl_wrapper::EFFORT_CLI_DEFAULT, value_parser = jxl_effort_parser())]
+        jxl_effort: String,
 
-        /// BPG adaptive quantization (Rust backend only). AQ is off by default.
-        /// `--bpg-aq` enables the recommended two-pass mode; use
-        /// `--bpg-aq=<mode>` to select another mode.
-        #[cfg(feature = "bpg-rs")]
-        #[arg(
-            long,
-            default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT,
-            default_missing_value = crate::bpg_wrapper::AQ_CLI_DEFAULT_WHEN_ENABLED,
-            num_args = 0..=1,
-            require_equals = true,
-            value_parser = bpg_aq_parser()
-        )]
-        bpg_aq: String,
-
-        /// Advanced/testing override for BPG QP (0-51, lower = better quality).
-        /// Normal use should prefer --bpg-effort.
-        #[arg(long, hide = true)]
-        bpg_quality: Option<i32>,
+        /// Override the preset's bits-per-pixel target (higher = closer to the
+        /// source and larger). JPEG XL rate control targets a size, not a
+        /// perceptual distance, so this is the quality dial. Not valid with
+        /// `--jxl-effort lossless`.
+        #[arg(long)]
+        jxl_bpp: Option<f64>,
 
         /// ZSTD level (1-22) for the final archive container. The container
-        /// wraps already-compressed BPG/video/LZMA2 data, so a low value
+        /// wraps already-compressed JPEG XL/video/LZMA2 data, so a low value
         /// (1-6) is recommended; higher levels mostly waste CPU.
         #[arg(long, default_value = "3")]
         compression_level: i32,
@@ -116,40 +95,29 @@ pub enum Commands {
         archive: PathBuf,
     },
 
-    /// Convert single image to BPG
-    ConvertBpg {
+    /// Convert a single image to JPEG XL
+    #[command(name = "convert-jxl", alias = "convert-bpg")]
+    ConvertJxl {
         /// Input image file
         input: PathBuf,
 
-        /// Output BPG file
+        /// Output .jxl file
         #[arg(short, long)]
         output: PathBuf,
 
-        /// BPG compression effort: best (production default) or fast.
-        #[arg(long, default_value = crate::bpg_wrapper::EFFORT_CLI_DEFAULT, value_parser = bpg_effort_parser())]
+        /// JPEG XL preset: best (production default), fast, or lossless.
+        #[arg(long, default_value = crate::jxl_wrapper::EFFORT_CLI_DEFAULT, value_parser = jxl_effort_parser())]
         effort: String,
 
-        /// BPG adaptive quantization (Rust backend only). AQ is off by default.
-        /// `--aq` enables the recommended two-pass mode; use `--aq=<mode>` to
-        /// select another mode.
-        #[cfg(feature = "bpg-rs")]
-        #[arg(
-            long,
-            default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT,
-            default_missing_value = crate::bpg_wrapper::AQ_CLI_DEFAULT_WHEN_ENABLED,
-            num_args = 0..=1,
-            require_equals = true,
-            value_parser = bpg_aq_parser()
-        )]
-        aq: String,
-
-        /// Advanced/testing override for BPG QP (0-51, lower = better quality)
-        #[arg(short, long, hide = true)]
-        quality: Option<u8>,
+        /// Override the preset's bits-per-pixel target. Not valid with
+        /// `--effort lossless`.
+        #[arg(long)]
+        bpp: Option<f64>,
     },
 
-    /// Batch convert images to BPG
-    BatchBpg {
+    /// Batch convert images to JPEG XL
+    #[command(name = "batch-jxl", alias = "batch-bpg")]
+    BatchJxl {
         /// Input directory
         input: PathBuf,
 
@@ -157,27 +125,14 @@ pub enum Commands {
         #[arg(short, long)]
         output: PathBuf,
 
-        /// BPG compression effort: best (production default) or fast.
-        #[arg(long, default_value = crate::bpg_wrapper::EFFORT_CLI_DEFAULT, value_parser = bpg_effort_parser())]
+        /// JPEG XL preset: best (production default), fast, or lossless.
+        #[arg(long, default_value = crate::jxl_wrapper::EFFORT_CLI_DEFAULT, value_parser = jxl_effort_parser())]
         effort: String,
 
-        /// BPG adaptive quantization (Rust backend only). AQ is off by default.
-        /// `--aq` enables the recommended two-pass mode; use `--aq=<mode>` to
-        /// select another mode.
-        #[cfg(feature = "bpg-rs")]
-        #[arg(
-            long,
-            default_value = crate::bpg_wrapper::AQ_CLI_DEFAULT,
-            default_missing_value = crate::bpg_wrapper::AQ_CLI_DEFAULT_WHEN_ENABLED,
-            num_args = 0..=1,
-            require_equals = true,
-            value_parser = bpg_aq_parser()
-        )]
-        aq: String,
-
-        /// Advanced/testing override for BPG QP (0-51, lower = better quality)
-        #[arg(short, long, hide = true)]
-        quality: Option<u8>,
+        /// Override the preset's bits-per-pixel target. Not valid with
+        /// `--effort lossless`.
+        #[arg(long)]
+        bpp: Option<f64>,
     },
 
     // === Standalone LZMA2/Zstandard Compression Commands ===
@@ -237,46 +192,75 @@ pub enum Commands {
     PhoneDetect,
 }
 
-#[cfg(all(test, feature = "bpg-rs"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn create_defaults_to_best_with_aq_off() {
+    fn create_defaults_to_the_best_jpeg_xl_preset() {
         let cli = Cli::try_parse_from(["openarc", "create", "-o", "out.oarc", "input"])
             .expect("CLI should parse");
         match cli.command {
             Commands::Create {
-                bpg_effort, bpg_aq, ..
+                jxl_effort, jxl_bpp, ..
             } => {
-                assert_eq!(bpg_effort, "best");
-                assert_eq!(bpg_aq, "off");
+                assert_eq!(jxl_effort, "best");
+                assert_eq!(jxl_bpp, None, "the preset supplies the rate unless overridden");
             }
             _ => panic!("expected create command"),
         }
     }
 
     #[test]
-    fn bare_aq_flag_enables_two_pass() {
-        let cli = Cli::try_parse_from(["openarc", "create", "-o", "out.oarc", "input", "--bpg-aq"])
-            .expect("CLI should parse");
+    fn lossless_is_a_selectable_preset() {
+        let cli = Cli::try_parse_from([
+            "openarc", "create", "-o", "out.oarc", "input", "--jxl-effort", "lossless",
+        ])
+        .expect("CLI should parse");
         match cli.command {
-            Commands::Create { bpg_aq, .. } => assert_eq!(bpg_aq, "two-pass"),
+            Commands::Create { jxl_effort, .. } => assert_eq!(jxl_effort, "lossless"),
             _ => panic!("expected create command"),
         }
     }
 
     #[test]
-    fn placebo_is_not_a_public_cli_effort() {
+    fn an_unknown_preset_is_refused() {
         assert!(Cli::try_parse_from([
             "openarc",
             "create",
             "-o",
             "out.oarc",
             "input",
-            "--bpg-effort",
+            "--jxl-effort",
             "placebo",
         ])
         .is_err());
+    }
+
+    #[test]
+    fn the_internal_balanced_controller_is_not_a_public_preset() {
+        assert!(Cli::try_parse_from([
+            "openarc",
+            "create",
+            "-o",
+            "out.oarc",
+            "input",
+            "--jxl-effort",
+            "balanced",
+        ])
+        .is_err());
+    }
+
+    /// The old subcommand names still work, so existing scripts do not break
+    /// on the rename.
+    #[test]
+    fn the_legacy_bpg_subcommand_names_are_still_accepted() {
+        let cli = Cli::try_parse_from(["openarc", "convert-bpg", "in.png", "-o", "out.jxl"])
+            .expect("the alias should parse");
+        assert!(matches!(cli.command, Commands::ConvertJxl { .. }));
+
+        let cli = Cli::try_parse_from(["openarc", "batch-bpg", "in", "-o", "out"])
+            .expect("the alias should parse");
+        assert!(matches!(cli.command, Commands::BatchJxl { .. }));
     }
 }

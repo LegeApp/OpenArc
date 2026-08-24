@@ -101,6 +101,8 @@ native/libs/*.lib
 # Test images and assets
 crates/zune-image/test-images
 crates/winmtp/tests/assets
+unused/zune-image/test-images
+unused/winmtp/tests/assets
 
 # marc2332/rust-skia @ 0.96.1 (required by [patch.crates-io] in gui/Freya/Cargo.toml)
 rust-skia/
@@ -111,3 +113,7 @@ srep-plan-tactical.md
 freearc-port.md
 crates/arcmax/SREP-dev/README.md
 crates/arcmax/SREP-dev/REFACTORING_SUMMARY.md
+
+# AKR: a rebuildable cache and disposable agent notes.
+.akr/cache/
+.agent/scratch/

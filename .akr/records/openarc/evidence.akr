@@ -1,0 +1,143 @@
+akr 0.1
+project openarc
+
+record openarc.evidence.best-balanced-15-input-stress-20260821/1 : evidence {
+    title "Production Best completes 15-input RAW/JPEG stress run"
+    state verified
+    result pass
+    method command
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    command "/usr/bin/time -v ./target/release/openarc batch-jxl /mnt/Samsung980_1TB/Rust-projects/raw-autotune/raw/raw_at_night -o <temporary-directory> --effort best --bpp 3"
+    summary """
+        The corrected production Best path completed all 15 input encodes in 1:40.35 with 3,174,392 KiB maximum RSS and exit status 0; paired ARW/JPG stem collisions left 8 distinct output paths and were logged separately.
+        """
+}
+
+record openarc.evidence.best-balanced-raw-rate-20260821/1 : evidence {
+    title "OpenArc Best reaches the Balanced target band"
+    state verified
+    result pass
+    method command
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    command "./target/release/openarc convert-jxl /mnt/Samsung980_1TB/Rust-projects/raw-autotune/raw/raw_at_night/_DSC1312.ARW --output .agent/scratch/jpxl-rate-diagnosis/_DSC1312-best-production-3bpp.jxl --effort best --bpp 3.0"
+    summary """
+        The 6000x4000 RAW encoded to 8,930,777 bytes against a 9,000,000-byte target (0.77% under, inside Balanced's 2% band) in 12.13 s with 2,701,988 KiB peak RSS.
+        """
+}
+
+record openarc.evidence.bounded-raw-jxl-corpus-20260821/1 : evidence {
+    title "Bounded full-corpus RAW/JXL release run"
+    state verified
+    result pass
+    method command
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    command "/usr/bin/time -v ./target/release/openarc create /mnt/Samsung980_1TB/Rust-projects/raw-autotune/raw/raw_at_night --output .agent/scratch/fixed-full-output --no-zip --jxl-effort best --jxl-bpp 3.0 --no-catalog --no-dedup --no-tracking"
+    summary """
+        The fixed release build processed all 15 inputs with zero failures in 205.81 s at 6,149,260 KiB peak RSS, producing 134 MB from 490 MB.
+        """
+}
+
+record openarc.evidence.bounded-raw-jxl-output-integrity-20260821/1 : evidence {
+    title "Bounded RAW/JXL output integrity"
+    state verified
+    result pass
+    method command
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    command "sha256sum --check HASHES.sha256"
+    summary """
+        All 15 emitted JXL files plus MANIFEST.txt and OPENARC_INDEX.json matched the generated hash list; the fixed batch _DSC1312 stream was byte-identical to the single-file baseline.
+        """
+}
+
+record openarc.evidence.bounded-raw-jxl-release-tests-20260821/1 : evidence {
+    title "Targeted OpenArc and codecs release tests"
+    state verified
+    result pass
+    method command
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    command "cargo test --release -p openarc -p codecs"
+    summary """
+        Targeted release suites passed: codecs 10 passed/1 ignored, HEIC integration 5 passed, OpenArc 21 passed, and all doc tests passed.
+        """
+}
+
+record openarc.evidence.jpxl-bounded-rate-tests-20260821/1 : evidence {
+    title "JPXL bounded rate-controller suite passes"
+    state verified
+    result pass
+    method command
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    command "cargo test --release -p jpxl-encode-policy"
+    summary """
+        JPXL encode-policy passed 121 unit tests and all enabled boundary, rate-loop, truncation, external-decoder, and VarDCT round-trip tests; the new near-target fresh-rescue regression passed.
+        """
+}
+
+record openarc.evidence.production-jpxl-preset-tests-20260821/1 : evidence {
+    title "OpenArc production JPXL preset tests pass"
+    state verified
+    result pass
+    method command
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    command "cargo test --release -p openarc -p codecs"
+    summary """
+        OpenArc 22 tests, codecs 11 tests (1 ignored), and HEIC integration 5 tests passed; assertions pin Best to JPXL Balanced, Fast to Fast, and reject public balanced/Quality routing.
+        """
+}
+
+record openarc.evidence.raw-jxl-component-profile-20260821/1 : evidence {
+    title "RAW and JPEG XL component release profile"
+    state verified
+    result pass
+    method observation
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    summary """
+        On _DSC1312.ARW, raw-autotune alone took 6.06 s at 1,475,452 KiB RSS; the full best/3.0 bpp path took 18.79 s at 2,745,088 KiB, and three serialized full encodes took 54.57 s at 3,129,360 KiB.
+        """
+}
+
+record openarc.evidence.raw-jxl-oom-kernel-20260821/1 : evidence {
+    title "Kernel OOM diagnosis for RAW/JXL batch"
+    state verified
+    result pass
+    method command
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    command "journalctl -k -b --no-pager -g 'oom|Out of memory|Killed process'"
+    summary """
+        Kernel logged openarc killed at anon-rss 18,755,672 KiB (total-vm 28,394,096 KiB) on the 31 GiB no-swap host.
+        """
+}
+
+record openarc.evidence.raw-jxl-throughput-comparison-20260821/1 : evidence {
+    title "RAW/JXL admission throughput comparison"
+    state verified
+    result pass
+    method observation
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    summary """
+        The failed over-admitted run completed 5 files in about 95 s before OOM (~19.0 s/file); the bounded two-image run completed all 15 in 205.81 s (~13.7 s/file), while a serialized three-file baseline was 18.2 s/file.
+        """
+}
+
+record openarc.evidence.uniform-fixed-bpp-inventory-20260821/1 : evidence {
+    title "Existing outputs match the 1.50 bpp ceiling"
+    state verified
+    result pass
+    method observation
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    summary """
+        All 15 current 6000x4000 JXLs were 4,432,403–4,485,279 bytes, or 1.477–1.495 bpp (98.5–99.7% of the 4,500,000-byte Fast target), proving the uniform sizes are the fixed-rate contract rather than a shared memory buffer cap.
+        """
+}
+
+record openarc.evidence.workspace-test-gate-missing-arcmax-bins-20260821/1 : evidence {
+    title "Workspace release test gate blocked by missing vendored bins"
+    state verified
+    result fail
+    method command
+    observed_at git:efcaac679cb7719e54a9696c4f970bf601154822
+    command "cargo test --release --workspace"
+    summary """
+        The workspace gate could not start because vendor/arcmax declares five binary source paths that are absent; the targeted OpenArc/codecs release gate passed separately.
+        """
+}

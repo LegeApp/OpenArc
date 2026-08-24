@@ -1,10 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use arcmax::codec::traits::Codec;
 use arcmax::codec::{LzmaCodec, LzmaOptions};
-use bytemuck::cast_vec;
-use codecs::bpg::{
-    estimate_encode_peak, safe_encode_concurrency, BPGEncoderConfig, NativeBPGEncoder,
-};
+use codecs::jxl::{estimate_encode_peak, safe_encode_concurrency};
 use codecs::video_analyzer::analyze_video_compression;
 use image;
 use log::warn;
@@ -19,13 +16,45 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
 
 const CODEC_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
-const JPEG2000_FALLBACK_QUALITY: u8 = 85;
-// JP2 fallback is only kept when it beats BPG, so lower thresholds mostly cost
-// CPU and temporary disk while catching more medium-sized BPG outliers. The old
-// 5 MB / 0.18 Bpp thresholds only tested the largest files and missed many
-// 2-5 MB phone images where JP2 can win.
-const BPG_JPEG2000_FALLBACK_MIN_BYTES: u64 = 2_000_000;
-const BPG_JPEG2000_FALLBACK_MIN_BYTES_PER_PIXEL: f64 = 0.08;
+
+// A representative 24 MP RAW -> JPEG XL `best` encode consumes about nine
+// logical CPUs on this pipeline. Admitting one heavy image for every two
+// logical CPUs only makes the same global Rayon pool fight itself: it did not
+// improve throughput in measurement and multiplied the resident set until the
+// kernel killed the process. Ten threads per in-flight image leaves a little
+// room for the Tokio/control work while still permitting useful overlap on
+// larger machines.
+const CPU_THREADS_PER_HEAVY_IMAGE: usize = 10;
+
+// `/usr/bin/time -v` measured the complete 24 MP RAW -> JXL path about 10%
+// above the sum of the component models. Reserve 25% extra for allocator
+// fragmentation, thread-local arenas and model drift instead of scheduling at
+// the exact measured edge.
+const IMAGE_RESERVATION_HEADROOM_DIVISOR: u64 = 4;
+
+fn image_reservation_with_headroom(estimated_bytes: u64) -> u64 {
+    estimated_bytes
+        .saturating_add(estimated_bytes.div_ceil(IMAGE_RESERVATION_HEADROOM_DIVISOR))
+}
+
+fn image_ram_budget(total_bytes: u64, available_bytes: u64) -> u64 {
+    // This application is commonly run on desktop systems without swap. Keep
+    // half of both physical RAM and the memory currently available outside the
+    // image pipeline, then rely on the per-image limiter for the exact bound.
+    // The floor lets one image make progress on a constrained machine; a
+    // request larger than the capacity is clamped to exclusive access.
+    available_bytes
+        .saturating_div(2)
+        .min(total_bytes.saturating_div(2))
+        .max(512 * 1024 * 1024)
+}
+
+fn cpu_bounded_image_capacity(worker_threads: usize) -> usize {
+    worker_threads
+        .max(1)
+        .div_ceil(CPU_THREADS_PER_HEAVY_IMAGE)
+        .max(1)
+}
 
 /// Byte-budget limiter for memory-heavy tasks.
 ///
@@ -111,40 +140,26 @@ impl<'a> Drop for MemoryBudgetGuard<'a> {
     }
 }
 
-/// Resolve the memory-estimator effort code. For bpg-rs this is the exact
-/// upstream effort selector consumed by `still265::batch::estimate_memory`
-/// (0=Fast, 1=Slow/production Best). The legacy C backend may still need its
-/// x265 compression level folded into the conservative bucket.
-fn preset_peak_encoder_type(compress_level: i32, encoder_type: i32) -> i32 {
-    #[cfg(feature = "bpg-rs")]
-    {
-        let _ = compress_level;
-        return encoder_type.clamp(0, 1);
-    }
-
-    #[cfg(not(feature = "bpg-rs"))]
-    let by_preset = match compress_level {
-        9 => 2,     // placebo
-        7 | 8 => 1, // slower / veryslow
-        _ => 0,
-    };
-    #[cfg(not(feature = "bpg-rs"))]
-    {
-        by_preset.max(encoder_type)
-    }
-}
-
+/// Estimated peak RAM for one image, used to gate encode concurrency.
+///
+/// The JPEG XL working set is dominated by the three resident `f32` XYB planes
+/// and the rate loop's scratch, both of which scale with **pixels** — not with
+/// the source's byte width and not with a chroma format, neither of which
+/// exists on this path any more. So the estimate needs dimensions and little
+/// else, which is why this is considerably shorter than the BPG version it
+/// replaced.
 fn estimate_image_reservation_bytes(
     input: &Path,
     original_format: OriginalImageFormat,
     original_size: u64,
     settings: &OrchestratorSettings,
 ) -> u64 {
+    let lossless = settings.jxl_effort.is_lossless();
+
     if original_format == OriginalImageFormat::Raw {
-        // raw-autotune has a header-only TIFF/RAW dimension probe and a
-        // measured full-pipeline peak model. Add the BPG encoder peak because
-        // the rendered RGB16 allocation remains live while BPG builds its
-        // internal planes.
+        // raw-autotune has a header-only RAW dimension probe and a measured
+        // full-pipeline peak model. The rendered RGB16 buffer stays live while
+        // the encoder builds its float planes, so both are charged.
         let pixels = raw_autotune::memory::raw_pixels(input)
             .unwrap_or(original_size)
             .max(1);
@@ -155,24 +170,16 @@ fn estimate_image_reservation_bytes(
                 pixels.div_ceil(u64::from(side)).min(u64::from(u32::MAX)) as u32,
             )
         });
-        let peak_encoder_type =
-            preset_peak_encoder_type(settings.bpg_compression_level, settings.bpg_encoder_type);
         return raw_autotune::memory::peak_bytes(pixels)
-            .saturating_add(estimate_encode_peak(
-                width,
-                height,
-                12,
-                settings.bpg_chroma_format,
-                peak_encoder_type,
-            ))
+            .saturating_add(estimate_encode_peak(width, height, lossless))
             .saturating_add(pixels.saturating_mul(6))
             .max(512 * 1024 * 1024);
     }
 
     // The `image` crate cannot read HEIC, so probing it there always fails and
-    // forces the worst-case fallback below. The same bpg-decode HEIF parser we
-    // use to decode reads real dimensions/bit depth from the container headers
-    // (no full decode), so consult it up front for an accurate reservation.
+    // forces the worst-case fallback below. The bpg-decode HEIF parser reads
+    // real dimensions from the container headers without decoding, so consult
+    // it up front for an accurate reservation.
     let heic_info = if original_format == OriginalImageFormat::Heic {
         codecs::heic::HeicCodec::read_info(input).ok()
     } else {
@@ -184,43 +191,12 @@ fn estimate_image_reservation_bytes(
         .filter(|&(w, h)| w > 0 && h > 0)
         .or_else(|| image::image_dimensions(input).ok());
 
-    let estimated_bit_depth: u8 = match (heic_info, original_format) {
-        (Some(info), _) => info.bit_depth.max(8),
-        (None, OriginalImageFormat::Jpeg) => 8,
-        (None, OriginalImageFormat::Heic) => 12,
-        (None, OriginalImageFormat::Png | OriginalImageFormat::Tiff) => 12,
-        (None, _) => 10,
-    };
-
-    let peak_encoder_type =
-        preset_peak_encoder_type(settings.bpg_compression_level, settings.bpg_encoder_type);
-
     let estimate_from_dims = |w: u32, h: u32| {
-        let encode_peak = estimate_encode_peak(
-            w,
-            h,
-            estimated_bit_depth,
-            settings.bpg_chroma_format,
-            peak_encoder_type,
-        );
-
-        // Conservative scratch/decode side:
-        // - packed pixels for conversion
-        // - additional image crate temporary buffers
         let px = u64::from(w) * u64::from(h);
-        let decode_bytes = match original_format {
-            OriginalImageFormat::Jpeg => px.saturating_mul(3),
-            OriginalImageFormat::Heic => px.saturating_mul(3).saturating_mul(2),
-            _ => {
-                if estimated_bit_depth > 8 {
-                    px.saturating_mul(4).saturating_mul(2)
-                } else {
-                    px.saturating_mul(4)
-                }
-            }
-        };
-
-        encode_peak
+        // Decode-side scratch: the interleaved source buffer, at up to four
+        // 16-bit channels, plus the decoder's own temporaries.
+        let decode_bytes = px.saturating_mul(8);
+        estimate_encode_peak(w, h, lossless)
             .saturating_add(decode_bytes.saturating_mul(2))
             .saturating_add(original_size.min(256 * 1024 * 1024))
             .max(128 * 1024 * 1024)
@@ -231,14 +207,7 @@ fn estimate_image_reservation_bytes(
     }
 
     // Fallback when dimensions cannot be probed from headers.
-    let baseline = estimate_encode_peak(
-        6000,
-        4000,
-        estimated_bit_depth,
-        settings.bpg_chroma_format,
-        peak_encoder_type,
-    );
-    let fallback = baseline
+    let fallback = estimate_encode_peak(6000, 4000, lossless)
         .saturating_add(original_size.saturating_mul(4))
         .max(256 * 1024 * 1024);
 
@@ -251,7 +220,8 @@ fn estimate_image_reservation_bytes(
 
 use crate::archive_tracker::{ArchiveFileMapping, ArchiveRecord, ArchiveTracker};
 use crate::backup_catalog::{normalize_path, BackupCatalog, BackupEntry};
-use crate::bpg_wrapper::{BpgAq, BpgEffort};
+use crate::image_source;
+use crate::jxl_wrapper::{JxlConfig, JxlEffort};
 use crate::file_tracker::{FileTracker, ProcessedFileRecord};
 use crate::hash;
 
@@ -315,53 +285,6 @@ fn check_memory_usage() -> f64 {
     }
 }
 
-/// Detect optimal bit depth for image encoding based on source image and format
-fn detect_image_bit_depth(
-    img: &image::DynamicImage,
-    original_format: OriginalImageFormat,
-    user_setting: i32,
-    _bpg_encoder_type: i32,
-) -> i32 {
-    // JPEG only supports 8-bit
-    if original_format == OriginalImageFormat::Jpeg {
-        return 8;
-    }
-
-    // Check if the image has 16-bit channels
-    let has_16bit = matches!(
-        img,
-        image::DynamicImage::ImageLuma16(_)
-            | image::DynamicImage::ImageLumaA16(_)
-            | image::DynamicImage::ImageRgb16(_)
-            | image::DynamicImage::ImageRgba16(_)
-    );
-
-    if has_16bit {
-        let max_depth = 12;
-
-        // The `image` crate maps a source's declared bit depth to either an
-        // 8- or 16-bit type, so reaching here means the input is a 16-bit
-        // *container* (true source depth is somewhere in 9..=16, not knowable
-        // more precisely). The Rust BPG encoder currently supports up to 12-bit,
-        // so encoding at that cap preserves the most fidelity possible while never
-        // exceeding the Rust BPG backend's current supported output depth.
-        //
-        // An explicit `--bpg-bit-depth` in 9..=14 is honored (capped to the
-        // encoder max); the default (8) — or anything below 9 — means "auto",
-        // in which case we use the encoder ceiling rather than a fixed 12.
-        let preferred = match user_setting {
-            9..=12 => user_setting,
-            _ => max_depth,
-        };
-
-        preferred.min(max_depth).max(10)
-    } else {
-        // For 8-bit source images, always use 8-bit
-        // (no point in encoding 8-bit data at higher bit depth)
-        8
-    }
-}
-
 /// Determine optimal number of encoding threads based on memory usage
 fn get_optimal_thread_count(base_count: usize) -> usize {
     let memory_usage = check_memory_usage();
@@ -381,23 +304,26 @@ fn get_optimal_thread_count(base_count: usize) -> usize {
     }
 }
 
-/// Original image format before BPG compression
-/// Used to restore files to their original format during extraction
+/// The source format an archived image was encoded from.
+///
+/// Recorded so extraction can reverse the conversion: a JPEG goes back out as a
+/// JPEG, and everything else as a PNG, which is lossless and universally
+/// readable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OriginalImageFormat {
-    /// JPEG - decode BPG directly to JPEG
+    /// JPEG - re-encoded to JPEG on extraction.
     Jpeg,
-    /// PNG - decode BPG to PNG
+    /// PNG - written back as PNG.
     Png,
-    /// HEIC/HEIF (Samsung, Android, Apple) - decode BPG → PNG
+    /// HEIC/HEIF (Samsung, Android, Apple) - written back as PNG.
     Heic,
-    /// Camera RAW formats - decode BPG to PNG (RAW cannot be recreated)
+    /// Camera RAW formats - written back as PNG (RAW cannot be recreated).
     Raw,
-    /// TIFF - decode BPG to PNG (or TIFF if supported)
+    /// TIFF - written back as PNG.
     Tiff,
-    /// BMP - decode BPG to PNG
+    /// BMP - written back as PNG.
     Bmp,
-    /// WebP - decode BPG to PNG (or WebP if supported)
+    /// WebP - written back as PNG.
     WebP,
 }
 
@@ -416,12 +342,9 @@ impl OriginalImageFormat {
         }
     }
 
-    /// Should this format be encoded via PNG intermediate for quality preservation?
-    pub fn needs_png_intermediate(&self) -> bool {
-        match self {
-            Self::Jpeg => false, // JPEG goes directly to BPG
-            _ => true,           // All others go through PNG to preserve quality
-        }
+    /// Whether extraction writes this format back as PNG rather than as itself.
+    pub fn extracts_as_png(&self) -> bool {
+        !matches!(self, Self::Jpeg)
     }
 }
 
@@ -431,7 +354,13 @@ pub struct ImageMetadata {
     pub original_filename: String,
     pub original_format: OriginalImageFormat,
     pub original_extension: String,
-    pub bpg_filename: String,
+    /// Archive-relative name of the encoded image, normally `<stem>.jxl`.
+    ///
+    /// The serde alias keeps archives written before the JPEG XL switch
+    /// readable: their metadata spells this field `bpg_filename`, and those
+    /// entries are `.bpg` files that extraction still decodes.
+    #[serde(alias = "bpg_filename")]
+    pub encoded_filename: String,
 }
 
 /// Archive metadata containing format information for all files
@@ -463,7 +392,8 @@ fn detect_file_type_from_name(name: &str) -> i32 {
         .unwrap_or("");
 
     match ext {
-        "bpg" | "jpg" | "jpeg" | "png" | "bmp" | "tif" | "tiff" | "webp" | "heic" | "heif"
+        "jxl" | "bpg" | "jpg" | "jpeg" | "png" | "bmp" | "tif" | "tiff" | "webp" | "heic"
+        | "heif"
         | "ico" | "jp2" | "j2k" | "j2c" | "jpc" | "jpt" | "jph" | "jhc" | "dng" | "cr2" | "nef"
         | "arw" | "orf" | "rw2" | "raf" => 1,
         "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" | "3gp" | "flv" | "mts" | "m2ts" => {
@@ -646,17 +576,18 @@ impl Default for ArchiveMetadata {
 
 #[derive(Clone, Debug)]
 pub struct OrchestratorSettings {
-    /// Internal effective BPG QP derived from `bpg_effort` unless an advanced caller overrides it.
-    pub bpg_quality: i32,
-    pub bpg_effort: BpgEffort,
-    pub bpg_aq: BpgAq,
-    pub bpg_bit_depth: i32,
-    pub bpg_chroma_format: i32,
-    pub bpg_encoder_type: i32,
-    pub bpg_compression_level: i32,
+    /// JPEG XL preset: `best` (default), `fast` or `lossless`.
+    pub jxl_effort: JxlEffort,
+    /// Overrides the preset's bits-per-pixel target when set.
+    ///
+    /// There is no bit-depth or chroma-format setting to go with this: depth
+    /// comes from the source image itself, and JPEG XL has no chroma
+    /// subsampling to configure.
+    pub jxl_bits_per_pixel: Option<f64>,
     /// ZSTD level (1-22) for the final archive container. The container wraps
-    /// already-compressed BPG images, x265/AV1/x266 video, and LZMA2 bundles, so a
-    /// low level (1-6) is recommended; high levels burn CPU for negligible gain.
+    /// already-compressed JPEG XL images, x265/AV1/x266 video, and LZMA2
+    /// bundles, so a low level (1-6) is recommended; high levels burn CPU for
+    /// negligible gain.
     pub compression_level: i32,
     /// LZMA2 level (1-9) for `misc.arc`, the bundle of small/likely-uncompressible
     /// misc files (documents, configs, etc.).
@@ -680,16 +611,22 @@ pub struct OrchestratorSettings {
     pub output_folder_without_archive: bool,
 }
 
+impl OrchestratorSettings {
+    /// The encoder configuration these settings describe.
+    pub fn jxl_config(&self) -> JxlConfig {
+        JxlConfig {
+            effort: self.jxl_effort,
+            bits_per_pixel: self.jxl_bits_per_pixel,
+            container: false,
+        }
+    }
+}
+
 impl Default for OrchestratorSettings {
     fn default() -> Self {
         Self {
-            bpg_quality: BpgEffort::Best.default_quality() as i32,
-            bpg_effort: BpgEffort::Best,
-            bpg_aq: BpgAq::default(),
-            bpg_bit_depth: 8,
-            bpg_chroma_format: 1,
-            bpg_encoder_type: 0,
-            bpg_compression_level: 8,
+            jxl_effort: JxlEffort::default(),
+            jxl_bits_per_pixel: None,
             compression_level: 3,
             misc_compression_level: 6,
             enable_catalog: true,
@@ -726,119 +663,6 @@ pub fn emit_progress(
     }
 }
 
-fn jpeg2000_fallback_reason(width: u32, height: u32, bpg_size: u64) -> Option<&'static str> {
-    let pixels = u64::from(width).saturating_mul(u64::from(height));
-    if bpg_size >= BPG_JPEG2000_FALLBACK_MIN_BYTES {
-        return Some("BPG output size threshold");
-    }
-    if pixels > 0 && (bpg_size as f64 / pixels as f64) >= BPG_JPEG2000_FALLBACK_MIN_BYTES_PER_PIXEL
-    {
-        return Some("BPG bytes-per-pixel threshold");
-    }
-    None
-}
-
-fn encode_jpeg2000_fallback(
-    input_path: &Path,
-    original_format: OriginalImageFormat,
-    output_path: &Path,
-) -> Result<u64> {
-    let image = if original_format == OriginalImageFormat::Heic {
-        let mut codec = codecs::heic::HeicCodec::new()?;
-        let decoded = codec.decode_file(input_path)?;
-        if decoded.has_alpha {
-            let buffer = image::RgbaImage::from_raw(decoded.width, decoded.height, decoded.data)
-                .ok_or_else(|| {
-                    anyhow!("failed to build HEIC RGBA buffer for JPEG 2000 fallback")
-                })?;
-            image::DynamicImage::ImageRgba8(buffer)
-        } else {
-            let buffer = image::RgbImage::from_raw(decoded.width, decoded.height, decoded.data)
-                .ok_or_else(|| anyhow!("failed to build HEIC RGB buffer for JPEG 2000 fallback"))?;
-            image::DynamicImage::ImageRgb8(buffer)
-        }
-    } else {
-        image::open(input_path).with_context(|| {
-            format!(
-                "failed to load image for JPEG 2000 fallback: {}",
-                input_path.display()
-            )
-        })?
-    };
-    codecs::jpeg2000::encode_dynamic_image_to_jpeg2000_file(
-        &image,
-        JPEG2000_FALLBACK_QUALITY,
-        output_path,
-    )
-    .with_context(|| format!("Failed to write JPEG 2000 file: {}", output_path.display()))
-}
-
-fn keep_smaller_jpeg2000_if_flagged(
-    input_path: &Path,
-    original_format: OriginalImageFormat,
-    bpg_path: PathBuf,
-    bpg_rel: String,
-    jp2_path: PathBuf,
-    jp2_rel: String,
-    width: u32,
-    height: u32,
-    stats: &Arc<parking_lot::Mutex<Jpeg2000FallbackStats>>,
-) -> Result<(PathBuf, String)> {
-    let bpg_size = fs::metadata(&bpg_path)?.len();
-    let Some(reason) = jpeg2000_fallback_reason(width, height, bpg_size) else {
-        return Ok((bpg_path, bpg_rel));
-    };
-
-    {
-        let mut guard = stats.lock();
-        guard.flagged_files += 1;
-    }
-
-    let jp2_size =
-        encode_jpeg2000_fallback(input_path, original_format, &jp2_path).with_context(|| {
-            format!(
-                "Failed to encode JPEG 2000 fallback for {} after {reason}",
-                input_path.display()
-            )
-        })?;
-
-    if jp2_size < bpg_size {
-        let _ = fs::remove_file(&bpg_path);
-        let mut guard = stats.lock();
-        guard.replaced_files += 1;
-        guard.total_bpg_bytes_for_replaced =
-            guard.total_bpg_bytes_for_replaced.saturating_add(bpg_size);
-        guard.total_jpeg2000_bytes = guard.total_jpeg2000_bytes.saturating_add(jp2_size);
-        guard.total_saved_bytes = guard
-            .total_saved_bytes
-            .saturating_add(bpg_size.saturating_sub(jp2_size));
-        Ok((jp2_path, jp2_rel))
-    } else {
-        let _ = fs::remove_file(&jp2_path);
-        Ok((bpg_path, bpg_rel))
-    }
-}
-
-fn apply_bpg_settings(
-    cfg: &mut BPGEncoderConfig,
-    settings: &OrchestratorSettings,
-    bit_depth: i32,
-    chroma_format: i32,
-) {
-    cfg.quality = settings.bpg_quality;
-    cfg.lossless = 0;
-    cfg.bit_depth = bit_depth;
-    cfg.chroma_format = chroma_format;
-    cfg.encoder_type = settings.bpg_effort.encoder_type() as i32;
-    cfg.compress_level = settings.bpg_effort.compression_level() as i32;
-    let (aq_mode, aq_strength, aq_clamp) =
-        codecs::bpg::resolve_aq_preset(settings.bpg_aq.as_str()).unwrap_or((0, 0.0, 2));
-    cfg.aq_mode = aq_mode;
-    cfg.aq_strength = aq_strength;
-    cfg.aq_clamp = aq_clamp;
-    cfg.two_pass_gate = true;
-}
-
 #[derive(Debug, Clone)]
 pub struct ProcessedFile {
     pub original_path: PathBuf,
@@ -863,33 +687,6 @@ pub struct FailedFile {
     pub error: String,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Jpeg2000FallbackStats {
-    pub flagged_files: usize,
-    pub replaced_files: usize,
-    pub total_bpg_bytes_for_replaced: u64,
-    pub total_jpeg2000_bytes: u64,
-    pub total_saved_bytes: u64,
-}
-
-impl Jpeg2000FallbackStats {
-    pub fn average_saved_bytes(&self) -> u64 {
-        if self.replaced_files == 0 {
-            0
-        } else {
-            self.total_saved_bytes / self.replaced_files as u64
-        }
-    }
-
-    pub fn average_saved_percent(&self) -> f64 {
-        if self.total_bpg_bytes_for_replaced == 0 {
-            0.0
-        } else {
-            (self.total_saved_bytes as f64 / self.total_bpg_bytes_for_replaced as f64) * 100.0
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct OrchestratorResult {
     pub discovered_files: Vec<PathBuf>,
@@ -905,7 +702,6 @@ pub struct OrchestratorResult {
     /// Exact root containing videos that require external encoding. Present
     /// only when processing staged at least one video.
     pub video_staging_dir: Option<PathBuf>,
-    pub jpeg2000_fallback: Jpeg2000FallbackStats,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -1169,7 +965,6 @@ pub fn create_archive_from_discovered(
             tracking_report: None,
             staged_uncompressed_videos: Vec::new(),
             video_staging_dir: None,
-            jpeg2000_fallback: Jpeg2000FallbackStats::default(),
         });
     }
 
@@ -1323,7 +1118,6 @@ pub fn create_archive_from_discovered(
     let failed_mutex = Arc::new(parking_lot::Mutex::new(Vec::<FailedFile>::new()));
     let metadata_mutex = Arc::new(parking_lot::Mutex::new(ArchiveMetadata::default()));
     let staged_video_mutex = Arc::new(parking_lot::Mutex::new(Vec::<PathBuf>::new()));
-    let jpeg2000_stats_mutex = Arc::new(parking_lot::Mutex::new(Jpeg2000FallbackStats::default()));
     let completed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     let may_stage_external_video =
@@ -1360,30 +1154,18 @@ pub fn create_archive_from_discovered(
     system_info.refresh_memory();
     let total_ram = system_info.total_memory();
     let available_ram = system_info.available_memory();
-    // Budget from *currently available* RAM, not total. Other applications may
-    // already hold a large share, and the C/x265 backend allocates aggressively;
-    // committing 75% of total RAM regardless of what is free is what pushed the
-    // machine into the OOM killer mid-batch. Use up to 70% of what is actually
-    // free, capped at 75% of total, with a floor so we always make progress.
-    let ram_budget = available_ram
-        .saturating_mul(7)
-        .saturating_div(10)
-        .min(total_ram.saturating_mul(3) / 4)
-        .max(512 * 1024 * 1024);
+    let ram_budget = image_ram_budget(total_ram, available_ram);
     let base_threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
     let optimal_threads = get_optimal_thread_count(base_threads);
-    // Key concurrency off the preset the encoder will actually run (see
-    // `preset_peak_encoder_type`), not the reported encoder_type.
-    let peak_encoder_type =
-        preset_peak_encoder_type(settings.bpg_compression_level, settings.bpg_encoder_type);
+    // Size scheduler backpressure off a "typical" 24 MPix image. The JPEG XL
+    // working set depends on pixels and on whether the encode is lossless, and
+    // on nothing else — no bit depth, no chroma format.
     let image_heavy_capacity = safe_encode_concurrency(
         6000,
         4000,
-        8,
-        settings.bpg_chroma_format,
-        peak_encoder_type,
+        settings.jxl_effort.is_lossless(),
         ram_budget,
     )
     .max(1);
@@ -1405,9 +1187,9 @@ pub fn create_archive_from_discovered(
     pipeline_runtime.block_on(async {
         let mut tasks = JoinSet::new();
         let mut next_item = 0usize;
-        let cpu_bounded_in_flight = optimal_threads.div_ceil(2).max(1);
+        let cpu_bounded_in_flight = cpu_bounded_image_capacity(optimal_threads);
         let max_in_flight = cpu_bounded_in_flight
-            .min(image_heavy_capacity.saturating_mul(2).max(1))
+            .min(image_heavy_capacity)
             .max(1);
 
         loop {
@@ -1425,7 +1207,6 @@ pub fn create_archive_from_discovered(
                 let failed_mutex = failed_mutex.clone();
                 let metadata_mutex = metadata_mutex.clone();
                 let staged_video_mutex = staged_video_mutex.clone();
-                let jpeg2000_stats_mutex = jpeg2000_stats_mutex.clone();
                 let completed_count = completed_count.clone();
                 let tx = tx.clone();
 
@@ -1474,434 +1255,180 @@ pub fn create_archive_from_discovered(
                     .and_then(|e| e.to_str())
                     .unwrap_or("unknown")
                     .to_lowercase();
-                let encoded_rel = normalize_archive_rel_path(&source_rel.with_extension("bpg").to_string_lossy());
-                let jpeg2000_rel = normalize_archive_rel_path(&source_rel.with_extension("jp2").to_string_lossy());
+                let encoded_rel = normalize_archive_rel_path(
+                    &source_rel.with_extension(crate::jxl_wrapper::JXL_EXTENSION).to_string_lossy(),
+                );
+
+                // Storing the source unchanged, used both when re-encoding is
+                // off and when the image carries transparency the encoder
+                // cannot yet represent.
+                let store_original = |reason: Option<&str>| -> Result<(PathBuf, String)> {
+                    if let Some(reason) = reason {
+                        warn!("{}: stored unchanged ({reason})", input.display());
+                    }
+                    let rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
+                    let out = stage_at(&media_dir, &rel)?;
+                    fs::copy(input, &out)?;
+                    Ok((out, format!("media/{}", rel)))
+                };
 
                 if !settings_clone.reencode_media {
-                    // Archive image bytes as-is (no transcoding).
-                    let source_rel = normalize_archive_rel_path(&source_rel.to_string_lossy());
-                    let out = stage_at(&media_dir, &source_rel)?;
-                    fs::copy(input, &out)?;
-                    let rel_path = format!("media/{}", source_rel);
+                    let (out, rel_path) = store_original(None)?;
                     (out, rel_path, true, Some(original_format), FileClass::Image, true)
                 } else {
                 let out = stage_at(&media_dir, &encoded_rel)?;
-                let jpeg2000_out = stage_at(&media_dir, &jpeg2000_rel)?;
 
                 // Resume support: when writing a folder layout (no final
                 // archive), a previously interrupted run may already have
-                // produced this image's output directly in the destination.
-                // Reuse it instead of re-encoding so a killed job can be
-                // restarted by simply pointing at the same output folder.
-                // (Archive mode stages into a fresh temp dir each run, so there
-                // is nothing to resume from there.)
-                if settings_clone.output_folder_without_archive {
-                    let prior = if fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false) {
-                        Some((out.clone(), encoded_rel.clone()))
-                    } else if fs::metadata(&jpeg2000_out).map(|m| m.len() > 0).unwrap_or(false) {
-                        Some((jpeg2000_out.clone(), jpeg2000_rel.clone()))
-                    } else {
-                        None
-                    };
-                    if let Some((prior_out, prior_rel)) = prior {
-                        {
-                            let mut meta = metadata_mutex.lock();
-                            meta.images.push(ImageMetadata {
-                                original_filename: file_name.clone(),
-                                original_format,
-                                original_extension: original_ext.clone(),
-                                bpg_filename: prior_rel.clone(),
-                            });
-                        }
-                        let rel_path = format!("media/{}", prior_rel);
-                        let output_size = fs::metadata(&prior_out)?.len();
-                        let sha = hash::sha256_file_hex(&prior_out).ok();
-                        {
-                            let mut guard = processed_mutex.lock();
-                            guard.push(ProcessedFile {
-                                original_path: input.clone(),
-                                source_rel_path: source_rel_path.clone(),
-                                class: FileClass::Image,
-                                archived_rel_path: rel_path,
-                                output_path: prior_out,
-                                original_size,
-                                output_size,
-                                sha256: sha,
-                                source_sha256: item.source_hash.clone(),
-                                skipped_processing: true,
-                                original_format: Some(original_format),
-                            });
-                        }
-                        return Ok(());
+                // produced this output directly in the destination. Reuse it
+                // instead of re-encoding, so a killed job can be restarted by
+                // pointing at the same output folder. (Archive mode stages into
+                // a fresh temp dir each run, so there is nothing to resume.)
+                if settings_clone.output_folder_without_archive
+                    && fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false)
+                {
+                    {
+                        let mut meta = metadata_mutex.lock();
+                        meta.images.push(ImageMetadata {
+                            original_filename: file_name.clone(),
+                            original_format,
+                            original_extension: original_ext.clone(),
+                            encoded_filename: encoded_rel.clone(),
+                        });
                     }
+                    let rel_path = format!("media/{}", encoded_rel);
+                    let output_size = fs::metadata(&out)?.len();
+                    let sha = hash::sha256_file_hex(&out).ok();
+                    {
+                        let mut guard = processed_mutex.lock();
+                        guard.push(ProcessedFile {
+                            original_path: input.clone(),
+                            source_rel_path: source_rel_path.clone(),
+                            class: FileClass::Image,
+                            archived_rel_path: rel_path,
+                            output_path: out,
+                            original_size,
+                            output_size,
+                            sha256: sha,
+                            source_sha256: item.source_hash.clone(),
+                            skipped_processing: true,
+                            original_format: Some(original_format),
+                        });
+                    }
+                    return Ok(());
                 }
 
                 // Reserve memory budget per image based on dimensions/format.
-                let image_reservation = estimate_image_reservation_bytes(
-                    input,
-                    original_format,
-                    original_size,
-                    &settings_clone,
+                let image_reservation = image_reservation_with_headroom(
+                    estimate_image_reservation_bytes(
+                        input,
+                        original_format,
+                        original_size,
+                        &settings_clone,
+                    ),
                 );
                 let _memory_guard = memory_limiter.acquire(image_reservation);
 
-                // For HEIC files, use direct YCbCr encoding (no RGB conversion, no intermediate PNG)
-                // Pure Rust decoder is always available - provides perfect color accuracy
-                //
-                // For JPEG files, attempt direct YCbCr path too (no colorspace conversion).
-                // If YCbCr decode fails (CMYK JPEG, etc.), falls through to generic RGB path.
-                let jpeg_ycbcr: Option<crate::jpeg_decoder::YCbCrImage> =
-                    if original_format == OriginalImageFormat::Jpeg {
-                        fs::read(input).ok()
-                            .and_then(|data| crate::jpeg_decoder::decode_jpeg_ycbcr(&data).ok())
-                    } else {
-                        None
-                    };
-
-                if original_format == OriginalImageFormat::Raw {
-                    // raw-autotune returns the renderer's native RGB16
-                    // allocation. Hand that slice directly to BPG: no TIFF/PNG
-                    // intermediate, endian packing, or second RGB buffer.
-                    let render_options = raw_autotune::api::RenderOptions::automatic();
-                    let rendered =
-                        raw_autotune::api::render_file_rgb16(input, &render_options)
-                            .with_context(|| {
-                                format!(
-                                    "Failed to develop RAW with raw-autotune: {}",
-                                    input.display()
-                                )
-                            })?;
-                    let target_bit_depth = match settings_clone.bpg_bit_depth {
-                        9..=12 => settings_clone.bpg_bit_depth,
-                        _ => 12,
-                    };
-
-                    let mut encoder = NativeBPGEncoder::new()
-                        .context("Failed to create BPG encoder")?;
-                    let mut cfg = NativeBPGEncoder::default_config();
-                    apply_bpg_settings(
-                        &mut cfg,
-                        &settings_clone,
-                        target_bit_depth,
-                        settings_clone.bpg_chroma_format,
-                    );
-                    // raw-autotune returns display-referred sRGB. BPG's BT.709
-                    // matrix matches the sRGB primaries used by that output.
-                    cfg.color_space = 3;
-                    cfg.limited_range = 0;
-                    encoder
-                        .set_config(&cfg)
-                        .context("Failed to apply BPG config")?;
-
-                    let bpg_data = encoder
-                        .encode_from_rgb16(
-                            &rendered.data,
-                            rendered.width,
-                            rendered.height,
-                            rendered.row_stride,
-                        )
-                        .with_context(|| {
-                            format!(
-                                "Failed to encode developed RAW to BPG: {}",
-                                input.display()
-                            )
-                        })?;
-                    fs::write(&out, &bpg_data)
-                        .with_context(|| format!("Failed to write BPG file: {}", out.display()))?;
-
-                    {
-                        let mut meta = metadata_mutex.lock();
-                        meta.images.push(ImageMetadata {
-                            original_filename: file_name.clone(),
-                            original_format,
-                            original_extension: original_ext.clone(),
-                            bpg_filename: encoded_rel.clone(),
+                // One path for every source format. `image_source::load` picks
+                // the right decoder and hands back the widest representation
+                // the file actually carries - 16-bit stays 16-bit, a 10-bit
+                // HEIC stays 10-bit, greyscale stays greyscale - and the
+                // encoder declares that same depth. Nothing here narrows the
+                // image, and JPEG XL has no chroma subsampling to apply, so the
+                // four divergent BPG branches this replaced (RAW, HEIC, JPEG
+                // YCbCr, generic RGB) collapse into one.
+                let prepared = match image_source::load(input, original_format) {
+                    Ok(prepared) => prepared,
+                    Err(err) => {
+                        // Undecodable (corrupt or truncated): keep the bytes
+                        // rather than lose the file.
+                        let (copy_out, rel_path) =
+                            store_original(Some(&format!("could not be decoded: {err}")))?;
+                        let output_size = fs::metadata(&copy_out)?.len();
+                        let sha = item
+                            .source_hash
+                            .clone()
+                            .or_else(|| hash::sha256_file_hex(&copy_out).ok());
+                        let mut guard = processed_mutex.lock();
+                        guard.push(ProcessedFile {
+                            original_path: input.clone(),
+                            source_rel_path: source_rel_path.clone(),
+                            class: item.class,
+                            archived_rel_path: rel_path,
+                            output_path: copy_out,
+                            original_size,
+                            output_size,
+                            sha256: sha,
+                            source_sha256: item.source_hash.clone(),
+                            skipped_processing: true,
+                            original_format: Some(original_format),
                         });
-                    }
-
-                    let rel_path = format!("media/{}", encoded_rel);
-                    (out, rel_path, false, Some(original_format), FileClass::Image, false)
-                } else if original_format == OriginalImageFormat::Heic {
-                    use codecs::heic::{matrix_coeffs_to_bpg_color_space, HeicChromaFormat, HeicCodec};
-                    use codecs::bpg::NativeBPGEncoder;
-
-                    let mut codec = HeicCodec::new()?;
-                    let decoded = codec.decode_file_yuv(input)
-                        .with_context(|| format!("Failed to decode HEIC file: {}", input.display()))?;
-
-                    let bpg_format = match decoded.chroma_format {
-                        HeicChromaFormat::Monochrome => codecs::bpg::BPGImageFormat::Gray,
-                        HeicChromaFormat::YCbCr420 => codecs::bpg::BPGImageFormat::YCbCr420P,
-                        HeicChromaFormat::YCbCr422 => codecs::bpg::BPGImageFormat::YCbCr422P,
-                        HeicChromaFormat::YCbCr444 => codecs::bpg::BPGImageFormat::YCbCr444P,
-                    };
-
-                    // Encode directly from the decoded HEIC planes, preserving source fidelity.
-                    let mut encoder = NativeBPGEncoder::new()
-                        .context("Failed to create BPG encoder")?;
-                    let mut cfg = NativeBPGEncoder::default_config();
-                    apply_bpg_settings(
-                        &mut cfg,
-                        &settings_clone,
-                        decoded.bit_depth as i32,
-                        decoded.chroma_format.to_bpg_chroma_format(),
-                    );
-                    cfg.color_space = matrix_coeffs_to_bpg_color_space(decoded.matrix_coeffs);
-                    cfg.limited_range = if decoded.full_range { 0 } else { 1 };
-                    encoder.set_config(&cfg)
-                        .context("Failed to apply BPG config")?;
-
-                    let bpg_data = encoder.encode_from_planar_u16(
-                        &decoded.y_plane,
-                        &decoded.cb_plane,
-                        &decoded.cr_plane,
-                        decoded.width,
-                        decoded.height,
-                        decoded.y_stride,
-                        decoded.cb_stride,
-                        decoded.cr_stride,
-                        bpg_format,
-                    ).with_context(|| format!("Failed to encode HEIC to BPG via planar YUV: {}", input.display()))?;
-
-                    fs::write(&out, &bpg_data)
-                        .with_context(|| format!("Failed to write BPG file: {}", out.display()))?;
-                    drop(bpg_data);
-
-                    let (selected_out, selected_encoded_rel) = keep_smaller_jpeg2000_if_flagged(
-                        input,
-                        original_format,
-                        out,
-                        encoded_rel.clone(),
-                        jpeg2000_out,
-                        jpeg2000_rel.clone(),
-                        decoded.width,
-                        decoded.height,
-                        &jpeg2000_stats_mutex,
-                    )?;
-
-                    // Record metadata
-                    {
-                        let mut meta = metadata_mutex.lock();
-                        meta.images.push(ImageMetadata {
-                            original_filename: file_name.clone(),
-                            original_format,
-                            original_extension: original_ext.clone(),
-                            bpg_filename: selected_encoded_rel.clone(),
-                        });
-                    }
-
-                    let rel_path = format!("media/{}", selected_encoded_rel);
-
-                    // HEIC processing complete - return from match arm
-                    (selected_out, rel_path, false, Some(original_format), FileClass::Image, false)
-                } else if let Some(ycbcr) = jpeg_ycbcr {
-                    // JPEG: direct YCbCr 4:2:0 → BPG — no colorspace conversion.
-                    use codecs::bpg::NativeBPGEncoder;
-
-                    let mut encoder = NativeBPGEncoder::new()
-                        .context("Failed to create BPG encoder")?;
-                    let mut cfg = NativeBPGEncoder::default_config();
-                    apply_bpg_settings(&mut cfg, &settings_clone, 8, 0); // JPEG is 8-bit YCbCr 4:2:0
-                    cfg.color_space = 0;   // YCbCr BT.601 (standard JPEG color space)
-                    cfg.limited_range = 0; // JPEG uses full range
-                    encoder.set_config(&cfg)
-                        .context("Failed to apply BPG config")?;
-
-                    let bpg_data = encoder.encode_from_ycbcr420_planar(
-                        &ycbcr.y_plane,
-                        &ycbcr.cb_plane,
-                        &ycbcr.cr_plane,
-                        ycbcr.width,
-                        ycbcr.height,
-                        ycbcr.y_stride,
-                        ycbcr.cb_stride,
-                        ycbcr.cr_stride,
-                    ).with_context(|| format!("Failed to encode JPEG to BPG via YCbCr: {}", input.display()))?;
-
-                    fs::write(&out, &bpg_data)
-                        .with_context(|| format!("Failed to write BPG file: {}", out.display()))?;
-
-                    drop(bpg_data);
-
-                    let (selected_out, selected_encoded_rel) = keep_smaller_jpeg2000_if_flagged(
-                        input,
-                        original_format,
-                        out,
-                        encoded_rel.clone(),
-                        jpeg2000_out,
-                        jpeg2000_rel.clone(),
-                        ycbcr.width,
-                        ycbcr.height,
-                        &jpeg2000_stats_mutex,
-                    )?;
-
-                    // Record metadata
-                    {
-                        let mut meta = metadata_mutex.lock();
-                        meta.images.push(ImageMetadata {
-                            original_filename: file_name.clone(),
-                            original_format,
-                            original_extension: original_ext.clone(),
-                            bpg_filename: selected_encoded_rel.clone(),
-                        });
-                    }
-
-                    let rel_path = format!("media/{}", selected_encoded_rel);
-
-                    (selected_out, rel_path, false, Some(original_format), FileClass::Image, false)
-                } else {
-                    // Generic RGB path for all other formats (PNG, TIFF, BMP, WebP, etc.)
-                    // Also used as fallback for JPEGs where YCbCr decode failed.
-                    let img_result = image::open(input).map_err(|e| anyhow::anyhow!(e));
-
-                // If the image can't be decoded (corrupt/truncated), copy the original
-                // file as-is to preserve it in the archive without BPG encoding.
-                let img = match img_result {
-                    Ok(img) => img,
-                    Err(_) => {
-                        let source_rel = normalize_archive_rel_path(&source_rel.with_extension(&original_ext).to_string_lossy());
-                        let copy_out = stage_at(&media_dir, &source_rel)?;
-                        fs::copy(input, &copy_out)
-                            .with_context(|| format!("Failed to copy unreadable image: {}", input.display()))?;
-                        let rel_path = format!("media/{}", source_rel);
-                        return Ok({
-                            let output_size = fs::metadata(&copy_out)?.len();
-                            let sha = item
-                                .source_hash
-                                .clone()
-                                .or_else(|| hash::sha256_file_hex(&copy_out).ok());
-                            {
-                                let mut guard = processed_mutex.lock();
-                                guard.push(ProcessedFile {
-                                    original_path: input.clone(),
-                                    source_rel_path: source_rel_path.clone(),
-                                    class: item.class,
-                                    archived_rel_path: rel_path,
-                                    output_path: copy_out,
-                                    original_size,
-                                    output_size,
-                                    sha256: sha,
-                                    source_sha256: item.source_hash.clone(),
-                                    skipped_processing: true,
-                                    original_format: Some(original_format),
-                                });
-                            }
-                            ()
-                        });
+                        return Ok(());
                     }
                 };
 
-                // Convert to RGB8 or RGBA8 for BPG encoding
-                let target_bit_depth = detect_image_bit_depth(
-                    &img,
-                    original_format,
-                    settings_clone.bpg_bit_depth,
-                    settings_clone.bpg_encoder_type,
-                );
-                let wants_high_depth = target_bit_depth > 8;
+                if prepared.has_transparency {
+                    // The JPEG XL encoder has no extra-channel support yet, so
+                    // encoding this would silently drop the alpha. Keeping the
+                    // original is lossless and honest; revisit when the encoder
+                    // grows extra channels.
+                    let (copy_out, rel_path) = store_original(Some(
+                        "has a transparency channel the JPEG XL encoder cannot yet carry",
+                    ))?;
+                    let output_size = fs::metadata(&copy_out)?.len();
+                    let sha = item
+                        .source_hash
+                        .clone()
+                        .or_else(|| hash::sha256_file_hex(&copy_out).ok());
+                    let mut guard = processed_mutex.lock();
+                    guard.push(ProcessedFile {
+                        original_path: input.clone(),
+                        source_rel_path: source_rel_path.clone(),
+                        class: item.class,
+                        archived_rel_path: rel_path,
+                        output_path: copy_out,
+                        original_size,
+                        output_size,
+                        sha256: sha,
+                        source_sha256: item.source_hash.clone(),
+                        skipped_processing: true,
+                        original_format: Some(original_format),
+                    });
+                    return Ok(());
+                }
 
-                // Consume `img` by value so already-matching layouts hand over
-                // their pixel buffer instead of cloning it (a 16-bit 24 MPix
-                // image is ~140 MB — cloning it doubled peak memory per worker).
-                let (width, height, pixel_data, format, bytes_per_sample) = if wants_high_depth {
-                    match img {
-                        image::DynamicImage::ImageRgb16(rgb) => {
-                            let (w, h) = rgb.dimensions();
-                            let data = cast_vec(rgb.into_raw());
-                            (w, h, data, codecs::bpg::BPGImageFormat::RGB24, 2u32)
-                        }
-                        image::DynamicImage::ImageRgba16(rgba) => {
-                            let (w, h) = rgba.dimensions();
-                            let data = cast_vec(rgba.into_raw());
-                            (w, h, data, codecs::bpg::BPGImageFormat::RGBA32, 2u32)
-                        }
-                        other => {
-                            let rgb = other.to_rgb16();
-                            let (w, h) = rgb.dimensions();
-                            let data = cast_vec(rgb.into_raw());
-                            (w, h, data, codecs::bpg::BPGImageFormat::RGB24, 2u32)
-                        }
-                    }
-                } else {
-                    match img {
-                        image::DynamicImage::ImageRgb8(rgb) => {
-                            let (w, h) = rgb.dimensions();
-                            (w, h, rgb.into_raw(), codecs::bpg::BPGImageFormat::RGB24, 1u32)
-                        }
-                        image::DynamicImage::ImageRgba8(rgba) => {
-                            let (w, h) = rgba.dimensions();
-                            (w, h, rgba.into_raw(), codecs::bpg::BPGImageFormat::RGBA32, 1u32)
-                        }
-                        other => {
-                            let rgb = other.to_rgb8();
-                            let (w, h) = rgb.dimensions();
-                            (w, h, rgb.into_raw(), codecs::bpg::BPGImageFormat::RGB24, 1u32)
-                        }
-                    }
-                };
+                let jxl_data = codecs::jxl::encode(
+                    &prepared.as_jxl_image(),
+                    &settings_clone.jxl_config(),
+                )
+                .with_context(|| {
+                    format!("Failed to encode {} to JPEG XL", input.display())
+                })?;
 
-                // Encode to BPG in-memory
-                let mut enc = NativeBPGEncoder::new().context("Failed to create BPG encoder")?;
-                let mut cfg: BPGEncoderConfig = NativeBPGEncoder::default_config();
-                // Auto-detect optimal bit depth based on source image.
-                apply_bpg_settings(
-                    &mut cfg,
-                    &settings_clone,
-                    target_bit_depth,
-                    settings_clone.bpg_chroma_format,
-                );
-                enc.set_config(&cfg).context("Failed to apply BPG config")?;
+                fs::write(&out, &jxl_data)
+                    .with_context(|| format!("Failed to write JPEG XL file: {}", out.display()))?;
 
-                // Use in-memory encoding
-                let channels = if format as i32 == codecs::bpg::BPGImageFormat::RGB24 as i32 { 3 } else { 4 };
-                let stride = width * channels * bytes_per_sample;
-                let bpg_data = enc.encode_from_memory(
-                    &pixel_data,
-                    width,
-                    height,
-                    stride,
-                    format,
-                ).with_context(|| format!("Failed to encode {} to BPG", input.display()))?;
+                // Explicitly drop the large buffers before the next image.
+                drop(jxl_data);
+                drop(prepared);
 
-                // Write BPG data to output file
-                fs::write(&out, &bpg_data)
-                    .with_context(|| format!("Failed to write BPG file: {}", out.display()))?;
-
-                let (selected_out, selected_encoded_rel) = keep_smaller_jpeg2000_if_flagged(
-                    input,
-                    original_format,
-                    out,
-                    encoded_rel.clone(),
-                    jpeg2000_out,
-                    jpeg2000_rel.clone(),
-                    width,
-                    height,
-                    &jpeg2000_stats_mutex,
-                )?;
-
-                // Record metadata for extraction
                 {
                     let mut meta = metadata_mutex.lock();
                     meta.images.push(ImageMetadata {
                         original_filename: file_name.clone(),
                         original_format,
                         original_extension: original_ext,
-                        bpg_filename: selected_encoded_rel.clone(),
+                        encoded_filename: encoded_rel.clone(),
                     });
                 }
 
-                // Explicitly drop large data structures to free memory immediately
-                drop(pixel_data);
-                drop(bpg_data);
-
                 // Periodic cleanup check - yield to allow other threads to run
-                if item.idx % 10 == 0 {  // Every 10th item
+                if item.idx % 10 == 0 {
                     std::thread::yield_now();
                 }
 
-                let rel_path = format!("media/{}", selected_encoded_rel);
-                (selected_out, rel_path, false, Some(original_format), FileClass::Image, false)
-                }  // End of else block for non-HEIC image processing
+                let rel_path = format!("media/{}", encoded_rel);
+                (out, rel_path, false, Some(original_format), FileClass::Image, false)
                 }
             }
             FileClass::Video => {
@@ -2044,10 +1571,6 @@ pub fn create_archive_from_discovered(
     } else {
         Some(video_stage_dir.clone())
     };
-
-    let jpeg2000_fallback = Arc::try_unwrap(jpeg2000_stats_mutex)
-        .map_err(|_| anyhow!("Failed to unwrap JPEG 2000 fallback stats"))?
-        .into_inner();
 
     let metadata = Arc::try_unwrap(metadata_mutex)
         .map_err(|_| anyhow!("Failed to unwrap metadata"))?
@@ -2326,7 +1849,6 @@ pub fn create_archive_from_discovered(
         tracking_report,
         staged_uncompressed_videos,
         video_staging_dir,
-        jpeg2000_fallback,
     })
 }
 
@@ -2734,16 +2256,16 @@ pub fn extract_archive_with_decoding(
                 meta.images.par_iter().for_each(|img_meta| {
                     let idx = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if let Some(ref cb) = progress {
-                        cb(idx, total_images, &img_meta.bpg_filename);
+                        cb(idx, total_images, &img_meta.encoded_filename);
                     }
 
-                    let bpg_path = output_dir.join("media").join(&img_meta.bpg_filename);
-                    if !bpg_path.exists() {
+                    let encoded_path = output_dir.join("media").join(&img_meta.encoded_filename);
+                    if !encoded_path.exists() {
                         return;
                     }
 
-                    let result = decode_bpg_to_original(
-                        &bpg_path,
+                    let result = decode_encoded_to_original(
+                        &encoded_path,
                         img_meta.original_format,
                         &img_meta.original_filename,
                         &settings,
@@ -2751,8 +2273,8 @@ pub fn extract_archive_with_decoding(
 
                     match result {
                         Ok(output_path) => {
-                            // Remove the BPG file after successful decode
-                            let _ = fs::remove_file(&bpg_path);
+                            // Remove the encoded file after a successful decode
+                            let _ = fs::remove_file(&encoded_path);
                             decoded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                             // Rename to original filename if different
@@ -2774,7 +2296,7 @@ pub fn extract_archive_with_decoding(
                             }
                         }
                         Err(e) => {
-                            warn!("decode_failed file={} error={}", img_meta.bpg_filename, e);
+                            warn!("decode_failed file={} error={}", img_meta.encoded_filename, e);
                         }
                     }
                 });
@@ -3096,135 +2618,75 @@ fn append_external_videos_to_index(
 }
 
 /// Decode a BPG file back to its original format
-fn decode_bpg_to_original(
-    bpg_path: &Path,
+/// Decodes one archived image back to its original format.
+///
+/// Handles both `.jxl` (everything this build writes) and `.bpg`/`.jp2`
+/// (archives written before the JPEG XL switch), dispatching on the file
+/// extension rather than assuming, so an old archive extracts correctly with a
+/// new binary.
+fn decode_encoded_to_original(
+    encoded_path: &Path,
     original_format: OriginalImageFormat,
     _original_filename: &str,
     settings: &ExtractionSettings,
 ) -> Result<PathBuf> {
-    let stem = bpg_path
+    let stem = encoded_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("image");
-    let parent = bpg_path.parent().unwrap_or(Path::new("."));
-    let is_jpeg2000 = bpg_path
-        .extension()
-        .and_then(|s| s.to_str())
-        .map(|s| {
-            matches!(
-                s.to_ascii_lowercase().as_str(),
-                "jp2" | "j2k" | "j2c" | "jpc"
-            )
-        })
-        .unwrap_or(false);
+    let parent = encoded_path.parent().unwrap_or(Path::new("."));
+
+    let image = decode_archived_image(encoded_path)?;
 
     match original_format {
         OriginalImageFormat::Jpeg => {
-            // BPG → JPEG directly
             let output_path = parent.join(format!("{}.jpg", stem));
-            if is_jpeg2000 {
-                decode_jpeg2000_to_jpeg(bpg_path, &output_path, settings.jpeg_quality)?;
-            } else {
-                decode_bpg_to_jpeg(bpg_path, &output_path, settings.jpeg_quality)?;
-            }
+            let rgb = image.to_rgb8();
+            let mut file = fs::File::create(&output_path)?;
+            let encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, settings.jpeg_quality);
+            rgb.write_with_encoder(encoder)?;
             Ok(output_path)
         }
-        OriginalImageFormat::Heic => {
-            // BPG → PNG (HEIC encoding not yet implemented in pure Rust decoder)
-            // Note: Decoding works perfectly, but encoding requires external tools
-            let output_path = parent.join(format!("{}.png", stem));
-            if is_jpeg2000 {
-                decode_jpeg2000_to_png(bpg_path, &output_path)?;
-            } else {
-                decode_bpg_to_png(bpg_path, &output_path)?;
-            }
-            Ok(output_path)
-        }
-        OriginalImageFormat::Raw
+        // Everything else goes back out as PNG: lossless, universally readable,
+        // and able to carry the 16-bit buffers the JPEG XL path now preserves.
+        OriginalImageFormat::Heic
+        | OriginalImageFormat::Raw
         | OriginalImageFormat::Png
         | OriginalImageFormat::Tiff
         | OriginalImageFormat::Bmp
         | OriginalImageFormat::WebP => {
-            // BPG → PNG (RAW cannot be recreated, others convert to PNG for compatibility)
             let output_path = parent.join(format!("{}.png", stem));
-            if is_jpeg2000 {
-                decode_jpeg2000_to_png(bpg_path, &output_path)?;
-            } else {
-                decode_bpg_to_png(bpg_path, &output_path)?;
-            }
+            image.save(&output_path)?;
             Ok(output_path)
         }
     }
 }
 
-fn decode_jpeg2000_to_png(jp2_path: &Path, output_path: &Path) -> Result<()> {
-    let img = codecs::jpeg2000::decode_jpeg2000_file(jp2_path)?;
-    img.save(output_path)?;
-    Ok(())
-}
+/// Decodes an archived image from whichever codec actually produced it.
+fn decode_archived_image(path: &Path) -> Result<image::DynamicImage> {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
 
-fn decode_jpeg2000_to_jpeg(jp2_path: &Path, output_path: &Path, quality: u8) -> Result<()> {
-    let img = codecs::jpeg2000::decode_jpeg2000_file(jp2_path)?;
-    let rgb = img.to_rgb8();
-    let mut file = fs::File::create(output_path)?;
-    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality);
-    rgb.write_with_encoder(encoder)?;
-    Ok(())
-}
-
-/// Decode BPG to PNG
-fn decode_bpg_to_png(bpg_path: &Path, output_path: &Path) -> Result<()> {
-    // Try native decoder first
-    match codecs::bpg::decode_file(&bpg_path.to_string_lossy()) {
-        Ok((data, width, height, _format)) => {
-            image::save_buffer(output_path, &data, width, height, image::ColorType::Rgba8)?;
-            Ok(())
-        }
-        Err(_) => {
-            // Fall back to JS decoder
-            if codecs::bpg_js::is_bpg_js_available() {
-                codecs::bpg_js::bpg_js_to_png(bpg_path, output_path)
+    match ext.as_str() {
+        "jxl" => codecs::jxl::decode_file(path),
+        "bpg" => codecs::bpg_legacy::decode_file(path),
+        "jp2" | "j2k" | "j2c" | "jpc" => codecs::jpeg2000::decode_jpeg2000_file(path),
+        // No recognised extension: sniff the magic instead of guessing.
+        _ => {
+            let data = fs::read(path)
+                .with_context(|| format!("Failed to read archived image: {}", path.display()))?;
+            if codecs::jxl::is_jxl(&data) {
+                codecs::jxl::decode(&data)
+            } else if codecs::bpg_legacy::is_bpg(&data) {
+                codecs::bpg_legacy::decode(&data)
             } else {
-                Err(anyhow!("No BPG decoder available"))
-            }
-        }
-    }
-}
-
-/// Decode BPG to JPEG
-fn decode_bpg_to_jpeg(bpg_path: &Path, output_path: &Path, quality: u8) -> Result<()> {
-    // Try native decoder first
-    match codecs::bpg::decode_file(&bpg_path.to_string_lossy()) {
-        Ok((data, width, height, _format)) => {
-            // Convert RGBA to RGB
-            let mut rgb_data: Vec<u8> = Vec::with_capacity((data.len() / 4) * 3);
-            for rgba in data.chunks_exact(4) {
-                rgb_data.extend_from_slice(&rgba[..3]);
-            }
-
-            let img = image::RgbImage::from_raw(width, height, rgb_data)
-                .ok_or_else(|| anyhow!("Failed to create image buffer"))?;
-
-            let mut file = fs::File::create(output_path)?;
-            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality);
-            img.write_with_encoder(encoder)?;
-            Ok(())
-        }
-        Err(_) => {
-            // Fall back to PNG then convert
-            let temp_png = output_path.with_extension("temp.png");
-            if codecs::bpg_js::is_bpg_js_available() {
-                codecs::bpg_js::bpg_js_to_png(bpg_path, &temp_png)?;
-                let img = image::open(&temp_png)?;
-                let rgb = img.to_rgb8();
-                let mut file = fs::File::create(output_path)?;
-                let encoder =
-                    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut file, quality);
-                rgb.write_with_encoder(encoder)?;
-                let _ = fs::remove_file(&temp_png);
-                Ok(())
-            } else {
-                Err(anyhow!("No BPG decoder available"))
+                image::load_from_memory(&data).map_err(|e| {
+                    anyhow!("unrecognised archived image {}: {e}", path.display())
+                })
             }
         }
     }
@@ -3233,6 +2695,29 @@ fn decode_bpg_to_jpeg(bpg_path: &Path, output_path: &Path, quality: u8) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn heavy_image_admission_reflects_measured_cpu_saturation() {
+        assert_eq!(cpu_bounded_image_capacity(1), 1);
+        assert_eq!(cpu_bounded_image_capacity(8), 1);
+        assert_eq!(cpu_bounded_image_capacity(20), 2);
+        assert_eq!(cpu_bounded_image_capacity(32), 4);
+    }
+
+    #[test]
+    fn image_budget_keeps_half_of_total_and_available_ram_outside_the_pipeline() {
+        let gib = 1_u64 << 30;
+        assert_eq!(image_ram_budget(32 * gib, 24 * gib), 12 * gib);
+        assert_eq!(image_ram_budget(32 * gib, 10 * gib), 5 * gib);
+        assert_eq!(image_ram_budget(8 * gib, 20 * gib), 4 * gib);
+    }
+
+    #[test]
+    fn image_reservations_include_allocator_and_model_headroom() {
+        assert_eq!(image_reservation_with_headroom(4_000), 5_000);
+        assert_eq!(image_reservation_with_headroom(1), 2);
+        assert_eq!(image_reservation_with_headroom(u64::MAX), u64::MAX);
+    }
 
     #[test]
     fn camera_raw_files_follow_the_image_pipeline() {

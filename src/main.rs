@@ -23,7 +23,7 @@ use arcmax::codec::lzma::LzmaOptions;
 use arcmax::{compress_with, decompress, CompressionOptions, Method};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use openarc::bpg_wrapper::{BpgAq, BpgConfig, BpgEffort};
+use openarc::jxl_wrapper;
 use openarc::cli::{Cli, Commands};
 use openarc::interactive;
 use openarc::orchestrator::{
@@ -94,7 +94,7 @@ fn make_progress_callback(
 
 fn is_supported_image(path: &std::path::Path) -> bool {
     const IMAGE_EXTS: &[&str] = &[
-        "jpg", "jpeg", "png", "heic", "heif", "tiff", "tif", "bmp", "webp", "jp2", "j2k",
+        "jpg", "jpeg", "png", "heic", "heif", "tiff", "tif", "bmp", "webp", "jp2", "j2k", "jxl",
     ];
     raw_autotune::files::is_supported_raw(path)
         || path
@@ -256,10 +256,8 @@ fn main() -> Result<()> {
         Commands::Create {
             output,
             inputs,
-            bpg_effort,
-            #[cfg(feature = "bpg-rs")]
-            bpg_aq,
-            bpg_quality,
+            jxl_effort,
+            jxl_bpp,
             compression_level,
             misc_compression_level,
             no_catalog,
@@ -291,24 +289,14 @@ fn main() -> Result<()> {
                 return Err(anyhow!("one or more input paths not found"));
             }
 
-            let bpg_effort = BpgEffort::parse(&bpg_effort)?;
-            #[cfg(feature = "bpg-rs")]
-            let bpg_aq = BpgAq::parse(&bpg_aq)?;
-            // C/x265 backend: AQ is not user-selectable; keep the production
-            // default off.
-            #[cfg(not(feature = "bpg-rs"))]
-            let bpg_aq: BpgAq = openarc::bpg_wrapper::AQ_CLI_DEFAULT;
-            bpg_aq.validate_for_effort(bpg_effort)?;
-            let bpg_quality = bpg_quality.unwrap_or_else(|| bpg_effort.default_quality() as i32);
+            // Validates the preset name and rejects a bitrate override that
+            // cannot mean anything (non-positive, or paired with lossless).
+            let jxl_config = jxl_wrapper::config_from_cli(&jxl_effort, jxl_bpp)?;
+            let jxl_effort = jxl_config.effort;
 
             let settings = OrchestratorSettings {
-                bpg_quality,
-                bpg_effort,
-                bpg_aq,
-                bpg_bit_depth: 8,
-                bpg_chroma_format: 1,
-                bpg_encoder_type: bpg_effort.encoder_type() as i32,
-                bpg_compression_level: bpg_effort.compression_level() as i32,
+                jxl_effort,
+                jxl_bits_per_pixel: jxl_config.bits_per_pixel,
                 compression_level,
                 misc_compression_level,
                 enable_catalog: !no_catalog,
@@ -324,12 +312,16 @@ fn main() -> Result<()> {
 
             println!("Settings:");
             if !no_reencode {
+                match jxl_config.mode() {
+                    openarc::jxl_wrapper::JxlMode::Lossless => {
+                        println!("  JPEG XL: lossless (exact samples, no rate target)");
+                    }
+                    openarc::jxl_wrapper::JxlMode::Lossy { bits_per_pixel } => {
+                        println!("  JPEG XL: {jxl_effort} at {bits_per_pixel:.2} bpp");
+                    }
+                }
                 println!(
-                    "  BPG: {} (AQ: {}, internal QP: {})",
-                    bpg_effort, bpg_aq, bpg_quality
-                );
-                println!(
-                    "  BPG bit depth: adaptive (8-bit sources stay 8-bit, high-depth sources up to 12-bit)"
+                    "  Colour: 4:4:4 throughout (JPEG XL does not subsample), bit depth taken from each source"
                 );
             }
             println!("  ZSTD container level: {}", compression_level);
@@ -437,22 +429,6 @@ fn main() -> Result<()> {
             println!("  Original size: {} MB", total_original / 1_000_000);
             println!("  Compressed size: {} MB", total_compressed / 1_000_000);
             println!("  Ratio: {:.2}%", ratio);
-            if result.jpeg2000_fallback.replaced_files > 0 {
-                println!(
-                    "  JPEG 2000 fallback: {} files encoded to JP2 q85 after BPG bitrate criteria flagged them and JP2 was smaller",
-                    result.jpeg2000_fallback.replaced_files
-                );
-                println!(
-                    "  JPEG 2000 average savings: {} KB/file ({:.2}% average across replaced files)",
-                    result.jpeg2000_fallback.average_saved_bytes() / 1_000,
-                    result.jpeg2000_fallback.average_saved_percent()
-                );
-            } else if result.jpeg2000_fallback.flagged_files > 0 {
-                println!(
-                    "  JPEG 2000 fallback: {} files flagged by BPG bitrate criteria, but BPG remained smaller",
-                    result.jpeg2000_fallback.flagged_files
-                );
-            }
 
             println!();
             println!("Output: {}", output.display());
@@ -553,53 +529,33 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::ConvertBpg {
+        Commands::ConvertJxl {
             input,
             output,
             effort,
-            #[cfg(feature = "bpg-rs")]
-            aq,
-            quality,
+            bpp,
         } => {
-            let effort = BpgEffort::parse(&effort)?;
-            #[cfg(feature = "bpg-rs")]
-            let aq = BpgAq::parse(&aq)?;
-            #[cfg(not(feature = "bpg-rs"))]
-            let aq: BpgAq = openarc::bpg_wrapper::AQ_CLI_DEFAULT;
-            aq.validate_for_effort(effort)?;
-            let cfg = BpgConfig {
-                effort,
-                aq,
-                bit_depth: 8,
-                quality_override: quality,
-            };
+            let cfg = jxl_wrapper::config_from_cli(&effort, bpp)?;
             let pb = ProgressBar::new_spinner();
             pb.set_style(
                 ProgressStyle::default_spinner()
                     .template("{spinner:.green} [{elapsed_precise}] {msg}")
                     .unwrap(),
             );
-            pb.set_message(format!("BPG {}: {}", effort, input.display()));
-            openarc::bpg_wrapper::encode_image_to_bpg(&input, &output, &cfg)?;
+            pb.set_message(format!("JPEG XL {}: {}", cfg.effort, input.display()));
+            let written = jxl_wrapper::encode_image_to_jxl(&input, &output, &cfg)?;
             pb.finish_with_message("Complete");
-            println!("Output: {}", output.display());
+            println!("Output: {} ({} bytes)", output.display(), written);
             Ok(())
         }
 
-        Commands::BatchBpg {
+        Commands::BatchJxl {
             input,
             output,
             effort,
-            #[cfg(feature = "bpg-rs")]
-            aq,
-            quality,
+            bpp,
         } => {
-            let effort = BpgEffort::parse(&effort)?;
-            #[cfg(feature = "bpg-rs")]
-            let aq = BpgAq::parse(&aq)?;
-            #[cfg(not(feature = "bpg-rs"))]
-            let aq: BpgAq = openarc::bpg_wrapper::AQ_CLI_DEFAULT;
-            aq.validate_for_effort(effort)?;
+            let cfg = jxl_wrapper::config_from_cli(&effort, bpp)?;
             std::fs::create_dir_all(&output).with_context(|| {
                 format!("Failed to create output directory {}", output.display())
             })?;
@@ -611,15 +567,11 @@ fn main() -> Result<()> {
                     .unwrap()
                     .progress_chars("#>-"),
             );
-            let cfg = BpgConfig {
-                effort,
-                aq,
-                bit_depth: 8,
-                quality_override: quality,
-            };
+            let mut skipped = Vec::new();
             for (idx, path) in images.iter().enumerate() {
                 let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
-                let out_path = output.join(format!("{}.bpg", stem));
+                let out_path =
+                    output.join(format!("{}.{}", stem, openarc::jxl_wrapper::JXL_EXTENSION));
                 pb.set_position(idx as u64);
                 pb.set_message(
                     path.file_name()
@@ -627,11 +579,25 @@ fn main() -> Result<()> {
                         .unwrap_or("image")
                         .to_string(),
                 );
-                openarc::bpg_wrapper::encode_image_to_bpg(path, &out_path, &cfg)
-                    .with_context(|| format!("Failed to encode {}", path.display()))?;
+                // A transparent source is refused rather than silently
+                // flattened; report it at the end instead of aborting the batch.
+                match jxl_wrapper::encode_image_to_jxl(path, &out_path, &cfg) {
+                    Ok(_) => {}
+                    Err(err) => skipped.push((path.clone(), err)),
+                }
             }
             pb.finish_with_message("Complete");
-            println!("Encoded {} image(s) to {}", images.len(), output.display());
+            println!(
+                "Encoded {} image(s) to {}",
+                images.len() - skipped.len(),
+                output.display()
+            );
+            if !skipped.is_empty() {
+                println!("Skipped {} image(s):", skipped.len());
+                for (path, err) in &skipped {
+                    println!("  {}: {}", path.display(), err);
+                }
+            }
             Ok(())
         }
 

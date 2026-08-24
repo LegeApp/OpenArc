@@ -551,6 +551,134 @@ pub fn png_to_heic_lossless(_input: &Path, _output: &Path) -> Result<()> {
     Err(anyhow!("HEIC encoding not supported - decoding only"))
 }
 
+
+/// The interleaved full-resolution RGB form of a decoded HEIC image, at the
+/// source's own bit depth.
+#[derive(Debug, Clone)]
+pub struct HeicRgb {
+    pub width: u32,
+    pub height: u32,
+    /// Source bit depth, 8..=16. Samples occupy the low `bit_depth` bits.
+    pub bit_depth: u8,
+    /// Interleaved RGB, three `u16` per pixel.
+    pub data: Vec<u16>,
+}
+
+impl DecodedHeicYuv {
+    /// Converts to full-resolution interleaved RGB at the source bit depth.
+    ///
+    /// # Why this exists
+    ///
+    /// The BPG path used to hand these YCbCr planes to the encoder untouched,
+    /// subsampling and all. JPEG XL has no YCbCr path — a VarDCT frame is XYB —
+    /// so the conversion has to happen somewhere, and doing it here at the
+    /// source's own precision is the only version of it that does not lose
+    /// anything the file actually contained:
+    ///
+    /// * **Chroma is upsampled by replication**, not interpolated. Replication
+    ///   reproduces exactly the samples the file stores at the positions it
+    ///   stores them and invents nothing in between; an interpolating filter
+    ///   would look smoother but would be this decoder guessing. The subsequent
+    ///   JPEG XL encode is 4:4:4, so nothing re-subsamples afterwards.
+    /// * **Depth is preserved**: a 10-bit HEIC stays 10-bit here, and the
+    ///   caller declares that depth to the encoder.
+    /// * **Range and matrix are honoured** from the stream's own signalling
+    ///   rather than assumed to be full-range BT.709.
+    pub fn to_rgb(&self) -> Result<HeicRgb> {
+        let (width, height) = (self.width, self.height);
+        ensure!(width > 0 && height > 0, "HEIC image has a zero dimension");
+        let bit_depth = self.bit_depth;
+        ensure!(
+            (8..=16).contains(&bit_depth),
+            "unsupported HEIC bit depth: {bit_depth}"
+        );
+
+        let max = ((1u32 << bit_depth) - 1) as f32;
+        // Limited ("TV") range packs luma into 16..235 and chroma into 16..240,
+        // scaled to the bit depth; full range uses the whole interval.
+        let scale = f32::from(1u16 << (bit_depth - 8));
+        let (y_offset, y_range, c_range) = if self.full_range {
+            (0.0f32, max, max)
+        } else {
+            (16.0 * scale, 219.0 * scale, 224.0 * scale)
+        };
+        let c_centre = f32::from(1u16 << (bit_depth - 1));
+
+        // Table E.5 matrix coefficients -> luma weights (Kr, Kb).
+        let (kr, kb) = match self.matrix_coeffs {
+            // Identity: the "YCbCr" planes are really G, B, R.
+            0 => (0.0, 0.0),
+            1 => (0.2126, 0.0722),   // BT.709
+            9 | 10 => (0.2627, 0.0593), // BT.2020 NCL / CL
+            // 5/6 are BT.601; 2 is "unspecified", for which BT.601 is the
+            // conventional fallback and what the BPG mapping already assumed.
+            _ => (0.299, 0.114),
+        };
+        let kg = 1.0 - kr - kb;
+
+        let pixels = width as usize * height as usize;
+        let mut out = vec![0u16; pixels * 3];
+        let (cw, _ch) = self.chroma_format.plane_dimensions(width, height);
+        let hdiv = self.chroma_format.horizontal_divisor();
+        let vdiv = self.chroma_format.vertical_divisor();
+        let monochrome = self.chroma_format == HeicChromaFormat::Monochrome;
+        let identity = self.matrix_coeffs == 0;
+
+        for y in 0..height {
+            for x in 0..width {
+                let y_index = (y * self.y_stride + x) as usize;
+                let luma = *self
+                    .y_plane
+                    .get(y_index)
+                    .ok_or_else(|| anyhow!("HEIC luma plane is short at ({x}, {y})"))?;
+
+                let (cb, cr) = if monochrome {
+                    (c_centre, c_centre)
+                } else {
+                    // Replicating upsample: the chroma sample covering this
+                    // pixel is the one at (x / hdiv, y / vdiv).
+                    let cx = (x / hdiv).min(cw.saturating_sub(1));
+                    let cy = y / vdiv;
+                    let cb_index = (cy * self.cb_stride + cx) as usize;
+                    let cr_index = (cy * self.cr_stride + cx) as usize;
+                    (
+                        f32::from(self.cb_plane.get(cb_index).copied().unwrap_or(0)),
+                        f32::from(self.cr_plane.get(cr_index).copied().unwrap_or(0)),
+                    )
+                };
+
+                let (r, g, b) = if identity {
+                    // GBR order, no matrix, no range scaling.
+                    (cr, f32::from(luma), cb)
+                } else {
+                    let yn = (f32::from(luma) - y_offset) / y_range;
+                    let cbn = (cb - c_centre) / c_range;
+                    let crn = (cr - c_centre) / c_range;
+                    let r = yn + 2.0 * (1.0 - kr) * crn;
+                    let b = yn + 2.0 * (1.0 - kb) * cbn;
+                    let g = yn - (2.0 * (1.0 - kr) * kr / kg) * crn
+                        - (2.0 * (1.0 - kb) * kb / kg) * cbn;
+                    (r * max, g * max, b * max)
+                };
+
+                let base = (y as usize * width as usize + x as usize) * 3;
+                for (offset, value) in [r, g, b].into_iter().enumerate() {
+                    if let Some(slot) = out.get_mut(base + offset) {
+                        *slot = value.round().clamp(0.0, max) as u16;
+                    }
+                }
+            }
+        }
+
+        Ok(HeicRgb {
+            width,
+            height,
+            bit_depth,
+            data: out,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

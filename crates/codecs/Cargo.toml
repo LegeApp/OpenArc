@@ -3,35 +3,34 @@ name = "codecs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "BPG and HEIC codec implementations for OpenArc"
+description = "JPEG XL, HEIC and RAW codec implementations for OpenArc"
 
 [features]
-default = ["bpg-rs"]
-# Legacy opt-in path: libbpg C glue plus vendored x265 4.1. Not compiled by
-# default; enable explicitly with --no-default-features --features bpg-c.
-bpg-c = []
-# Default production path: pure-Rust BPG encoder/decoder from the sibling
-# bpg-rs repo. Because Cargo features are additive, enabling `bpg-rs` selects
-# the Rust BPG implementation and suppresses the C build even if `bpg-c` is
-# also enabled.
-bpg-rs = ["dep:bpg-encode", "dep:bpg-image", "dep:still265"]
+default = []
 
 [dependencies]
-jp2lam = { git = "https://github.com/LegeApp/jp2lam" }
+# The JPEG XL codec: OpenArc's image encoder for every image output.
+# `jpxl-encode` is the normative writer, `jpxl-encode-policy` the lossy VarDCT
+# search half, `jpxl-decode` the reader used on extraction.
+jpxl-core = { path = "../../../jpegXL-rs/JPXL/crates/jpxl-core" }
+jpxl-encode = { path = "../../../jpegXL-rs/JPXL/crates/jpxl-encode" }
+jpxl-encode-policy = { path = "../../../jpegXL-rs/JPXL/crates/jpxl-encode-policy" }
+jpxl-decode = { path = "../../../jpegXL-rs/JPXL/crates/jpxl-decode" }
+# Retained for its HEIF/ISOBMFF parser (`bpg_decode::heic`), which is how HEIC
+# sources are read, and for decoding `.bpg` entries in archives written before
+# the JPEG XL switch. The BPG *encoders* are gone.
 bpg-decode = { path = "../../../bpg-rs/crates/bpg-decode" }
-bpg-encode = { path = "../../../bpg-rs/crates/bpg-encode", optional = true }
-bpg-image = { path = "../../../bpg-rs/crates/bpg-image", optional = true }
-still265 = { path = "../../../bpg-rs/crates/still265", optional = true }
+# JPEG 2000 is retained for *reading* .jp2/.j2k sources. It is no longer an
+# encode fallback: every image output is JPEG XL.
+jp2lam = { git = "https://github.com/LegeApp/jp2lam" }
 anyhow.workspace = true
 thiserror.workspace = true
 lcms2.workspace = true
+serde.workspace = true
 infer.workspace = true
 tempfile.workspace = true
 image.workspace = true
 which = "8.0"
-
-[build-dependencies]
-cc = "1.2"
 
 [lib]
 name = "codecs"

@@ -1,0 +1,89 @@
+akr 0.1
+project openarc
+
+record openarc.work.bounded-raw-jxl-admission/1 : work {
+    title "Bound RAW-to-JPEG-XL admission by measured peak memory and CPU scaling"
+    state completed
+    scope [
+        path "crates/codecs/jxl.rs",
+        path "src/image_source.rs",
+        path "src/orchestrator.rs"
+    ]
+    intent """
+        Prevent OpenArc RAW-to-JPEG-XL batches from exhausting system memory or slowing catastrophically under nested parallelism, while preserving the existing 16-bit render and JPEG XL output semantics.
+        """
+    acceptance {
+        check peak-memory-bounded {
+            statement """
+                A measured release run keeps peak resident memory within a conservative bound on the 31 GiB no-swap test machine.
+                """
+            method command
+            verified_by [ @openarc.evidence.bounded-raw-jxl-corpus-20260821/1 ]
+        }
+        check provided-corpus-completes {
+            statement """
+                The provided raw_at_night input completes in encode-to-folder mode without an OOM kill and produces every expected media output.
+                """
+            method command
+            verified_by [ @openarc.evidence.bounded-raw-jxl-corpus-20260821/1 ]
+        }
+        check release-tests-pass {
+            statement """
+                The affected OpenArc release test suite passes.
+                """
+            method command
+            verified_by [ @openarc.evidence.bounded-raw-jxl-release-tests-20260821/1 ]
+        }
+        check throughput-profiled {
+            statement """
+                Representative release measurements identify and avoid the concurrency setting that caused the observed throughput collapse.
+                """
+            method command
+            verified_by [ @openarc.evidence.raw-jxl-throughput-comparison-20260821/1 ]
+        }
+    }
+}
+
+record openarc.work.production-jpxl-presets-and-bounded-correction/1 : work {
+    title "Use production JPXL presets and prevent bounded rate-collapse"
+    state completed
+    scope [
+        path "crates/codecs/jxl.rs",
+        path "src/cli.rs",
+        path "src/interactive.rs",
+        path "src/jxl_wrapper.rs",
+        path "src/main.rs"
+    ]
+    intent """
+        Expose only production JPEG XL modes in OpenArc (Best maps to JPXL Balanced, Fast maps to JPXL Fast, plus Lossless) and fix JPXL's bounded controller so a slight over-target finalist cannot collapse to a grossly underfilled anchor.
+        """
+    note """
+        The bounded-controller implementation and regression test live in the sibling JPXL repository because OpenArc consumes it by path dependency.
+        """
+    acceptance {
+        check bounded-rate-regression {
+            statement """
+                JPXL's bounded controller retains a near-target feasible result instead of falling back to a grossly underfilled anchor on the reproduced high-rate RAW case.
+                """
+            method command
+            command "cargo test --release -p jpxl-encode-policy"
+            verified_by [ @openarc.evidence.jpxl-bounded-rate-tests-20260821/1 ]
+        }
+        check end-to-end-rate {
+            statement """
+                An OpenArc Best encode of the reproduced 6000x4000 RAW reaches the requested target band through JPXL Balanced.
+                """
+            method command
+            command "./target/release/openarc convert-jxl <fixture> --effort best --bpp 3.0"
+            verified_by [ @openarc.evidence.best-balanced-raw-rate-20260821/1 ]
+        }
+        check production-preset-surface {
+            statement """
+                OpenArc exposes best, fast, and lossless; best routes to JPXL Balanced and no OpenArc preset routes to JPXL Quality.
+                """
+            method command
+            command "cargo test --release -p openarc -p codecs"
+            verified_by [ @openarc.evidence.production-jpxl-preset-tests-20260821/1 ]
+        }
+    }
+}

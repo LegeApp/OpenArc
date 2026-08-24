@@ -8,7 +8,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::bpg_wrapper::{BpgAq, BpgEffort};
+use crate::jxl_wrapper::{JxlEffort, JxlMode};
 use crate::orchestrator::{
     append_external_video_bundle, create_archive_from_discovered, extract_archive_with_decoding,
     ExtractionSettings, OrchestratorSettings,
@@ -59,11 +59,10 @@ enum StartAction {
 }
 
 pub struct InteractiveConfig {
-    pub bpg_effort: BpgEffort,
-    pub bpg_aq: BpgAq,
-    pub bpg_bit_depth: u8,
-    /// Advanced/testing numeric override. Normal interactive mode leaves this as None.
-    pub bpg_quality_override: Option<i32>,
+    pub jxl_effort: JxlEffort,
+    /// Override the preset's bits-per-pixel target. Normal interactive mode
+    /// leaves this as None and takes the preset's own rate.
+    pub jxl_bits_per_pixel: Option<f64>,
     /// ZSTD level (1-22) for the final archive container (low, since it wraps
     /// already-compressed media).
     pub compression_level: i32,
@@ -80,13 +79,22 @@ pub struct InteractiveConfig {
     pub catalog_db_path: Option<PathBuf>,
 }
 
+impl InteractiveConfig {
+    /// The encoder configuration this config describes.
+    pub fn jxl_config(&self) -> crate::jxl_wrapper::JxlConfig {
+        crate::jxl_wrapper::JxlConfig {
+            effort: self.jxl_effort,
+            bits_per_pixel: self.jxl_bits_per_pixel,
+            container: false,
+        }
+    }
+}
+
 impl Default for InteractiveConfig {
     fn default() -> Self {
         Self {
-            bpg_effort: BpgEffort::Best,
-            bpg_aq: BpgAq::default(),
-            bpg_bit_depth: 8,
-            bpg_quality_override: None,
+            jxl_effort: JxlEffort::default(),
+            jxl_bits_per_pixel: None,
             compression_level: 3,
             misc_compression_level: 6,
             enable_catalog: true,
@@ -256,7 +264,7 @@ fn prompt_start_action() -> Result<StartAction> {
         COLORS.highlight, COLORS.reset
     );
     println!(
-        "[2] {}Archive + Re-encode Media{} - Images→BPG, inefficient videos→external staging",
+        "[2] {}Archive + Re-encode Media{} - Images→JPEG XL, inefficient videos→external staging",
         COLORS.highlight, COLORS.reset
     );
     println!(
@@ -537,17 +545,10 @@ fn parse_path_input(input: &str) -> Vec<String> {
 // Settings Prompts
 // ============================================================================
 
-fn bpg_effort_hint(effort: BpgEffort) -> String {
-    effort.hint().to_string()
-}
-
-#[cfg(feature = "bpg-rs")]
-fn bpg_aq_hint(aq: BpgAq) -> &'static str {
-    match aq {
-        BpgAq::Off => "uniform QP; fastest and most predictable",
-        BpgAq::TwoPass => "recommended measured two-pass AQ; only keeps a winning candidate",
-        BpgAq::Perceptual => "single-pass luma perceptual AQ",
-        BpgAq::PerceptualChroma => "single-pass luma+chroma perceptual AQ",
+fn jxl_effort_hint(effort: JxlEffort) -> String {
+    match effort {
+        JxlEffort::Lossless => effort.hint().to_string(),
+        other => format!("{} (~{:.2} bpp)", other.hint(), other.default_bits_per_pixel()),
     }
 }
 
@@ -556,71 +557,46 @@ fn prompt_compression_settings(config: &mut InteractiveConfig) -> Result<()> {
 
     if config.reencode_media {
         println!(
-            "\n{}Image Settings (BPG Format):{}",
+            "\n{}Image Settings (JPEG XL):{}",
             COLORS.info, COLORS.reset
         );
-    }
+        println!(
+            "Colour is 4:4:4 throughout and each source keeps its own bit depth;"
+        );
+        println!("there is nothing to configure for either.");
 
-    // Keep the legacy backend buildable, but present the same production
-    // Fast/Best effort shape as the default bpg-rs backend.
-    #[cfg(not(feature = "bpg-rs"))]
-    if config.reencode_media {
-        let bpg_options = [
-            SelectOption::new("Best", bpg_effort_hint(BpgEffort::Best)),
-            SelectOption::new("Fast", bpg_effort_hint(BpgEffort::Fast)),
-        ];
-        let default_idx = usize::from(config.bpg_effort == BpgEffort::Fast);
-        let idx = select_option("BPG image preset:", &bpg_options, default_idx)?;
-        config.bpg_effort = if idx == 1 {
-            BpgEffort::Fast
-        } else {
-            BpgEffort::Best
-        };
-        // AQ is not user-selectable for the C backend; keep the production
-        // default off.
-        config.bpg_aq = BpgAq::Off;
-    }
-
-    #[cfg(feature = "bpg-rs")]
-    if config.reencode_media {
-        let bpg_options = [
-            SelectOption::new("Best", bpg_effort_hint(BpgEffort::Best)),
-            SelectOption::new("Fast", bpg_effort_hint(BpgEffort::Fast)),
-        ];
-        let default_bpg_idx = usize::from(config.bpg_effort == BpgEffort::Fast);
-        let bpg_idx = select_option("BPG image preset:", &bpg_options, default_bpg_idx)?;
-        config.bpg_effort = if bpg_idx == 1 {
-            BpgEffort::Fast
-        } else {
-            BpgEffort::Best
-        };
-        if !config.bpg_effort.supports_two_pass_aq() && config.bpg_aq == BpgAq::TwoPass {
-            config.bpg_aq = BpgAq::Off;
-        }
-
-        // AQ is off by default. Two-pass is the recommended opt-in, followed by
-        // the two single-pass perceptual alternatives.
-        let aq_choices: Vec<BpgAq> = if config.bpg_effort.supports_two_pass_aq() {
-            vec![
-                BpgAq::Off,
-                BpgAq::TwoPass,
-                BpgAq::Perceptual,
-                BpgAq::PerceptualChroma,
-            ]
-        } else {
-            vec![BpgAq::Off, BpgAq::Perceptual, BpgAq::PerceptualChroma]
-        };
-        let aq_options: Vec<SelectOption> = aq_choices
+        let choices = [JxlEffort::Best, JxlEffort::Fast, JxlEffort::Lossless];
+        let options: Vec<SelectOption> = choices
             .iter()
-            .map(|aq| SelectOption::new(aq.as_str(), bpg_aq_hint(*aq)))
+            .map(|e| SelectOption::new(e.as_str(), jxl_effort_hint(*e)))
             .collect();
-        let default_aq_idx = aq_choices
+        let default_idx = choices
             .iter()
-            .position(|aq| *aq == config.bpg_aq)
+            .position(|e| *e == config.jxl_effort)
             .unwrap_or(0);
-        let aq_idx = select_option("BPG adaptive quantization:", &aq_options, default_aq_idx)?;
-        config.bpg_aq = aq_choices[aq_idx];
-        config.bpg_aq.validate_for_effort(config.bpg_effort)?;
+        let idx = select_option("JPEG XL preset:", &options, default_idx)?;
+        config.jxl_effort = choices.get(idx).copied().unwrap_or(JxlEffort::Best);
+
+        // A lossless encode has no rate to target, so do not offer one.
+        if config.jxl_effort.is_lossless() {
+            config.jxl_bits_per_pixel = None;
+        } else {
+            // Offered in hundredths of a bit so the dial is fine enough to be
+            // useful; the preset default is the starting point.
+            let current = config
+                .jxl_bits_per_pixel
+                .unwrap_or_else(|| config.jxl_effort.default_bits_per_pixel());
+            let centibits = select_value(
+                "Target bitrate (higher = closer to the source, larger files):",
+                50,
+                600,
+                (current * 100.0).round().clamp(50.0, 600.0) as i32,
+                25,
+                50,
+                |v| format!("{:.2} bpp", f64::from(v) / 100.0),
+            )?;
+            config.jxl_bits_per_pixel = Some(f64::from(centibits) / 100.0);
+        }
     }
 
     println!("\n{}Archive Settings:{}", COLORS.info, COLORS.reset);
@@ -718,10 +694,13 @@ fn print_summary(config: &InteractiveConfig, media_files: &[PathBuf]) -> Result<
 
     if config.reencode_media {
         if image_count > 0 {
+            let rate = match config.jxl_config().mode() {
+                JxlMode::Lossless => "lossless".to_string(),
+                JxlMode::Lossy { bits_per_pixel } => format!("{bits_per_pixel:.2} bpp"),
+            };
             println!(
-                "  • {} images → BPG (preset: {}, bit depth: adaptive, 8-bit \
-                 sources stay 8-bit, high-depth sources up to 12-bit, AQ: {})",
-                image_count, config.bpg_effort, config.bpg_aq
+                "  \u{2022} {} images \u{2192} JPEG XL (preset: {}, {}, 4:4:4, source bit depth preserved)",
+                image_count, config.jxl_effort, rate
             );
         }
         if video_count > 0 {
@@ -834,15 +813,8 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
         ProcessingMode::EncodeAndArchive => {
             // Use existing archive creation
             let settings = OrchestratorSettings {
-                bpg_quality: config
-                    .bpg_quality_override
-                    .unwrap_or_else(|| config.bpg_effort.default_quality() as i32),
-                bpg_effort: config.bpg_effort,
-                bpg_aq: config.bpg_aq,
-                bpg_bit_depth: config.bpg_bit_depth as i32,
-                bpg_chroma_format: 1,
-                bpg_encoder_type: config.bpg_effort.encoder_type() as i32,
-                bpg_compression_level: config.bpg_effort.compression_level() as i32,
+                jxl_effort: config.jxl_effort,
+                jxl_bits_per_pixel: config.jxl_bits_per_pixel,
                 compression_level: config.compression_level,
                 misc_compression_level: config.misc_compression_level,
                 enable_catalog: config.enable_catalog,
@@ -974,23 +946,6 @@ fn process_files(config: &InteractiveConfig, _media_files: Vec<PathBuf>) -> Resu
                 ratio,
                 COLORS.reset
             );
-            if result.jpeg2000_fallback.replaced_files > 0 {
-                println!(
-                    "  • JPEG 2000 fallback: {} files encoded to JP2 q85 after BPG bitrate criteria flagged them and JP2 was smaller",
-                    result.jpeg2000_fallback.replaced_files
-                );
-                println!(
-                    "  • JPEG 2000 average savings: {} KB/file ({:.2}% average across replaced files)",
-                    result.jpeg2000_fallback.average_saved_bytes() / 1_000,
-                    result.jpeg2000_fallback.average_saved_percent()
-                );
-            } else if result.jpeg2000_fallback.flagged_files > 0 {
-                println!(
-                    "  • JPEG 2000 fallback: {} files flagged by BPG bitrate criteria, but BPG remained smaller",
-                    result.jpeg2000_fallback.flagged_files
-                );
-            }
-
             println!(
                 "\n{}Output:{} {}",
                 COLORS.highlight,
@@ -1127,7 +1082,8 @@ fn wait_for_external_video_encoding(
 
 fn is_image_file(path: &PathBuf) -> bool {
     const IMAGE_EXTS: &[&str] = &[
-        "jpg", "jpeg", "png", "heic", "heif", "bpg", "tiff", "tif", "bmp", "webp", "dng", "cr2",
+        "jpg", "jpeg", "png", "heic", "heif", "jxl", "bpg", "tiff", "tif", "bmp", "webp", "dng",
+        "cr2",
         "nef", "arw", "orf", "rw2", "raf", "jp2", "j2k",
     ];
 

@@ -103,10 +103,11 @@ authors.workspace = true
 description = "OpenArc media archiver - library and CLI"
 
 [features]
-default = ["bpg-rs"]
-bpg-c = ["codecs/bpg-c"]
-bpg-rs = ["codecs/bpg-rs"]
-# heif feature removed - we use pure Rust heic-decoder-rs instead of libheif
+default = []
+# The BPG backend selectors (`bpg-c`, `bpg-rs`) are gone: OpenArc encodes every
+# image as JPEG XL through `codecs::jxl`, which has no compile-time backend
+# choice to make. BPG is still *readable* (`codecs::bpg_legacy`) so archives
+# written before the switch stay extractable.
 
 [dependencies]
 # CLI dependencies

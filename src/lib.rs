@@ -4,11 +4,12 @@
 
 pub mod archive_tracker;
 pub mod backup_catalog;
-pub mod bpg_wrapper;
 pub mod cli;
 pub mod file_tracker;
 pub mod hash;
 pub mod image_loader;
+pub mod image_source;
+pub mod jxl_wrapper;
 pub mod interactive;
 pub mod interactive_menu;
 pub mod jpeg_decoder;

@@ -1,17 +1,17 @@
-//! Codec implementations for different file types
+//! Codec implementations for different file types.
+//!
+//! [`jxl`] is the image encoder: every image OpenArc writes is JPEG XL. The
+//! other modules are readers — [`heic`] and [`jpeg2000`] for source formats the
+//! `image` crate cannot open, [`bpg_legacy`] for archives written before the
+//! JPEG XL switch — plus [`video_analyzer`].
 
 // Link LittleCMS once through `lcms2-sys`.
 #[allow(unused_imports)]
 use lcms2 as _;
 
-#[cfg(feature = "bpg-rs")]
-#[path = "bpg_rs.rs"]
-pub mod bpg;
+pub mod jxl;
 
-#[cfg(not(feature = "bpg-rs"))]
-#[path = "bpg_c.rs"]
-pub mod bpg;
-pub mod bpg_js;
+pub mod bpg_legacy;
 pub mod heic;
 pub mod jpeg2000;
 

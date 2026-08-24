@@ -1,0 +1,189 @@
+akr-lock 0.1
+project openarc
+
+build {
+    tool "akr 0.3.3"
+    grammar "0.1"
+    vocabulary "0.2"
+    source_graph "sha256:fb388a8a95042a98fca73869a0d60d40ed80168ef6ddc5a692c9c263673984fb"
+}
+
+source ".akr/project.akr" {
+    hash "sha256:6f9135dcf08ce9b5a6601749074a9b1d0bc0e177813c2276bc7be99097dec808"
+    records 0
+}
+
+source ".akr/records/openarc/evidence.akr" {
+    hash "sha256:1b67c2ac92dd9a9f3a16e014e6e30d80a687bee291a21198d97acbeb470bab82"
+    records 12
+}
+
+source ".akr/records/openarc/observations.akr" {
+    hash "sha256:4b508705dc7978747c34b7bbcdcca1da165b5ad5ccdb07d292faeb59853f196f"
+    records 2
+}
+
+source ".akr/records/openarc/papercuts.akr" {
+    hash "sha256:b7afe6e6348e8bbc3425834c5b3ec2685d838f229396d282b9dfda557656fafd"
+    records 15
+}
+
+source ".akr/records/openarc/work.akr" {
+    hash "sha256:6f4099b66ac26b598f7197b1dde83e561756f39f5ae986fe09b72a31efbfaede"
+    records 2
+}
+
+seal @openarc.evidence.best-balanced-15-input-stress-20260821/1 {
+    state verified
+    hash "sha256:cc9879ef90f7859b4c38baa2e7109464495540eaebc8c21773cadbc6f5aa5ccf"
+}
+
+seal @openarc.evidence.best-balanced-raw-rate-20260821/1 {
+    state verified
+    hash "sha256:ba6ef3459a2c83d3ed23875d594da005bb0d47487df021f1f2263c784ff113c0"
+}
+
+seal @openarc.evidence.bounded-raw-jxl-corpus-20260821/1 {
+    state verified
+    hash "sha256:69ca5bb898d01dbbf48afdbd9b9c0ece0560e16c41c98710bb0ad2b2744d7e14"
+}
+
+seal @openarc.evidence.bounded-raw-jxl-output-integrity-20260821/1 {
+    state verified
+    hash "sha256:50734678ac1f994af4965d866c7e58175e3719eba327afd2bf90f3a862f5cdee"
+}
+
+seal @openarc.evidence.bounded-raw-jxl-release-tests-20260821/1 {
+    state verified
+    hash "sha256:3973ef603a65d40654ee79b9fa1bd244d08720b7f24afe65eb42aaa66cfda7da"
+}
+
+seal @openarc.evidence.jpxl-bounded-rate-tests-20260821/1 {
+    state verified
+    hash "sha256:b7ec2b3b34df6d59eca99c81b2aec8efd2657c55482142cf9cdcc2791cc5a02d"
+}
+
+seal @openarc.evidence.production-jpxl-preset-tests-20260821/1 {
+    state verified
+    hash "sha256:5a4b0354f96091f131f807c86d18303bf4f09669594a4a75f01317d1f9b5ecfa"
+}
+
+seal @openarc.evidence.raw-jxl-component-profile-20260821/1 {
+    state verified
+    hash "sha256:01dee0a667410d91f6ab29dccda672637629555213b01717c61f435e3c675a03"
+}
+
+seal @openarc.evidence.raw-jxl-oom-kernel-20260821/1 {
+    state verified
+    hash "sha256:27940527f6aeef1b7515580c4c793b9847f105435d986288d13c0d5e0bca0b71"
+}
+
+seal @openarc.evidence.raw-jxl-throughput-comparison-20260821/1 {
+    state verified
+    hash "sha256:64726f8d804b3d189cd013d583abe96aee2fb49a0f7a3ce1624759fcd13eecd8"
+}
+
+seal @openarc.evidence.uniform-fixed-bpp-inventory-20260821/1 {
+    state verified
+    hash "sha256:4a350189ac65d56d92c20034d1a0b378676e3798ae75ed0e1d3600740be5b117"
+}
+
+seal @openarc.evidence.workspace-test-gate-missing-arcmax-bins-20260821/1 {
+    state verified
+    hash "sha256:534bcdb0d70c0d75c0ec39c051540a155f5c30ead0de7a360332f0ddf8e70607"
+}
+
+seal @openarc.observation.fixed-bpp-causes-uniform-same-dimension-jxl-20260821/1 {
+    state superseded
+    hash "sha256:b5b52aa478766acb475b4c9204ed0b8e3993049e761a9928ddd4901025000d67"
+}
+
+seal @openarc.observation.fixed-bpp-causes-uniform-same-dimension-jxl-20260821/2 {
+    state verified
+    hash "sha256:9ac7203487d6f87e22baefb85b965de274bb26e712cbb433adeb672f1230f4f4"
+}
+
+seal @openarc.papercut.a-15-input-batch-jxl-stress-run-over-paired-arw/1 {
+    state verified
+    hash "sha256:86283e8141bffd852dfc1960367dcadf1c716f742b0fdfce5cd57ef969c26423"
+}
+
+seal @openarc.papercut.a-focused-rust-unit-test-invocation-with-a-bare/1 {
+    state verified
+    hash "sha256:235006818b9558934bdcc2a05fea56198e3de05f667137ced14ed90163f6c334"
+}
+
+seal @openarc.papercut.a-multi-file-apply-patch-for-the-jpxl-preset/1 {
+    state verified
+    hash "sha256:9a9942cc19bb7d2b6d1896990720a13e9be04cfcdc378e1f741843220707bc38"
+}
+
+seal @openarc.papercut.a-multi-hunk-patch-against-one-file-was/1 {
+    state verified
+    hash "sha256:0ef87559df076014cd6fcaa9e8361054c6b49f5d8f0be89ecf24a4f04d276d64"
+}
+
+seal @openarc.papercut.cargo-fmt-all-check-and-git-diff-check-cannot/1 {
+    state verified
+    hash "sha256:7667ff4f7865793d94da5ad4e46c0824181ab4cb941232208bfbde016ec2b26d"
+}
+
+seal @openarc.papercut.cargo-fmt-all-check-is-already-red-across-the/1 {
+    state verified
+    hash "sha256:19229e8312eb7c80eb06adc733f2892799a800b8d4ca40536ed91cece75d7c62"
+}
+
+seal @openarc.papercut.cleanup-of-an-exact-freshly-created-tmp-openarc/1 {
+    state verified
+    hash "sha256:930363d5162eb64fed5951f7d1fc871ad3605318fa9a9f2df959c9be3049ebd4"
+}
+
+seal @openarc.papercut.cleanup-of-eight-explicitly-enumerated/1 {
+    state verified
+    hash "sha256:8cad0b631ccd7795a718f24b9f9907acd798fad7354493384ee28770d516853b"
+}
+
+seal @openarc.papercut.recoverable-scratch-cleanup-also-failed-gio/1 {
+    state verified
+    hash "sha256:3da50fbb6e4ad124e7945b71ff3a5752d072711811afa2b4d1198550a4387015"
+}
+
+seal @openarc.papercut.the-required-cargo-test-release-workspace-gate/1 {
+    state verified
+    hash "sha256:f584b122f1ce55dc0d2a4140c8090850d62144316600c78a094c1a8b2d5cab24"
+}
+
+seal @openarc.papercut.the-suggested-recoverable-cleanup-fallback-also/1 {
+    state verified
+    hash "sha256:576cdf476798498bc614ad412f152950eb4086ed9355a38c836a7b30ece9a5ef"
+}
+
+seal @openarc.papercut.while-checking-jpxl-dependency-features-cargo/1 {
+    state verified
+    hash "sha256:4ee39838227c6c6c6910269bf037aaf3f0628442ad84fce3f19c6402cee0369d"
+}
+
+seal @openarc.papercut.while-constructing-a-small-batch-benchmark/1 {
+    state verified
+    hash "sha256:3b39ea432fd8c952170718bccd4b3ded45ff680529669a4b8fe74443990313c1"
+}
+
+seal @openarc.papercut.while-creating-a-work-record-knowledge-propose/1 {
+    state verified
+    hash "sha256:78c47ac78b95ea23f643a09ef6cd474590121028e5933f80e3029728a3663978"
+}
+
+seal @openarc.papercut.while-proposing-an-observation-the-tool-schema/1 {
+    state verified
+    hash "sha256:f44d08ae1ac1c12cec295a68d471270ba97597090ff85083d09af42a30140fbb"
+}
+
+seal @openarc.work.bounded-raw-jxl-admission/1 {
+    state completed
+    hash "sha256:774e58828e2ba56a307d2ed613df3d4118162f4792fbfd4324ac890810fc960d"
+}
+
+seal @openarc.work.production-jpxl-presets-and-bounded-correction/1 {
+    state completed
+    hash "sha256:1e6d8e5a0085d7b36545c9ad34e13426bca97e6092c450aaa977aa0de733f9df"
+}
