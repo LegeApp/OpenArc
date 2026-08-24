@@ -27,7 +27,12 @@ temp/
 
 # SQLite databases (except test database which appears to be part of the project)
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 !test.catalog.sqlite
+
+# Runtime staging area for external video encoding (user media, never source)
+openarc_video_staging/
 
 # Cargo build artifacts (these should be rebuilt by users)
 /target/
@@ -49,15 +54,19 @@ dist/
 *.obj
 *.o
 *.a
+*.lib
 *.pdb
 *.ilk
 *.dll
+*.dylib
 *.exe
 *.so
 *.rlib
 *.rmeta
 *.d
 *.bak
+*.7z
+*.zip
 CACHEDIR.TAG
 **/release/**
 **/debug/**
